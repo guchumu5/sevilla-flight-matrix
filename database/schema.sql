@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS flights (
   is_canary TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_physical_flight (flight_date, physical_flight, origin_iata),
+  UNIQUE KEY uq_physical_flight (flight_date, physical_flight, origin_iata, scheduled_arrival),
   KEY idx_arrival (scheduled_arrival),
   KEY idx_canary (is_canary, scheduled_arrival)
 ) ENGINE=InnoDB;
@@ -108,4 +108,15 @@ CREATE TABLE IF NOT EXISTS fetch_runs (
   records_count INT NOT NULL DEFAULT 0,
   error_message VARCHAR(1000) NULL,
   KEY idx_fetch_provider (provider, started_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  migration_id VARCHAR(120) NOT NULL,
+  name VARCHAR(180) NOT NULL,
+  checksum CHAR(64) NOT NULL,
+  applied_at DATETIME NOT NULL,
+  execution_ms INT UNSIGNED NOT NULL DEFAULT 0,
+  statements_executed INT UNSIGNED NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_schema_migration (migration_id)
 ) ENGINE=InnoDB;
