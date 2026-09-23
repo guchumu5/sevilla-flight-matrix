@@ -1,0 +1,69 @@
+:root {
+  --app-bg: #07111f;
+  --panel: #0d1b2d;
+  --panel-2: #12243a;
+  --border: #233852;
+  --text: #eef6ff;
+  --muted: #8fa5bd;
+  --green: #2fd38a;
+  --orange: #ffb547;
+  --red: #ff5f6d;
+  --blue: #52a8ff;
+}
+
+body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg) 38rem); color: var(--text); min-height: 100vh; font-size: 1rem; }
+.app-navbar { background: rgba(7, 17, 31, .92); backdrop-filter: blur(14px); border-color: var(--border) !important; }
+.navbar-brand { color: var(--text); font-size: 1rem; line-height: 1.05; }
+.navbar-brand:hover { color: white; }
+.navbar-brand small { font-size: .76rem; }
+.brand-mark { display:grid; place-items:center; width:46px; height:38px; border-radius:10px; background:linear-gradient(135deg,var(--green),#0d8c78); color:#04140f; font-weight:900; letter-spacing:.05em; }
+.panel { background: rgba(13, 27, 45, .94); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 18px 45px rgba(0,0,0,.16); }
+.toolbar { padding: 1rem; }
+.form-label { color: var(--muted); font-size: .82rem; margin-bottom: .3rem; }
+.form-control,.form-select { min-height: 44px; background-color:#091625; border-color:var(--border); color:var(--text); }
+.form-control:focus,.form-select:focus { background:#0b1a2b; border-color:var(--green); color:var(--text); box-shadow:0 0 0 .2rem rgba(47,211,138,.13); }
+.filter-switch { min-height:44px; display:flex; align-items:center; gap:.5rem; padding:0 .75rem; border:1px solid var(--border); border-radius:.375rem; background:#091625; }
+.filter-switch .form-check-input { margin-left:0; }
+.metric-card { height:100%; padding:1rem 1.1rem; border:1px solid var(--border); border-left:4px solid var(--green); border-radius:14px; background:linear-gradient(145deg,var(--panel),var(--panel-2)); }
+.metric-card span,.metric-card small { color:var(--muted); display:block; }
+.metric-card strong { display:block; font-size:1.65rem; line-height:1.1; margin:.28rem 0; }
+.metric-orange { border-left-color:var(--orange); }.metric-red { border-left-color:var(--red); }.metric-blue { border-left-color:var(--blue); }
+.panel-header { padding:1rem 1.1rem; border-bottom:1px solid var(--border); }
+.legend { color:var(--muted); font-size:.82rem; }
+.flights-table { --bs-table-bg: transparent; --bs-table-hover-bg: rgba(82,168,255,.06); --bs-table-color: var(--text); }
+.flights-table th { padding:.8rem .9rem; color:var(--muted); text-transform:uppercase; letter-spacing:.045em; font-size:.72rem; white-space:nowrap; border-color:var(--border); }
+.flights-table td { padding:.9rem; border-color:rgba(35,56,82,.72); }
+.flight-row { cursor:pointer; }
+.flight-row.canary { background:linear-gradient(90deg,rgba(255,181,71,.13),transparent 55%); }
+.flight-row.canary td:first-child { box-shadow: inset 4px 0 0 var(--orange); }
+.indicator { font-size:1.1rem; white-space:nowrap; }
+.time-primary { font-size:1.08rem; font-weight:750; }
+.origin-name { font-weight:700; }.origin-code,.meta { color:var(--muted); font-size:.8rem; }
+.belt { display:inline-flex; align-items:center; justify-content:center; min-width:72px; padding:.38rem .55rem; border-radius:9px; background:#102b28; color:#78efbc; border:1px solid #1f5c4b; font-weight:800; white-space:nowrap; }
+.belt.standby { background:#202c3b; color:#b6c4d3; border-color:#36485d; }
+.belt.red { background:#3b1720; color:#ff9ca5; border-color:#76303a; }
+.pill { display:inline-flex; padding:.28rem .48rem; border-radius:999px; font-size:.78rem; font-weight:700; white-space:nowrap; }
+.pill-low { background:#17372e;color:#6fe8b0; }.pill-medium { background:#3a321b;color:#ffd47d; }.pill-high,.pill-very-high { background:#48202a;color:#ffadb4; }
+.source-aena { color:#73ebb6; font-weight:800; }.source-other { color:var(--muted); }
+.loading-state,.empty-state { min-height:240px; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:.8rem; color:var(--muted); text-align:center; }
+.detail-drawer { --bs-offcanvas-width:min(520px,100vw); background:var(--app-bg); color:var(--text); }
+.timeline { position:relative; padding-left:1.3rem; }
+.timeline::before { content:""; position:absolute; left:.35rem; top:.4rem; bottom:.4rem; width:2px; background:var(--border); }
+.timeline-item { position:relative; padding:0 0 1.2rem .7rem; }
+.timeline-item::before { content:""; position:absolute; left:-1.3rem; top:.35rem; width:10px; height:10px; border-radius:50%; background:var(--blue); box-shadow:0 0 0 4px var(--app-bg); }
+.timeline-item.aena::before { background:var(--green); }
+.detail-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.7rem; }
+.detail-stat { padding:.75rem; background:var(--panel); border:1px solid var(--border); border-radius:10px; }
+.detail-stat small { color:var(--muted); display:block; }.detail-stat strong { display:block; margin-top:.25rem; }
+@media (min-width:768px){ .w-md-auto{width:auto!important;} }
+@media (max-width:767.98px){
+  .toolbar{padding:.8rem}.metric-card{padding:.85rem}.metric-card strong{font-size:1.35rem}.panel-header{align-items:flex-start!important}
+  .flights-table thead{display:none}.flights-table,.flights-table tbody,.flights-table tr,.flights-table td{display:block;width:100%}
+  .flights-table tr{position:relative;padding:.8rem 1rem;border-bottom:1px solid var(--border)}
+  .flights-table td{border:0;padding:.2rem 0}.flights-table td:nth-child(1){position:absolute;right:1rem;top:.85rem;width:auto}
+  .flights-table td:nth-child(2),.flights-table td:nth-child(3){display:inline-block;width:auto;margin-right:.45rem}
+  .flights-table td:nth-child(4){font-size:1.05rem}.flights-table td:nth-child(6)::before{content:"ETA/Real: ";color:var(--muted)}
+  .flights-table td:nth-child(7)::before{content:"Cinta: ";color:var(--muted)}.flights-table td:nth-child(8)::before{content:"Sala: ";color:var(--muted)}
+  .flights-table td:nth-child(9){display:none}
+}
+
