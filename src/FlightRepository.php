@@ -29,7 +29,7 @@ SELECT
     latest.stand,
     latest.baggage_state,
     latest.occupancy_level,
-    COALESCE(codes.codes, f.physical_flight) AS codes,
+    CONCAT_WS(' / ', f.physical_flight, NULLIF(codes.codes, '')) AS codes,
     COALESCE(changes.belt_changes, 0) AS belt_changes,
     changes.first_belt_at,
     TIMESTAMPDIFF(MINUTE, changes.first_belt_at, f.scheduled_arrival) AS first_belt_lead_minutes
