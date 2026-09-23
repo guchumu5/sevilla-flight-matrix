@@ -31,6 +31,36 @@ Aplicación web PHP/MySQL para vigilar las llegadas físicas a Sevilla, registra
 
 Para XAMPP, cPanel y el alta de las APIs, sigue `GUIA_INSTALACION.md`.
 
+### Cargar la programación del 24 al 27 de septiembre de 2026
+
+El fichero `database/seed_arrivals_2026-09-24_27.sql` contiene 408 llegadas
+físicas agrupadas por vuelo, con sus códigos compartidos y las primeras
+asignaciones preliminares de sala/cinta publicadas por Aena. La importación es
+idempotente: puede repetirse sin duplicar vuelos, códigos ni la instantánea
+inicial de Aena.
+
+Desde consola:
+
+```bash
+mysql -u TU_USUARIO -p TU_BASE_DE_DATOS < database/seed_arrivals_2026-09-24_27.sql
+```
+
+También puede importarse desde phpMyAdmin seleccionando la base de datos,
+abriendo **Importar** y cargando ese mismo fichero. Después, el selector de
+fecha del panel permite abrir cualquiera de los cuatro días.
+
+### Actualizaciones de MySQL desde la aplicación
+
+El administrador incluye la sección **Actualizar MySQL**. Desde ella se pueden
+consultar y ejecutar únicamente los paquetes versionados incluidos en
+`database/updates/`. Cada ejecución queda registrada en `schema_migrations`
+con su huella SHA-256, fecha, duración y número de sentencias ejecutadas.
+
+El actualizador no permite pegar SQL ni subir scripts desde el navegador. Esta
+limitación evita convertir el panel administrativo en una consola SQL remota.
+Para publicar una modificación se añade un manifiesto PHP nuevo y su fichero
+SQL al repositorio; después aparecerá como pendiente en la aplicación.
+
 ## Automatización
 
 Configura estas tareas cron. Ajusta las rutas a tu servidor:

@@ -87,6 +87,24 @@ No requiere una clave. `bin/poll-weather.php` consulta el METAR de `LEZL` y guar
 5. Abre el tablero desde un móvil y comprueba filtros, histórico y avisos.
 6. Cuando todo funcione, borra los datos de demostración antes de introducir vuelos reales.
 
+## Actualizar MySQL desde la aplicación
+
+1. Descarga o despliega la versión nueva completa del repositorio.
+2. Accede a `/admin.php` con la contraseña administrativa.
+3. Pulsa **Actualizar MySQL**.
+4. Revisa la descripción, categoría, huella y número de sentencias del paquete.
+5. Confirma que dispones de copia de seguridad o que aceptas aplicar el cambio.
+6. Pulsa **Aplicar** y espera el mensaje de finalización sin cerrar la página.
+
+El usuario configurado en `DB_USER` necesita permisos `CREATE`, `ALTER`,
+`INDEX`, `SELECT`, `INSERT` y `UPDATE` sobre su propia base. El panel no permite
+subir ni escribir SQL: solo ejecuta paquetes versionados que formen parte del
+proyecto. Cada ejecución queda registrada en `schema_migrations`.
+
+HTTPS no es necesario para una prueba estrictamente local, pero sí debe
+activarse antes de exponer el administrador en Internet, porque protege la
+contraseña y la cookie de sesión durante el transporte.
+
 ## Comprobaciones básicas
 
 - `/api/health.php` debe responder `ok: true`.
@@ -94,4 +112,3 @@ No requiere una clave. `bin/poll-weather.php` consulta el METAR de `LEZL` y guar
 - La contraseña de administración nunca debe aparecer en el código.
 - `.env` no debe subirse a GitHub ni enviarse por correo.
 - La hora del servidor debe estar configurada en `Europe/Madrid`.
-
