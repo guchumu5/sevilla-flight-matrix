@@ -1,0 +1,63 @@
+CREATE TABLE IF NOT EXISTS sync_runs (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  provider VARCHAR(30) NOT NULL,
+  mode ENUM('full_window','delta','manual') NOT NULL DEFAULT 'delta',
+  window_from DATETIME NULL,
+  window_to DATETIME NULL,
+  started_at DATETIME NOT NULL,
+  finished_at DATETIME NULL,
+  status ENUM('running','success','partial','failed') NOT NULL DEFAULT 'running',
+  records_received INT UNSIGNED NOT NULL DEFAULT 0,
+  flights_created INT UNSIGNED NOT NULL DEFAULT 0,
+  flights_updated INT UNSIGNED NOT NULL DEFAULT 0,
+  observations_created INT UNSIGNED NOT NULL DEFAULT 0,
+  events_created INT UNSIGNED NOT NULL DEFAULT 0,
+  flights_missing INT UNSIGNED NOT NULL DEFAULT 0,
+  flights_withdrawn INT UNSIGNED NOT NULL DEFAULT 0,
+  error_message VARCHAR(1000) NULL,
+  metadata JSON NULL,
+  KEY idx_sync_runs_provider (provider, started_at),
+  KEY idx_sync_runs_status (status, started_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS flight_source_state (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  flight_id BIGINT UNSIGNED NOT NULL,
+  provider VARCHAR(30) NOT NULL,
+  source_key VARCHAR(190) NOT NULL,
+  first_seen_at DATETIME NOT NULL,
+  last_seen_at DATETIME NOT NULL,
+  last_payload_hash CHAR(64) NOT NULL,
+  snapshot JSON NOT NULL,
+  consecutive_misses SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+  visibility_status ENUM('active','missing','withdrawn','cancelled') NOT NULL DEFAULT 'active',
+  withdrawn_at DATETIME NULL,
+  CONSTRAINT fk_source_state_flight FOREIGN KEY (flight_id) REFERENCES flights(id) ON DELETE CASCADE,
+  UNIQUE KEY uq_source_state (provider, source_key),
+  KEY idx_source_state_flight (flight_id, provider),
+  KEY idx_source_state_visibility (provider, visibility_status, last_seen_at)
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS flight_events (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  flight_id BIGINT UNSIGNED NOT NULL,
+  sync_run_id BIGINT UNSIGNED NULL,
+  source VARCHAR(30) NOT NULL,
+  event_type VARCHAR(50) NOT NULL,
+  field_name VARCHAR(50) NULL,
+  before_value TEXT NULL,
+  after_value TEXT NULL,
+  reason_code VARCHAR(50) NOT NULL,
+  reason_detail VARCHAR(500) NOT NULL,
+  confidence ENUM('confirmado','probable','provisional') NOT NULL DEFAULT 'provisional',
+  evidence JSON NULL,
+  detected_at DATETIME NOT NULL,
+  event_fingerprint CHAR(64) NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_events_flight FOREIGN KEY (flight_id) REFERENCES flights(id) ON DELETE CASCADE,
+  CONSTRAINT fk_events_sync_run FOREIGN KEY (sync_run_id) REFERENCES sync_runs(id) ON DELETE SET NULL,
+  UNIQUE KEY uq_event_fingerprint (event_fingerprint),
+  KEY idx_events_flight (flight_id, detected_at),
+  KEY idx_events_type (event_type, detected_at),
+  KEY idx_events_run (sync_run_id)
+) ENGINE=InnoDB;
