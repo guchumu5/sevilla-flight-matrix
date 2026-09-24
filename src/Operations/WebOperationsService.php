@@ -121,9 +121,27 @@ final class WebOperationsService
         $errors = [];
         foreach ($flights as $flight) {
             try {
-                $data = $client->flight((string)$flight['physical_flight']);
+                $codeshares = $flight['codeshares'] ? explode(',', (string)$flight['codeshares']) : [];
+                $candidateCodes = array_values(array_unique(array_filter(array_map(
+                    static fn(mixed $code): string => strtoupper(trim((string)$code)),
+                    array_merge([(string)$flight['physical_flight']], $codeshares)
+                ))));
+
+                $data = null;
+                $lookupCode = null;
+                foreach ($candidateCodes as $candidateCode) {
+                    $data = $client->flight($candidateCode);
+                    if ($data !== null) {
+                        $lookupCode = $candidateCode;
+                        break;
+                    }
+                }
                 if (!$data) {
-                    $errors[] = $flight['physical_flight'] . ': sin datos actuales';
+                    $errors[] = sprintf(
+                        '%s: sin datos actuales (probados: %s)',
+                        $flight['physical_flight'],
+                        implode(', ', $candidateCodes)
+                    );
                     continue;
                 }
                 $destination = strtoupper(trim((string)($data['arr_iata'] ?? 'SVQ')));
@@ -145,7 +163,7 @@ final class WebOperationsService
                     'origin_iata' => $flight['origin_iata'],
                     'origin_name' => $flight['origin_name'],
                     'scheduled_arrival' => $flight['scheduled_arrival'],
-                    'codeshares' => $flight['codeshares'] ? explode(',', (string)$flight['codeshares']) : [],
+                    'codeshares' => $codeshares,
                     'status' => $this->nullable($data['status'] ?? null),
                     'eta' => $this->providerDate($data['arr_estimated'] ?? $data['arr_estimated_utc'] ?? null),
                     'actual_departure' => $this->providerDate($data['dep_actual'] ?? $data['dep_actual_utc'] ?? null),
@@ -158,7 +176,7 @@ final class WebOperationsService
                     'confidence' => 'provisional',
                     'reason_code' => 'secondary_provider_update',
                     'reason_detail' => 'AirLabs actualizó la información secundaria; no constituye una causa operativa publicada por Aena.',
-                    'raw_data' => $data,
+                    'raw_data' => $data + ['_matched_flight_code' => $lookupCode],
                 ];
                 foreach ([
                     'aircraft_registration' => $data['reg_number'] ?? null,
@@ -186,8 +204,11 @@ final class WebOperationsService
 
         return [
             'ok' => true,
+            'useful' => $records !== [],
             'action' => 'airlabs',
-            'message' => sprintf('AirLabs consultó %d vuelos y devolvió %d registros válidos.', count($flights), count($records)),
+            'message' => $records !== []
+                ? sprintf('AirLabs consultó %d vuelos y devolvió %d registros válidos.', count($flights), count($records))
+                : sprintf('AirLabs respondió, pero ninguno de los %d vuelos produjo un registro válido.', count($flights)),
             'requested' => count($flights),
             'received' => count($records),
             'errors' => $errors,
@@ -297,7 +318,13 @@ final class WebOperationsService
             }
         }
         $ok = count(array_filter($results, static fn(array $result): bool => ($result['ok'] ?? false) === true));
-        return ['ok' => $ok > 0, 'action' => 'all', 'message' => "Se completaron {$ok} de 3 procesos.", 'results' => $results];
+        $useful = count(array_filter($results, static fn(array $result): bool => (bool)($result['useful'] ?? $result['updated'] ?? false)));
+        return [
+            'ok' => $ok > 0,
+            'action' => 'all',
+            'message' => "Se ejecutaron {$ok} de 3 procesos; {$useful} aportaron datos nuevos o utilizables.",
+            'results' => $results,
+        ];
     }
 
     /** @template T @param callable():T $callback @return T */
@@ -328,10 +355,14 @@ final class WebOperationsService
         try {
             $result = $callback();
             $count = (int)($result['received'] ?? $result['updated'] ?? 0);
+            $diagnostic = null;
+            if ($count === 0 && !empty($result['errors']) && is_array($result['errors'])) {
+                $diagnostic = substr(implode(' | ', array_map('strval', $result['errors'])), 0, 1000);
+            }
             $finish = $this->pdo->prepare(
-                'UPDATE fetch_runs SET finished_at=NOW(),ok=1,records_count=:records_count,error_message=NULL WHERE id=:id'
+                'UPDATE fetch_runs SET finished_at=NOW(),ok=1,records_count=:records_count,error_message=:error_message WHERE id=:id'
             );
-            $finish->execute(['records_count' => $count, 'id' => $runId]);
+            $finish->execute(['records_count' => $count, 'error_message' => $diagnostic, 'id' => $runId]);
             return $result + ['fetch_run_id' => $runId];
         } catch (Throwable $error) {
             $finish = $this->pdo->prepare(
