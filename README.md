@@ -156,6 +156,16 @@ METAR, que son evidencias complementarias y no sustituyen la autoridad de Aena.
 Los scripts de `bin/` se conservan para automatizar desde el panel web de Plesk
 o cPanel. No deben hacerse accesibles como direcciones web.
 
+`bin/sync-json.php` es exclusivamente de consola. Para importar el mismo
+contrato JSON sin terminal, entra en **Administración → Procesos web → Importar
+captura JSON**. El endpoint web exige sesión administrativa y CSRF, limita el
+lote y lo envía al mismo conciliador.
+
+Desde **Administración → Cerebro de eventos** puede activarse **Avisos web**.
+El navegador consulta cada 30 segundos y notifica únicamente eventos materiales
+nuevos (cinta, sala, ETA, cancelación, puerta, posición y equipaje) mientras la
+página permanezca abierta o en segundo plano. No repite eventos ya vistos.
+
 En Plesk, crea tareas de tipo **Ejecutar un comando**. Para la instalación de
 `ojito.top` con PHP 8.3, usa exactamente:
 

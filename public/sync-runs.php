@@ -29,8 +29,12 @@ if (!Auth::check()) {
     <div class="d-flex flex-wrap justify-content-between align-items-start gap-3">
       <div><span class="badge text-bg-info mb-2">Conciliación v1</span><h1 class="h3 mb-2">Cerebro de eventos</h1>
       <p class="text-secondary mb-0">Cada captura se compara con la anterior. Los cambios, ausencias, reapariciones y motivos publicados quedan registrados sin borrar el histórico.</p></div>
-      <button class="btn btn-outline-light" id="refreshBrain" type="button">Actualizar</button>
+      <div class="d-flex flex-wrap gap-2">
+        <button class="btn btn-outline-info" id="enableNotifications" type="button">Activar avisos web</button>
+        <button class="btn btn-outline-light" id="refreshBrain" type="button">Actualizar</button>
+      </div>
     </div>
+    <p class="small text-secondary mt-3 mb-0" id="notificationStatus">Los avisos notifican cambios materiales nuevos mientras esta página permanezca abierta, incluso en otra pestaña.</p>
   </section>
 
   <div id="brainAlert" class="alert d-none"></div>
@@ -65,6 +69,43 @@ if (!Auth::check()) {
   const empty = value => value === null || value === '' ? '∅' : esc(value);
   const statusBadge = status => `<span class="badge ${status === 'success' ? 'text-bg-success' : status === 'failed' ? 'text-bg-danger' : status === 'partial' ? 'text-bg-warning' : 'text-bg-primary'}">${esc(status)}</span>`;
   const confidenceBadge = value => `<span class="badge ${value === 'confirmado' ? 'text-bg-success' : value === 'probable' ? 'text-bg-warning' : 'text-bg-secondary'}">${esc(value)}</span>`;
+  const notificationButton = document.querySelector('#enableNotifications');
+  const notificationStatus = document.querySelector('#notificationStatus');
+  const materialEvents = new Set(['belt_assigned','belt_changed','belt_removed','hall_changed','eta_changed','flight_cancelled','flight_missing','flight_withdrawn','baggage_started','baggage_finished','arrival_recorded','gate_changed','stand_changed']);
+  const eventLabels = {belt_assigned:'Cinta asignada',belt_changed:'Cambio de cinta',belt_removed:'Cinta retirada',hall_changed:'Cambio de sala',eta_changed:'Cambio de ETA',flight_cancelled:'Vuelo cancelado',flight_missing:'Vuelo ausente',flight_withdrawn:'Vuelo retirado',baggage_started:'Entrega iniciada',baggage_finished:'Equipaje finalizado',arrival_recorded:'Llegada confirmada',gate_changed:'Cambio de puerta',stand_changed:'Cambio de posición'};
+
+  function notificationsSupported() { return window.isSecureContext && 'Notification' in window; }
+  function refreshNotificationState() {
+    if (!notificationsSupported()) {
+      notificationButton.disabled = true; notificationButton.textContent = 'Avisos no disponibles';
+      notificationStatus.textContent = 'El navegador necesita HTTPS y compatibilidad con notificaciones.'; return;
+    }
+    const enabled = localStorage.getItem('matrix.notifications') === 'on' && Notification.permission === 'granted';
+    notificationButton.textContent = enabled ? 'Desactivar avisos web' : 'Activar avisos web';
+    notificationButton.className = enabled ? 'btn btn-info' : 'btn btn-outline-info';
+    notificationStatus.textContent = enabled
+      ? 'Avisos activos: comprobaremos cambios nuevos cada 30 segundos mientras esta página permanezca abierta.'
+      : Notification.permission === 'denied' ? 'El navegador ha bloqueado los avisos. Debes permitirlos desde el candado de la dirección.' : 'Los avisos notifican cambios materiales nuevos mientras esta página permanezca abierta, incluso en otra pestaña.';
+  }
+
+  function notifyNewEvents(events) {
+    const ids = events.map(event => Number(event.id)).filter(Number.isFinite);
+    const newestId = ids.length ? Math.max(...ids) : 0;
+    const stored = Number(localStorage.getItem('matrix.lastEventId') || 0);
+    if (!stored) {
+      if (newestId) localStorage.setItem('matrix.lastEventId', String(newestId));
+      return;
+    }
+    const fresh = events.filter(event => Number(event.id) > stored && materialEvents.has(event.event_type)).reverse();
+    if (newestId > stored) localStorage.setItem('matrix.lastEventId', String(newestId));
+    if (localStorage.getItem('matrix.notifications') !== 'on' || Notification.permission !== 'granted') return;
+    fresh.slice(-5).forEach(event => {
+      const before = event.before_value || 'sin dato'; const after = event.after_value || 'sin dato';
+      const title = `${eventLabels[event.event_type] || 'Cambio operativo'} · ${event.physical_flight}`;
+      const body = `${event.origin_name}: ${before} → ${after}`;
+      new Notification(title, {body, tag:`matrix-event-${event.id}`} );
+    });
+  }
 
   async function load() {
     try {
@@ -93,12 +134,29 @@ if (!Auth::check()) {
         <td><span class="text-secondary">${empty(event.before_value)}</span> → <strong>${empty(event.after_value)}</strong></td>
         <td>${esc(event.reason_detail)}<span class="meta d-block">${esc(event.reason_code)} · ${confidenceBadge(event.confidence)}</span></td>
         <td>${esc(event.detected_at)}</td></tr>`).join('') : '<tr><td colspan="5" class="text-center py-5 text-secondary">Aún no hay eventos.</td></tr>';
+      notifyNewEvents(data.events || []);
     } catch (error) {
       const alert = document.querySelector('#brainAlert'); alert.className='alert alert-danger'; alert.textContent=error.message;
     }
   }
   document.querySelector('#refreshBrain').addEventListener('click', load);
+  notificationButton.addEventListener('click', async () => {
+    if (!notificationsSupported()) return;
+    const enabled = localStorage.getItem('matrix.notifications') === 'on' && Notification.permission === 'granted';
+    if (enabled) {
+      localStorage.setItem('matrix.notifications', 'off'); refreshNotificationState(); return;
+    }
+    const permission = await Notification.requestPermission();
+    if (permission === 'granted') {
+      localStorage.setItem('matrix.notifications', 'on');
+      new Notification('Matriz Sevilla', {body:'Avisos web activados. Solo recibirás cambios nuevos.'});
+    }
+    refreshNotificationState();
+  });
+  refreshNotificationState();
   load();
+  setInterval(load, 30000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) load(); });
 })();
 </script>
 </body>

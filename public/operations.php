@@ -52,6 +52,19 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
     <p class="small text-secondary mt-3 mb-0">Aena se recoge mediante el barrido automático de Infovuelos y prevalece en estado, sala y cinta. AirLabs entra como fuente provisional; OpenSky solo añade telemetría y AviationWeather el METAR.</p>
   </section>
 
+  <section class="panel p-3 p-md-4 mb-4">
+    <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+      <div><span class="badge text-bg-info mb-2">Sin terminal</span><h2 class="h5 mb-1">Importar captura JSON</h2><p class="text-secondary mb-0">Sustituye el acceso web incorrecto a <code>bin/sync-json.php</code>. El lote pasa por el mismo cerebro y conserva observaciones y eventos.</p></div>
+      <a class="btn btn-sm btn-outline-info" href="sync-runs.php">Ver eventos</a>
+    </div>
+    <div id="jsonImportAlert" class="alert d-none" role="alert"></div>
+    <div class="row g-3">
+      <div class="col-md-5"><label class="form-label" for="jsonFile">Fichero JSON</label><input class="form-control" id="jsonFile" type="file" accept="application/json,.json"><div class="form-text">Máximo 2 MB y 1.200 vuelos físicos.</div></div>
+      <div class="col-12"><label class="form-label" for="jsonPayload">Contenido</label><textarea class="form-control font-monospace" id="jsonPayload" rows="8" spellcheck="false" placeholder='{"context":{"provider":"aena","mode":"delta"},"flights":[...]}'></textarea></div>
+      <div class="col-12"><button class="btn btn-info w-100" id="importJson" type="button">Conciliar JSON ahora</button></div>
+    </div>
+  </section>
+
   <div class="row g-4">
     <div class="col-lg-7"><section class="panel overflow-hidden h-100"><header class="panel-header"><h2 class="h5 mb-1">Últimas ejecuciones del cerebro</h2><p class="text-secondary mb-0">Observaciones y eventos creados por cada captura.</p></header><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Hora</th><th>Fuente</th><th>Estado</th><th>Resultado</th></tr></thead><tbody id="runsBody"><tr><td colspan="4" class="text-secondary">Cargando…</td></tr></tbody></table></div></section></div>
     <div class="col-lg-5"><section class="panel p-3 p-md-4 h-100"><h2 class="h5">Diagnóstico</h2><div id="diagnostics" class="vstack gap-2 text-secondary">Cargando…</div><hr><p class="small text-secondary mb-0">Ningún botón permite ejecutar comandos, indicar rutas ni enviar SQL. Las acciones están fijadas en el servidor, requieren sesión y token CSRF, y bloquean dobles ejecuciones.</p></section></div>
@@ -117,6 +130,40 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
     } catch (error) { showAlert(error.message, false); }
     finally { document.querySelectorAll('.operation-button').forEach(item => item.disabled = false); button.textContent = original; }
   }
+
+  async function importJson() {
+    const button = document.querySelector('#importJson');
+    const alert = document.querySelector('#jsonImportAlert');
+    const payload = document.querySelector('#jsonPayload').value.trim();
+    if (!payload) {
+      alert.className = 'alert alert-warning'; alert.textContent = 'Selecciona un fichero o pega el JSON.'; return;
+    }
+    const form = new FormData();
+    form.set('csrf', csrf);
+    form.set('payload', payload);
+    form.set('filename', document.querySelector('#jsonFile').files[0]?.name || 'captura-web.json');
+    const original = button.textContent; button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Conciliando';
+    try {
+      const response = await fetch('api/sync-json.php', {method:'POST', body:form, headers:{Accept:'application/json'}});
+      const data = await response.json();
+      if (!response.ok || data.ok === false) throw new Error(data.error || 'No se pudo importar el JSON.');
+      alert.className = 'alert alert-success'; alert.textContent = data.message;
+      await loadStatus();
+    } catch (error) {
+      alert.className = 'alert alert-danger'; alert.textContent = error.message;
+    } finally { button.disabled = false; button.textContent = original; }
+  }
+
+  document.querySelector('#jsonFile').addEventListener('change', async event => {
+    const file = event.target.files[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      const alert = document.querySelector('#jsonImportAlert'); alert.className='alert alert-danger'; alert.textContent='El fichero supera 2 MB.'; event.target.value=''; return;
+    }
+    document.querySelector('#jsonPayload').value = await file.text();
+  });
+  document.querySelector('#importJson').addEventListener('click', importJson);
 
   document.querySelectorAll('.operation-button').forEach(button => button.addEventListener('click', () => run(button)));
   document.querySelector('#refreshStatus').addEventListener('click', loadStatus);

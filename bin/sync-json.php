@@ -7,8 +7,17 @@ use SevillaMatrix\Database;
 use SevillaMatrix\Sync\FlightReconciliationService;
 
 if (PHP_SAPI !== 'cli') {
-    fwrite(STDERR, "Este comando solo se puede ejecutar desde consola.\n");
-    exit(1);
+    http_response_code(405);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    header('Allow: CLI');
+    echo json_encode([
+        'ok' => false,
+        'error' => 'Este fichero es una herramienta de consola y no acepta peticiones web.',
+        'web_interface' => '/public/operations.php',
+        'message' => 'Inicia sesión como administrador y usa «Importar captura JSON» en el Centro de procesos.',
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
 $options = getopt('', [

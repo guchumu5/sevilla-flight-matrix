@@ -8,18 +8,35 @@ use SevillaMatrix\Env;
 use SevillaMatrix\Response;
 use SevillaMatrix\Sync\FlightReconciliationService;
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+$configuredToken = trim((string)Env::get('AENA_INGEST_TOKEN', ''));
+$tokenReady = strlen($configuredToken) >= 24;
+$method = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+
+if ($method === 'GET' || $method === 'HEAD') {
+    Response::json([
+        'ok' => $tokenReady,
+        'service' => 'aena_ingest',
+        'status' => $tokenReady ? 'ready' : 'configuration_required',
+        'configured' => $tokenReady,
+        'message' => $tokenReady
+            ? 'Receptor Aena preparado. Las capturas se reciben automáticamente por POST desde GitHub Actions.'
+            : 'Falta configurar AENA_INGEST_TOKEN en el archivo .env del servidor (mínimo 24 caracteres).',
+        'method_required_for_ingest' => 'POST',
+    ], $tokenReady ? 200 : 503);
+}
+
+if ($method !== 'POST') {
+    header('Allow: GET, HEAD, POST');
     Response::json(['error' => 'Método no permitido.'], 405);
 }
 
-$configuredToken = trim((string)Env::get('AENA_INGEST_TOKEN', ''));
 $authorization = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
 $providedToken = trim((string)($_SERVER['HTTP_X_MATRIX_TOKEN'] ?? ''));
 if ($providedToken === '' && preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
     $providedToken = trim($matches[1]);
 }
 
-if ($configuredToken === '' || strlen($configuredToken) < 24) {
+if (!$tokenReady) {
     Response::json(['error' => 'El receptor Aena no está configurado.'], 503);
 }
 if ($providedToken === '' || !hash_equals($configuredToken, $providedToken)) {
