@@ -135,7 +135,7 @@ completas consecutivas. Si reaparece, genera `flight_reappeared`.
 Con el proyecto instalado en `/var/www/vhosts/ojito.top/httpdocs`, no necesitas
 abrir una consola para el uso diario:
 
-1. Despliega la versión 1.3 completa.
+1. Despliega la versión 1.4 completa.
 2. Entra en la aplicación y abre **Administración → Actualizar MySQL**. Aplica
    las actualizaciones pendientes.
 3. Vuelve a Administración y abre **Procesos web**.
@@ -146,15 +146,15 @@ abrir una consola para el uso diario:
    manual de Aena deberá crear una ejecución; solo habrá un evento nuevo si el
    valor realmente cambió.
 
-Para automatizar sin terminal, entra en el panel web de **Plesk → Dominios →
-ojito.top → Tareas programadas → Añadir tarea** y selecciona **Ejecutar un script
-PHP**. Crea estas tres tareas usando el selector de versión PHP de Plesk:
+Para automatizar sin terminal, entra en **Plesk → Dominios → ojito.top → Tareas
+programadas → Añadir tarea** y selecciona **Ejecutar un comando**. Crea estas
+tres tareas:
 
-| Frecuencia | Ruta del script PHP |
+| Estilo cron | Comando |
 |---|---|
-| Cada 2 minutos | `/var/www/vhosts/ojito.top/httpdocs/bin/poll-airlabs.php` |
-| Cada minuto | `/var/www/vhosts/ojito.top/httpdocs/bin/poll-opensky.php` |
-| Cada 10 minutos | `/var/www/vhosts/ojito.top/httpdocs/bin/poll-weather.php` |
+| `*/10 * * * *` | `/opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-airlabs.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1` |
+| `*/5 * * * *` | `/opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-opensky.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1` |
+| `*/10 * * * *` | `/opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-weather.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1` |
 
 Si el plan gratuito de una API tiene poca cuota, aumenta el intervalo de su
 tarea antes de activarla. Primero prueba cada botón en **Procesos web**: si un
@@ -165,18 +165,21 @@ La carpeta pública del dominio debe seguir apuntando a `httpdocs/public` siempr
 que Plesk lo permita. `src/`, `bin/`, `database/`, `storage/` y `.env` no deben
 servirse directamente por HTTP.
 
-### Programación diaria prevista
+### Activar las cintas Aena
 
-Cuando el adaptador semanal esté conectado, utiliza tareas equivalentes a:
+Las cintas no proceden de esos tres cron. El recolector de Infovuelos se ejecuta
+en GitHub Actions porque la página oficial necesita un navegador. Haz lo siguiente:
 
-```cron
-15 3 * * * /usr/bin/php /ruta/sevilla-flight-matrix/bin/sync-week.php --days=7
-*/30 * * * * /usr/bin/php /ruta/sevilla-flight-matrix/bin/sync-near.php --days=2
-*/3 * * * * /usr/bin/php /ruta/sevilla-flight-matrix/bin/sync-live.php --window=180
-```
+1. Pon en el `.env` del servidor una cadena aleatoria de al menos 24 caracteres:
+   `AENA_INGEST_TOKEN=TU_CADENA`.
+2. En GitHub abre **Settings → Secrets and variables → Actions** y crea el
+   secreto `MATRIX_INGEST_TOKEN` con exactamente la misma cadena.
+3. Abre **Actions → Aena en directo → Run workflow**. La primera ejecución
+   manual permite verificarlo; después se repetirá cada 15 minutos.
 
-No actives estas tres líneas hasta que existan los adaptadores correspondientes.
-El comando disponible en esta versión es `bin/sync-json.php`.
+No crees cron llamados `sync-week.php`, `sync-near.php` o `sync-live.php`: no
+existen. `bin/sync-json.php` sí existe en el repositorio, pero solo sirve para
+importaciones manuales y pruebas del conciliador.
 
 ## Comprobaciones básicas
 

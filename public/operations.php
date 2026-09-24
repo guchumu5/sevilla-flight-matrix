@@ -32,9 +32,10 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
   <div id="operationAlert" class="alert d-none" role="alert"></div>
 
   <section class="row g-3 mb-4">
-    <div class="col-md-4"><article class="metric-card"><span>AirLabs</span><strong id="airlabsState">—</strong><small>horas, estados y datos secundarios</small></article></div>
-    <div class="col-md-4"><article class="metric-card"><span>OpenSky</span><strong id="openskyState">—</strong><small>posición ADS-B con ICAO24 conocido</small></article></div>
-    <div class="col-md-4"><article class="metric-card"><span>Meteorología</span><strong id="weatherState">—</strong><small>METAR LEZL sin clave API</small></article></div>
+    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>Aena</span><strong id="aenaState">—</strong><small>estado, sala y cinta oficiales</small></article></div>
+    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>AirLabs</span><strong id="airlabsState">—</strong><small>horas, estados y datos secundarios</small></article></div>
+    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>OpenSky</span><strong id="openskyState">—</strong><small>posición ADS-B con ICAO24 conocido</small></article></div>
+    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>Meteorología</span><strong id="weatherState">—</strong><small>METAR LEZL sin clave API</small></article></div>
   </section>
 
   <section class="panel p-3 p-md-4 mb-4">
@@ -48,7 +49,7 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
       <div class="col-sm-6 col-xl-3"><button class="btn btn-outline-light w-100 operation-button" data-action="weather">Actualizar tiempo</button></div>
       <div class="col-sm-6 col-xl-3"><button class="btn btn-success w-100 operation-button" data-action="all">Actualizar todo</button></div>
     </div>
-    <p class="small text-secondary mt-3 mb-0">AirLabs entra en el cerebro como fuente provisional. Aena continúa prevaleciendo en hora, estado, sala y cinta. OpenSky solo añade telemetría y AviationWeather el METAR.</p>
+    <p class="small text-secondary mt-3 mb-0">Aena se recoge mediante el barrido automático de Infovuelos y prevalece en estado, sala y cinta. AirLabs entra como fuente provisional; OpenSky solo añade telemetría y AviationWeather el METAR.</p>
   </section>
 
   <div class="row g-4">
@@ -82,6 +83,7 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
       const response = await fetch('api/operations.php', {headers:{Accept:'application/json'}, cache:'no-store'});
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'No se pudo leer el diagnóstico.');
+      document.querySelector('#aenaState').innerHTML = state(data.providers.aena);
       document.querySelector('#airlabsState').innerHTML = state(data.providers.airlabs);
       document.querySelector('#openskyState').innerHTML = state(data.providers.opensky);
       document.querySelector('#weatherState').innerHTML = state(data.providers.aviationweather);

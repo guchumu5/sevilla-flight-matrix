@@ -1,0 +1,11 @@
+{
+  "name": "sevilla-flight-matrix-collectors",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check:aena": "node --check scripts/aena-collector.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.52.0"
+  }
+}

@@ -56,6 +56,7 @@ final class WebOperationsService
                 'json' => extension_loaded('json'),
             ],
             'providers' => [
+                'aena' => $this->configured('AENA_INGEST_TOKEN'),
                 'airlabs' => $this->configured('AIRLABS_API_KEY'),
                 'opensky' => $this->configured('OPENSKY_CLIENT_ID') && $this->configured('OPENSKY_CLIENT_SECRET'),
                 'aviationweather' => true,

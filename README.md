@@ -96,6 +96,31 @@ fuente. Si una cinta desaparece en la segunda captura, debe enviarse como
 
 ## Automatización
 
+### Cintas oficiales de Aena
+
+La versión 1.4 incorpora un recolector de Infovuelos con navegador real. Lee el
+tablero completo por ventanas horarias, agrupa los códigos compartidos en un
+único vuelo físico y envía a MySQL estado, hora efectiva, sala y cinta. Cada
+captura pasa por el conciliador: una asignación, cambio o retirada genera un
+evento y conserva la observación anterior.
+
+El navegador se ejecuta en GitHub Actions porque un cron PHP normal no ejecuta
+la aplicación JavaScript de Infovuelos. Para activarlo:
+
+1. Genera una cadena aleatoria de al menos 24 caracteres y guárdala en el `.env`
+   del servidor como `AENA_INGEST_TOKEN=...`.
+2. En GitHub abre **Settings → Secrets and variables → Actions → New repository
+   secret**, crea `MATRIX_INGEST_TOKEN` y pega exactamente la misma cadena.
+3. En la pestaña **Actions** abre **Aena en directo** y pulsa **Run workflow**
+   para la primera prueba. Después se ejecutará cada 15 minutos.
+4. Si la aplicación no está en `https://ojito.top/public`, crea además la
+   variable de repositorio `MATRIX_INGEST_URL` con la URL completa del endpoint
+   `public/api/aena-board.php`. Para la instalación actual no hace falta.
+
+El endpoint exige token Bearer, limita el tamaño y el número de vuelos y no
+acepta SQL ni comandos. La ventana completa vacía se rechaza, de modo que un
+fallo temporal de Aena no puede retirar masivamente vuelos.
+
 ### Uso completamente web
 
 La versión 1.3 añade **Administración → Procesos web**. Desde esa pantalla se
@@ -129,13 +154,19 @@ METAR, que son evidencias complementarias y no sustituyen la autoridad de Aena.
 Los scripts de `bin/` se conservan para automatizar desde el panel web de Plesk
 o cPanel. No deben hacerse accesibles como direcciones web.
 
-Configura estas tareas cron. Ajusta las rutas a tu servidor:
+En Plesk, crea tareas de tipo **Ejecutar un comando**. Para la instalación de
+`ojito.top` con PHP 8.3, usa exactamente:
 
 ```cron
-*/2 * * * * /usr/bin/php /ruta/sevilla-flight-matrix/bin/poll-airlabs.php >> /ruta/sevilla-flight-matrix/storage/logs/cron.log 2>&1
-* * * * * /usr/bin/php /ruta/sevilla-flight-matrix/bin/poll-opensky.php >> /ruta/sevilla-flight-matrix/storage/logs/cron.log 2>&1
-*/10 * * * * /usr/bin/php /ruta/sevilla-flight-matrix/bin/poll-weather.php >> /ruta/sevilla-flight-matrix/storage/logs/cron.log 2>&1
+*/10 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-airlabs.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
+*/5 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-opensky.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
+*/10 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-weather.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
 ```
+
+Los nombres `sync-week.php`, `sync-near.php` y `sync-live.php` no pertenecen a
+esta versión y no deben añadirse como tareas. `bin/sync-json.php` sí forma parte
+del repositorio, pero es una herramienta manual de importación y no necesita
+cron.
 
 OpenSky se consulta solamente para vuelos con matrícula/ICAO24 conocido. AirLabs es una fuente secundaria. Las observaciones introducidas como Aena tienen prevalencia en sala, cinta y estado.
 

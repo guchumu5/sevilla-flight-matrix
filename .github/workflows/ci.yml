@@ -48,6 +48,9 @@ jobs:
       - name: Validar sintaxis PHP
         run: find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
 
+      - name: Validar recolector Aena
+        run: node --check scripts/aena-collector.mjs
+
       - name: Crear esquema MySQL
         run: mysql -h127.0.0.1 -uroot -proot sevilla_matrix < database/schema.sql
 
