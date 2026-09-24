@@ -84,7 +84,10 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
         <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias siempre visible</h2>
         <p class="mb-0 text-secondary small">Todos los vuelos canarios del día, aunque filtres la tabla principal.</p>
       </div>
-      <span class="canary-watch-mark" aria-hidden="true">🌴</span>
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">Activar avisos</button>
+        <span class="canary-watch-mark" aria-hidden="true">🌴</span>
+      </div>
     </header>
     <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
   </section>
@@ -179,6 +182,8 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
     </div>
   </section>
 </main>
+
+<aside class="toast-container canary-alert-stack" id="canaryAlertStack" aria-live="assertive" aria-atomic="false"></aside>
 
 <div class="offcanvas offcanvas-end detail-drawer" tabindex="-1" id="flightDetail" aria-labelledby="flightDetailLabel">
   <div class="offcanvas-header border-bottom">

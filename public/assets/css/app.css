@@ -41,6 +41,10 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .canary-card span,.canary-card small { color:var(--muted); font-size:.78rem; }
 .canary-card .canary-proposal { display:block; margin-top:.45rem; color:#ffd47d; }
 .canary-empty { width:100%; padding:.65rem; color:var(--muted); text-align:center; }
+.canary-alert-stack { position:fixed; top:76px; right:1rem; z-index:1095; width:min(390px,calc(100vw - 2rem)); }
+.canary-alert-toast { width:100%; margin-bottom:.65rem; border:2px solid var(--orange); background:#201b14; color:var(--text); box-shadow:0 12px 38px rgba(0,0,0,.48); }
+.canary-alert-toast .toast-header { border-bottom-color:#644e25; background:#332817; color:#ffe1a6; }.canary-alert-toast .toast-body b,.canary-alert-toast .toast-body span { display:block; }.canary-alert-toast .toast-body span { margin-top:.25rem; color:#f3e7d1; font-size:.78rem; }
+.canary-alert-toast.canary-alert-danger { border-color:var(--red); background:#2f171d; }.canary-alert-toast.canary-alert-danger .toast-header { background:#481d27; color:#ffc2c7; }
 .upcoming-strip { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(185px,1fr); gap:.55rem; overflow-x:auto; padding:.7rem; scroll-snap-type:x mandatory; }
 .upcoming-flight { position:relative; display:grid; grid-template-columns:30px 1fr auto; grid-template-areas:"order data time" "plane data belt"; align-items:center; gap:.14rem .45rem; min-height:104px; padding:.58rem; border:1px solid var(--border); border-radius:11px; background:linear-gradient(145deg,#0a1828,#10243a); cursor:pointer; scroll-snap-align:start; }
 .upcoming-flight:hover,.upcoming-flight:focus { border-color:var(--blue); outline:none; transform:translateY(-1px); }
@@ -185,6 +189,12 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .telemetry-note { padding:0 .75rem .7rem; }
 .belt-event-list { display:grid; gap:.55rem; }.belt-event-item { padding:.7rem; border:1px solid #654f26; border-radius:9px; background:#231d14; }.belt-event-item header { display:flex; justify-content:space-between; gap:.7rem; margin-bottom:.4rem; }.belt-event-item header strong { color:#ffd47d; }.belt-event-item header time { color:var(--muted); font-size:.7rem; }.belt-event-item p { margin:.45rem 0 0; color:#d7e0e8; font-size:.8rem; }
 .observed-context { display:grid; gap:.2rem; margin-top:.65rem; padding:.68rem; border-left:3px solid var(--orange); background:rgba(255,181,71,.07); }.observed-context strong { color:#ffd47d; font-size:.74rem; }.observed-context span { color:var(--muted); font-size:.72rem; }
+.belt-probability-panel { margin-bottom:.75rem; padding:.7rem; border:1px solid #2d4962; border-radius:11px; background:#0a1828; }
+.belt-probability-panel > header { display:flex; justify-content:space-between; align-items:flex-start; gap:.7rem; margin-bottom:.6rem; }.belt-probability-panel > header strong,.belt-probability-panel > header small { display:block; }.belt-probability-panel > header small { color:var(--muted); font-size:.66rem; }.belt-probability-panel > header > span { max-width:180px; color:#ffd47d; font-size:.65rem; font-weight:800; text-align:right; }
+.belt-probability-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem; }
+.belt-probability { padding:.46rem; border:1px solid #29455e; border-radius:8px; background:#0e2134; }.belt-probability > div { display:flex; justify-content:space-between; gap:.4rem; font-size:.7rem; }.belt-probability > div b { color:#78efbc; }.belt-probability > span { display:block; height:6px; margin:.32rem 0; overflow:hidden; border-radius:99px; background:#20354a; }.belt-probability > span i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,var(--blue),var(--green)); }.belt-probability small { color:var(--muted); font-size:.61rem; }
+.belt-probability.red { border-color:#59313a; }.belt-probability.red > div b { color:#ffadb4; }.belt-probability.red > span i { background:linear-gradient(90deg,var(--orange),var(--red)); }.belt-probability.current { outline:2px solid var(--orange); outline-offset:-2px; }
+.belt-probability-panel > footer { margin-top:.55rem; color:var(--muted); font-size:.67rem; }.belt-probability-panel > footer strong { color:#ffadb4; }
 @media (min-width:768px){ .w-md-auto{width:auto!important;} }
 @media (max-width:767.98px){
   .toolbar{padding:.8rem}.metric-card{padding:.85rem}.metric-card strong{font-size:1.35rem}.panel-header{align-items:flex-start!important}

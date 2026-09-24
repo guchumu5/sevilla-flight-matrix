@@ -164,7 +164,11 @@ SQL;
 
         $stmt = $this->pdo->prepare(
             'SELECT hf.id,hf.physical_flight,hf.origin_iata,
-             TIMESTAMPDIFF(MINUTE, MIN(o.observed_at), hf.scheduled_arrival) AS lead_minutes
+             TIMESTAMPDIFF(MINUTE, MIN(o.observed_at), hf.scheduled_arrival) AS lead_minutes,
+             (SELECT final_o.belt FROM observations final_o
+              WHERE final_o.flight_id=hf.id AND final_o.source=\'aena\'
+              AND final_o.belt IS NOT NULL AND final_o.belt<>\'\'
+              ORDER BY final_o.observed_at DESC,final_o.id DESC LIMIT 1) AS final_belt
              FROM flights hf
              INNER JOIN observations o ON o.flight_id=hf.id
              WHERE hf.flight_date<:history_date AND o.source=\'aena\'
@@ -176,11 +180,19 @@ SQL;
 
         $byPhysical = [];
         $byOrigin = [];
+        $beltsByPhysical = [];
+        $beltsByOrigin = [];
         foreach ($stmt->fetchAll() as $history) {
             $lead = (int)$history['lead_minutes'];
-            if ($lead < -720 || $lead > 10080) continue;
-            $byPhysical[$history['physical_flight']][] = $lead;
-            $byOrigin[$history['origin_iata']][] = $lead;
+            if ($lead >= -720 && $lead <= 10080) {
+                $byPhysical[$history['physical_flight']][] = $lead;
+                $byOrigin[$history['origin_iata']][] = $lead;
+            }
+            $belt = $this->beltNumber($history['final_belt'] ?? null);
+            if ($belt !== null) {
+                $beltsByPhysical[$history['physical_flight']][] = $belt;
+                $beltsByOrigin[$history['origin_iata']][] = $belt;
+            }
         }
 
         foreach ($rows as &$row) {
@@ -192,8 +204,50 @@ SQL;
             $row['belt_lead_origin_average_minutes'] = $originSamples
                 ? (int)round(array_sum($originSamples) / count($originSamples)) : null;
             $row['belt_lead_origin_samples'] = count($originSamples);
+            $row['belt_distribution_flight'] = $this->beltDistribution(
+                $beltsByPhysical[$row['physical_flight']] ?? []
+            );
+            $row['belt_distribution_origin'] = $this->beltDistribution(
+                $beltsByOrigin[$row['origin_iata']] ?? []
+            );
         }
         unset($row);
+    }
+
+    private function beltNumber(mixed $value): ?int
+    {
+        if ($value === null || $value === '') return null;
+        if (!preg_match('/(?:^|\\D)([1-8])$/', trim((string)$value), $match)) return null;
+        return (int)$match[1];
+    }
+
+    /** @param array<int,int> $observations @return array<string,mixed> */
+    private function beltDistribution(array $observations): array
+    {
+        $samples = count($observations);
+        $counts = array_fill(1, 8, 0);
+        foreach ($observations as $belt) {
+            if (isset($counts[$belt])) $counts[$belt]++;
+        }
+        $belts = [];
+        foreach ($counts as $belt => $count) {
+            $belts[] = [
+                'belt' => $belt,
+                'count' => $count,
+                'percentage' => $samples ? round(($count / $samples) * 100, 1) : 0.0,
+            ];
+        }
+        $redCount = $counts[7] + $counts[8];
+        $redRate = $samples ? round(($redCount / $samples) * 100, 1) : 0.0;
+        $classification = $samples < 5 ? 'historico_insuficiente'
+            : ($redRate >= 70 ? 'caliente_fuerte' : ($redRate > 50 ? 'caliente_confirmado' : 'sin_propension_roja'));
+        return [
+            'samples' => $samples,
+            'belts' => $belts,
+            'red_count' => $redCount,
+            'red_percentage' => $redRate,
+            'classification' => $classification,
+        ];
     }
 
     /** @param array<int,array<string,mixed>> $rows */

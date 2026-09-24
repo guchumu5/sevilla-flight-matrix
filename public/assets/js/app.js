@@ -4,7 +4,7 @@
   const SVQ = {lat: 37.4179, lon: -5.8931};
   const state = {
     flights: [], loading: false, autoScrolledDate: null, pastExtra: 0, futureExtra: 0,
-    scenePositions: new Map(),
+    scenePositions: new Map(), alertDate: null,
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false
   };
   const els = {
@@ -16,6 +16,7 @@
     loading: document.querySelector('#loadingState'), empty: document.querySelector('#emptyState'),
     error: document.querySelector('#errorAlert'), updated: document.querySelector('#lastUpdated'),
     connection: document.querySelector('#connectionBadge'), canaryWatch: document.querySelector('#canaryWatch'),
+    enableNotifications: document.querySelector('#enableNotifications'), canaryAlertStack: document.querySelector('#canaryAlertStack'),
     upcomingStrip: document.querySelector('#upcomingStrip'),
     mapStatus: document.querySelector('#mapStatus'), airportFlow: document.querySelector('#airportFlow'),
     airportScene: document.querySelector('#airportScene'), sceneAircraft: document.querySelector('#sceneAircraft'),
@@ -113,6 +114,93 @@
     μ vuelo ${leadText(flight.belt_lead_flight_average_minutes)} · n=${Number(flight.belt_lead_flight_samples || 0)}<br>
     μ origen ${leadText(flight.belt_lead_origin_average_minutes)} · n=${Number(flight.belt_lead_origin_samples || 0)}
   </span>`;
+  const canarySnapshotKey = flight => `${flight.flight_date || els.date.value}|${flight.physical_flight}|${flight.origin_iata}`;
+  const alertValue = value => value === null || value === undefined || value === '' ? 'pendiente' : String(value);
+
+  function canarySnapshot(flight) {
+    return {
+      id:Number(flight.id), physical_flight:flight.physical_flight, origin_name:flight.origin_name,
+      origin_iata:flight.origin_iata, position:flight.belt ? `${flight.hall || '?'}/${flight.belt}` : 'sin cinta',
+      scheduled_arrival:flight.scheduled_arrival, eta:flight.eta, status:flight.status, actual_arrival:flight.actual_arrival,
+      baggage_state:flight.baggage_state, gate:flight.gate, stand:flight.stand,
+      aircraft_registration:flight.aircraft_registration, aircraft_type:flight.aircraft_type,
+      secondary_position:flight.secondary_belt ? `${flight.secondary_hall || '?'}/${flight.secondary_belt}` : null,
+      secondary_belt_state:flight.secondary_belt_state
+    };
+  }
+
+  function showCanaryAlert(flight, changes, isNew = false) {
+    if (!els.canaryAlertStack) return;
+    const danger = ['7','8'].includes(String(flight.position || '').split('/').pop());
+    const toast = document.createElement('article');
+    toast.className = `toast canary-alert-toast ${danger?'canary-alert-danger':''}`;
+    toast.setAttribute('role','alert');
+    toast.setAttribute('aria-live','assertive');
+    toast.setAttribute('aria-atomic','true');
+    toast.innerHTML = `<div class="toast-header">
+      <strong class="me-auto">🌴 ${esc(flight.origin_name)} · ${esc(flight.physical_flight)}</strong>
+      <small>ahora</small><button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Cerrar"></button>
+    </div><div class="toast-body">
+      <b>${isNew?'Nuevo vuelo canario detectado':'Actualización prioritaria de Canarias'}</b>
+      ${changes.map(change=>`<span>${esc(change)}</span>`).join('')}
+      <button type="button" class="btn btn-sm btn-warning mt-2" data-flight-id="${Number(flight.id)}">Abrir vuelo</button>
+    </div>`;
+    els.canaryAlertStack.prepend(toast);
+    while (els.canaryAlertStack.children.length > 6) els.canaryAlertStack.lastElementChild.remove();
+    toast.querySelector('[data-flight-id]')?.addEventListener('click', event => openDetail(event.currentTarget.dataset.flightId));
+    bootstrap.Toast.getOrCreateInstance(toast, {autohide:false}).show();
+    if (window.isSecureContext && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        const notification = new Notification(`${flight.origin_name} · ${flight.physical_flight}`, {
+          body:changes.join('\n'), tag:`canary-${canarySnapshotKey(flight)}`, renotify:true
+        });
+        notification.onclick = () => { window.focus(); openDetail(flight.id); notification.close(); };
+      } catch (_) {}
+    }
+  }
+
+  function processCanaryAlerts(incoming, date) {
+    const storageKey = `svq-canary-snapshot:${date}`;
+    let previous = {};
+    try { previous = JSON.parse(localStorage.getItem(storageKey) || '{}') || {}; } catch (_) { previous = {}; }
+    const current = {};
+    incoming.filter(f => Number(f.is_canary) === 1).forEach(f => {
+      const snapshot = canarySnapshot(f);
+      const key = canarySnapshotKey(f);
+      current[key] = snapshot;
+      const before = previous[key];
+      if (!before) {
+        if (Object.keys(previous).length) showCanaryAlert(snapshot, [`Llegada ${time(effectiveArrival(f))} · ${snapshot.position}`], true);
+        return;
+      }
+      const changes = [];
+      const fields = [
+        ['position','Cinta/sala'], ['scheduled_arrival','Hora programada'], ['eta','ETA'], ['status','Estado'], ['actual_arrival','Llegada real'],
+        ['baggage_state','Equipaje'], ['gate','Puerta'], ['stand','Posición'],
+        ['aircraft_registration','Matrícula'], ['aircraft_type','Aeronave'],
+        ['secondary_position','Propuesta secundaria'], ['secondary_belt_state','Estado de propuesta']
+      ];
+      fields.forEach(([field,label]) => {
+        if (alertValue(before[field]) !== alertValue(snapshot[field])) {
+          const formatter = ['scheduled_arrival','eta','actual_arrival'].includes(field) ? time : alertValue;
+          changes.push(`${label}: ${formatter(before[field])} → ${formatter(snapshot[field])}`);
+        }
+      });
+      if (changes.length) showCanaryAlert(snapshot, changes);
+    });
+    try { localStorage.setItem(storageKey, JSON.stringify(current)); } catch (_) {}
+    state.alertDate = date;
+  }
+
+  function updateNotificationButton() {
+    if (!els.enableNotifications) return;
+    if (!window.isSecureContext || !('Notification' in window)) {
+      els.enableNotifications.classList.add('d-none');
+      return;
+    }
+    els.enableNotifications.textContent = Notification.permission === 'granted' ? 'Avisos activos' : 'Activar avisos';
+    els.enableNotifications.disabled = Notification.permission === 'granted';
+  }
 
   async function loadBoard(showSpinner = false) {
     if (state.loading) return;
@@ -123,7 +211,9 @@
       const response = await fetch(`api/board.php?date=${encodeURIComponent(els.date.value)}`, {headers:{Accept:'application/json'}, cache:'no-store'});
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'No se pudo actualizar el tablero.');
-      state.flights = payload.flights || [];
+      const incoming = payload.flights || [];
+      processCanaryAlerts(incoming, els.date.value);
+      state.flights = incoming;
       els.updated.textContent = `Actualizado ${time(payload.generated_at)} · ${payload.authority_note}`;
       els.connection.className = 'badge text-bg-success';
       els.connection.textContent = 'En directo';
@@ -574,6 +664,30 @@
     </section>`;
   }
 
+  function propensityLabel(profile) {
+    const labels = {
+      historico_insuficiente:'Histórico insuficiente (<5)',
+      caliente_confirmado:'Caliente confirmado (>50% en 7/8)',
+      caliente_fuerte:'Caliente fuerte (≥70% en 7/8)',
+      sin_propension_roja:'Sin propensión roja confirmada'
+    };
+    return labels[profile?.classification] || 'Sin histórico';
+  }
+
+  function beltDistributionMarkup(profile, title, currentBelt = null) {
+    const safeProfile = profile && Array.isArray(profile.belts) ? profile : {samples:0,belts:[],red_percentage:0,classification:'historico_insuficiente'};
+    const belts = safeProfile.belts.length ? safeProfile.belts : Array.from({length:8},(_,index)=>({belt:index+1,count:0,percentage:0}));
+    return `<section class="belt-probability-panel">
+      <header><div><strong>${esc(title)}</strong><small>Frecuencia final oficial observada · ${Number(safeProfile.samples || 0)} vuelos</small></div><span>${esc(propensityLabel(safeProfile))}</span></header>
+      <div class="belt-probability-grid">${belts.map(item => `<article class="belt-probability ${Number(item.belt)>=7?'red':''} ${String(item.belt)===String(currentBelt)?'current':''}">
+        <div><strong>Cinta ${Number(item.belt)}</strong><b>${Number(item.percentage || 0).toLocaleString('es-ES',{maximumFractionDigits:1})}%</b></div>
+        <span><i style="width:${clamp(Number(item.percentage || 0),0,100)}%"></i></span>
+        <small>${Number(item.count || 0)} de ${Number(safeProfile.samples || 0)} llegadas</small>
+      </article>`).join('')}</div>
+      <footer>Cintas 7/8: <strong>${Number(safeProfile.red_percentage || 0).toLocaleString('es-ES',{maximumFractionDigits:1})}%</strong>. Es frecuencia histórica, no una garantía de la asignación futura.</footer>
+    </section>`;
+  }
+
   function beltIntelligence(flight) {
     const events = (Array.isArray(flight.belt_events) ? flight.belt_events : []);
     const changes = events.filter(event => event.event_type === 'belt_changed' || event.event_type === 'belt_removed');
@@ -599,6 +713,8 @@
         <div class="detail-stat"><small>Media del mismo vuelo</small><strong>${leadText(flight.belt_lead_flight_average_minutes)}</strong><span class="meta">${Number(flight.belt_lead_flight_samples || 0)} observaciones oficiales</span></div>
         <div class="detail-stat"><small>Media del origen ${esc(flight.origin_iata || '')}</small><strong>${leadText(flight.belt_lead_origin_average_minutes)}</strong><span class="meta">${Number(flight.belt_lead_origin_samples || 0)} observaciones oficiales</span></div>
       </div>
+      ${beltDistributionMarkup(flight.belt_distribution_flight, `Mismo vuelo ${flight.physical_flight}`, flight.belt)}
+      ${Number(flight.is_canary)===1 ? beltDistributionMarkup(flight.belt_distribution_origin, `Origen canario ${flight.origin_name}`, flight.belt) : ''}
       <div class="belt-event-list">${eventMarkup}</div>
       ${changes.length ? `<aside class="observed-context"><strong>Contexto observado — no demuestra causalidad</strong>${context.map(item=>`<span>${esc(item)}</span>`).join('')}</aside>` : ''}
     </section>`;
@@ -687,6 +803,14 @@
   els.refresh.addEventListener('click', () => loadBoard(true));
   els.now.addEventListener('click', () => scrollToCurrent(true));
   els.fitMap.addEventListener('click', fitTrackedAircraft);
+  if (els.enableNotifications) els.enableNotifications.addEventListener('click', async () => {
+    if (!window.isSecureContext || !('Notification' in window)) return;
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') localStorage.setItem('matrix.notifications', 'on');
+    } catch (_) {}
+    updateNotificationButton();
+  });
   if (els.radarCollapse) els.radarCollapse.addEventListener('shown.bs.collapse', () => {
     if (state.map) {
       state.map.invalidateSize();
@@ -698,6 +822,7 @@
     if (els.radarToggleLabel) els.radarToggleLabel.textContent = els.radarToggleLabel.textContent.replace('visible','plegado');
   });
 
+  updateNotificationButton();
   updateSceneClock();
   setInterval(updateSceneClock, 1000);
   loadBoard(true);

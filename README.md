@@ -247,6 +247,20 @@ junto con sus tamaños de muestra. Un panel independiente reúne los cambios de
 cinta oficiales; la ficha explica el cambio publicado y separa expresamente el
 contexto observado de cualquier causa no demostrada.
 
+La versión 1.10 añade el perfil histórico de cintas al abrir un vuelo. Para
+cada ejecución pasada se toma la última cinta oficial de Aena y se presenta el
+porcentaje y el número de casos en las cintas 1–8. En vuelos canarios se muestra
+además el perfil agregado del aeropuerto de origen. La propensión a 7/8 sigue
+la matriz: menos de cinco observaciones es histórico insuficiente, más del 50 %
+es caliente confirmado y desde el 70 % es caliente fuerte.
+
+Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
+del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
+posición, aeronave y propuestas secundarias con la lectura anterior guardada en
+el navegador. El aviso interno permanece hasta cerrarlo; el botón **Activar
+avisos** permite además habilitar notificaciones del navegador mientras la web
+esté abierta.
+
 La futura carga semanal utilizará este mismo reconciliador. La periodicidad
 recomendada es: siete días completos una vez al día, hoy y mañana cada 30
 minutos y la ventana operativa próxima cada 2-5 minutos. Los datos vivos deben
