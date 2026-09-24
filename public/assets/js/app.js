@@ -16,6 +16,8 @@
     error: document.querySelector('#errorAlert'), updated: document.querySelector('#lastUpdated'),
     connection: document.querySelector('#connectionBadge'), canaryWatch: document.querySelector('#canaryWatch'),
     mapStatus: document.querySelector('#mapStatus'), airportFlow: document.querySelector('#airportFlow'),
+    airportScene: document.querySelector('#airportScene'), sceneAircraft: document.querySelector('#sceneAircraft'),
+    sceneClock: document.querySelector('#sceneClock'), sceneMovementCount: document.querySelector('#sceneMovementCount'),
     metricFlights: document.querySelector('#metricFlights'), metricOrange: document.querySelector('#metricOrange'),
     metricRed: document.querySelector('#metricRed'), metricHall: document.querySelector('#metricHall'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
@@ -154,7 +156,7 @@
   }
 
   function bindFlightOpeners() {
-    document.querySelectorAll('.flight-row, .canary-card, .flow-flight').forEach(item => {
+    document.querySelectorAll('.flight-row, .canary-card, .flow-flight, .scene-plane').forEach(item => {
       item.addEventListener('click', () => openDetail(item.dataset.flightId));
       item.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -275,6 +277,7 @@
       return minute !== null && minute >= now.minutes - 45 && minute <= now.minutes + 150 && !baggage.includes('final');
     });
     active = active.slice(0, 18);
+    renderAirportScene(active);
     const stages = [
       ['waiting','Esperando / prevista'], ['enroute','En ruta'], ['approach','Aterrizando'],
       ['ground','En tierra'], ['baggage','En cintas']
@@ -299,6 +302,53 @@
         }).join('') : '<span class="flow-none">Ninguno</span>'}</div>
       </section>`;
     }).join('');
+  }
+
+  function scenePosition(stage, index) {
+    const positions = {
+      waiting:  [[8,15],[15,27],[23,13]],
+      enroute:  [[8,38],[17,31],[25,44],[31,28]],
+      approach: [[34,38],[40,44],[46,48],[51,50]],
+      ground:   [[61,57],[67,63],[72,58],[75,67]],
+      baggage:  [[78,76],[84,82],[90,76],[86,68]]
+    };
+    const list = positions[stage] || positions.waiting;
+    const point = list[index % list.length];
+    const overflow = Math.floor(index / list.length) * 4;
+    return {left:Math.min(94, point[0] + overflow), top:Math.min(88, point[1] + overflow)};
+  }
+
+  function sceneHeading(stage, flight) {
+    if (stage === 'approach') return 118;
+    if (stage === 'ground' || stage === 'baggage') return 90;
+    if (isFiniteNumber(flight.track_deg)) return Number(flight.track_deg);
+    return 105;
+  }
+
+  function renderAirportScene(active) {
+    if (!els.sceneAircraft) return;
+    const counters = {waiting:0,enroute:0,approach:0,ground:0,baggage:0};
+    const stageLabels = {waiting:'previsto',enroute:'en ruta',approach:'aterrizando',ground:'en tierra',baggage:'equipaje'};
+    els.sceneAircraft.innerHTML = active.map(f => {
+      const stage = flowStage(f);
+      const position = scenePosition(stage, counters[stage]++);
+      const destination = f.belt ? beltPosition(f) : 'cinta pendiente';
+      const canary = Number(f.is_canary) === 1;
+      return `<button type="button" class="scene-plane scene-plane-${stage} ${canary?'scene-plane-canary':''}" data-flight-id="${Number(f.id)}"
+        style="--scene-left:${position.left}%;--scene-top:${position.top}%;--scene-heading:${sceneHeading(stage,f)}deg"
+        title="${esc(f.physical_flight)} · ${esc(f.origin_name)} · ${esc(stageLabels[stage])} · ${destination}">
+        <span class="scene-plane-icon" aria-hidden="true">✈</span>
+        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}</strong><small>${time(effectiveArrival(f))} · ${destination}</small></span>
+      </button>`;
+    }).join('');
+    els.sceneMovementCount.textContent = active.length;
+  }
+
+  function updateSceneClock() {
+    if (!els.sceneClock) return;
+    els.sceneClock.textContent = new Intl.DateTimeFormat('es-ES', {
+      timeZone:'Europe/Madrid', hour:'2-digit', minute:'2-digit', second:'2-digit'
+    }).format(new Date());
   }
 
   function scrollToCurrent(force = false) {
@@ -417,6 +467,8 @@
   els.now.addEventListener('click', () => scrollToCurrent(true));
   els.fitMap.addEventListener('click', fitTrackedAircraft);
 
+  updateSceneClock();
+  setInterval(updateSceneClock, 1000);
   loadBoard(true);
   setInterval(() => loadBoard(false), Number(document.querySelector('main').dataset.pollSeconds || 15) * 1000);
 })();

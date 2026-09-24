@@ -90,7 +90,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
   </section>
 
   <section class="row g-3 mb-3" aria-label="Situación visual del aeropuerto">
-    <div class="col-12 col-xl-7">
+    <div class="col-12 col-xl-6">
       <article class="panel h-100 overflow-hidden radar-panel">
         <header class="panel-header d-flex align-items-center justify-content-between gap-2">
           <div>
@@ -102,12 +102,35 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
         <div id="flightMap" role="application" aria-label="Mapa de aeronaves que llegan a Sevilla"></div>
       </article>
     </div>
-    <div class="col-12 col-xl-5">
+    <div class="col-12 col-xl-6">
       <article class="panel h-100 overflow-hidden">
-        <header class="panel-header">
-          <h2 class="h6 mb-1">Flujo del aeropuerto</h2>
-          <p class="mb-0 text-secondary small">Aproximación, tierra y destino del equipaje según el último dato disponible.</p>
+        <header class="panel-header d-flex align-items-start justify-content-between gap-2">
+          <div>
+            <h2 class="h6 mb-1">Aeropuerto en movimiento</h2>
+            <p class="mb-0 text-secondary small">Escena HTML5 operativa; no representa puestos físicos exactos.</p>
+          </div>
+          <time class="scene-clock" id="sceneClock">--:--</time>
         </header>
+        <div class="airport-scene" id="airportScene" aria-label="Infografía dinámica del flujo de llegadas">
+          <svg viewBox="0 0 900 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+            <defs>
+              <linearGradient id="sceneSky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#102f4a"/><stop offset="1" stop-color="#081522"/></linearGradient>
+              <pattern id="runwayMarks" width="70" height="36" patternUnits="userSpaceOnUse"><rect x="27" y="15" width="28" height="6" rx="2" fill="#eaf3fa" opacity=".88"/></pattern>
+            </defs>
+            <rect width="900" height="360" fill="url(#sceneSky)"/>
+            <path class="scene-coast" d="M0 305 C130 250 225 332 355 282 S615 270 900 238 V360 H0Z"/>
+            <path class="scene-approach-line" d="M25 70 C145 78 205 120 295 178"/>
+            <path class="scene-taxiway" d="M560 181 C650 183 650 250 722 257"/>
+            <rect class="scene-runway" x="280" y="158" width="330" height="42" rx="5"/>
+            <rect x="290" y="161" width="310" height="36" fill="url(#runwayMarks)"/>
+            <g class="runway-lights"><circle cx="280" cy="154" r="3"/><circle cx="330" cy="154" r="3"/><circle cx="380" cy="154" r="3"/><circle cx="430" cy="154" r="3"/><circle cx="480" cy="154" r="3"/><circle cx="530" cy="154" r="3"/><circle cx="580" cy="154" r="3"/><circle cx="610" cy="154" r="3"/></g>
+            <g class="scene-terminal"><path d="M675 228h198v79H675z"/><path d="M700 208h38v26h-38zM755 208h38v26h-38zM810 208h38v26h-38z"/><text x="774" y="276">TERMINAL · CINTAS</text></g>
+            <g class="scene-belt"><rect x="702" y="289" width="52" height="18" rx="9"/><rect x="765" y="289" width="52" height="18" rx="9"/><rect x="828" y="289" width="30" height="18" rx="9"/></g>
+            <text class="scene-label" x="24" y="42">EN RUTA</text><text class="scene-label" x="205" y="112">APROXIMACIÓN</text><text class="scene-label" x="416" y="146">PISTA</text><text class="scene-label" x="610" y="213">TIERRA</text>
+          </svg>
+          <div class="scene-aircraft-layer" id="sceneAircraft"></div>
+          <div class="scene-source"><span></span> Aena + ADS‑B <b id="sceneMovementCount">0</b></div>
+        </div>
         <div class="airport-flow" id="airportFlow" aria-live="polite"></div>
       </article>
     </div>

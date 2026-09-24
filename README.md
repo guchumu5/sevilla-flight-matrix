@@ -219,6 +219,12 @@ clasificación usa telemetría y estados publicados; puerta, posición, finger y
 cinta se muestran como pendientes si ninguna fuente los ha facilitado. Aena
 continúa prevaleciendo para hora, estado, sala y cinta.
 
+La versión 1.7 añade una escena HTML5/SVG animada sobre ese flujo: aproximación,
+pista, rodaje, terminal y cintas. Cada avión se coloca en la fase operativa
+deducible de los datos, los canarios quedan resaltados y cualquier aeronave se
+puede pulsar para abrir su ficha. Es un esquema de situación, no un plano de
+puestos; por eso nunca convierte una posición pendiente en finger o remoto.
+
 La futura carga semanal utilizará este mismo reconciliador. La periodicidad
 recomendada es: siete días completos una vez al día, hoy y mañana cada 30
 minutos y la ventana operativa próxima cada 2-5 minutos. Los datos vivos deben

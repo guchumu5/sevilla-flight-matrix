@@ -56,7 +56,35 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .map-popup dt { color:var(--muted); font-weight:500; }.map-popup dd { margin:0; font-weight:750; text-align:right; }
 .map-popup-visual { display:grid; place-items:center; height:72px; border-radius:9px; background:radial-gradient(circle,#173652,#091625); overflow:hidden; }
 .aircraft-silhouette { display:block; width:130px; height:68px; }
-.airport-flow { max-height:470px; overflow:auto; padding:.7rem; }
+.scene-clock { flex:0 0 auto; padding:.27rem .48rem; border:1px solid var(--border); border-radius:7px; color:#78efbc; background:#091625; font:800 .78rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.airport-scene { position:relative; height:286px; overflow:hidden; border-bottom:1px solid var(--border); background:#081522; isolation:isolate; }
+.airport-scene > svg { display:block; width:100%; height:100%; }
+.scene-coast { fill:#0e2a29; stroke:#1d5b4e; stroke-width:2; }
+.scene-approach-line { fill:none; stroke:#74c7ff; stroke-width:2; stroke-dasharray:8 10; opacity:.58; animation:scene-dash 4s linear infinite; }
+.scene-taxiway { fill:none; stroke:#e8c46c; stroke-width:13; stroke-linecap:round; opacity:.34; }
+.scene-runway { fill:#273440; stroke:#8193a3; stroke-width:2; }
+.runway-lights circle { fill:#d9fbff; animation:runway-light 1.5s ease-in-out infinite alternate; }
+.runway-lights circle:nth-child(2n) { animation-delay:.6s; }
+.scene-terminal path { fill:#193248; stroke:#4d718d; stroke-width:2; }.scene-terminal text { fill:#dcefff; font-size:15px; font-weight:800; text-anchor:middle; }
+.scene-belt rect { fill:none; stroke:#2fd38a; stroke-width:3; stroke-dasharray:8 6; animation:scene-dash 2s linear infinite; }
+.scene-label { fill:#9bb5ca; font-size:13px; font-weight:800; letter-spacing:1.5px; }
+.scene-aircraft-layer { position:absolute; inset:0; pointer-events:none; }
+.scene-plane { position:absolute; left:var(--scene-left); top:var(--scene-top); display:flex; align-items:center; gap:.35rem; max-width:145px; padding:0; border:0; background:transparent; color:var(--text); text-align:left; transform:translate(-50%,-50%); pointer-events:auto; z-index:3; }
+.scene-plane:hover,.scene-plane:focus { z-index:8; outline:none; }.scene-plane:hover .scene-plane-data,.scene-plane:focus .scene-plane-data { border-color:var(--blue); transform:translateY(-1px); }
+.scene-plane-icon { display:grid; place-items:center; flex:0 0 31px; width:31px; height:31px; border:2px solid #8ad0ff; border-radius:50%; background:#123e5c; color:#fff; font-size:1.05rem; line-height:1; box-shadow:0 0 0 5px rgba(82,168,255,.13); transform:rotate(var(--scene-heading)); animation:scene-pulse 1.8s ease-in-out infinite; }
+.scene-plane-data { min-width:0; padding:.28rem .38rem; border:1px solid #31516c; border-radius:7px; background:rgba(7,17,31,.91); transition:.15s ease; }
+.scene-plane-data strong,.scene-plane-data small { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }.scene-plane-data strong { font-size:.7rem; }.scene-plane-data small { max-width:102px; color:var(--muted); font-size:.58rem; }
+.scene-plane-approach .scene-plane-icon { border-color:var(--orange); background:#503a16; box-shadow:0 0 0 6px rgba(255,181,71,.18); }
+.scene-plane-ground .scene-plane-icon { border-color:#b4c4d3; background:#263747; animation:none; }
+.scene-plane-baggage .scene-plane-icon { border-color:var(--green); background:#123c30; box-shadow:0 0 0 5px rgba(47,211,138,.16); animation:none; }
+.scene-plane-waiting { opacity:.72; }.scene-plane-waiting .scene-plane-icon { filter:grayscale(.55); animation:none; }
+.scene-plane-canary .scene-plane-data { border-color:#87662c; background:rgba(48,39,25,.94); }.scene-plane-canary .scene-plane-data strong { color:#ffd47d; }
+.scene-source { position:absolute; right:.55rem; bottom:.42rem; display:flex; align-items:center; gap:.35rem; padding:.25rem .45rem; border:1px solid #2e5068; border-radius:999px; background:rgba(7,17,31,.82); color:var(--muted); font-size:.62rem; z-index:6; }
+.scene-source span { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px rgba(47,211,138,.15); }.scene-source b { color:var(--text); }
+@keyframes scene-dash { to { stroke-dashoffset:-36; } }
+@keyframes runway-light { from { opacity:.28; } to { opacity:1; } }
+@keyframes scene-pulse { 50% { box-shadow:0 0 0 9px rgba(82,168,255,.04); } }
+.airport-flow { max-height:184px; overflow:auto; padding:.55rem .7rem .7rem; }
 .flow-lane { margin-bottom:.6rem; border:1px solid var(--border); border-radius:11px; overflow:hidden; background:#091625; }
 .flow-lane > header { display:flex; justify-content:space-between; align-items:center; padding:.48rem .62rem; color:var(--muted); font-size:.78rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
 .flow-lane > header b { display:grid; place-items:center; min-width:23px; height:23px; border-radius:999px; background:#1c3147; color:var(--text); }
@@ -122,6 +150,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   .flights-table td:nth-child(4){font-size:1.05rem}.flights-table td:nth-child(6)::before{content:"ETA/Real: ";color:var(--muted)}
   .flights-table td:nth-child(7)::before{content:"Cinta: ";color:var(--muted)}.flights-table td:nth-child(8)::before{content:"Sala: ";color:var(--muted)}
   .flights-table td:nth-child(9){display:none}
-  .canary-card{flex-basis:190px}#flightMap{height:390px}.airport-flow{max-height:none}.flow-flight{flex-basis:170px}
+  .canary-card{flex-basis:190px}#flightMap{height:390px}.airport-scene{height:300px}.airport-flow{max-height:280px}.flow-flight{flex-basis:170px}
+  .scene-plane-data{display:none}.scene-plane{max-width:34px}.scene-source{left:.5rem;right:auto}
   .telemetry-values{grid-template-columns:1fr}.telemetry-visual{flex-direction:column;gap:.1rem}
 }
