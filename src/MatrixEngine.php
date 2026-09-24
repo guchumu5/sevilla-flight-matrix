@@ -41,6 +41,7 @@ final class MatrixEngine
             }
 
             $flight['pressure'] = $this->pressure($flight);
+            $flight['secondary_belt_state'] = $this->secondaryBeltState($flight);
             $flight['indicator'] = $this->indicator($flight);
             $flight['belt_label'] = empty($flight['belt'])
                 ? 'STAND BY'
@@ -80,6 +81,28 @@ final class MatrixEngine
         return !empty($flight['belt']) ? '🟢' : '⚪';
     }
 
+    private function secondaryBeltState(array $flight): ?string
+    {
+        if (($flight['source'] ?? null) !== 'aena' || empty($flight['secondary_belt'])) {
+            return null;
+        }
+
+        $sameBelt = (string)($flight['belt'] ?? '') === (string)$flight['secondary_belt'];
+        $sameHall = empty($flight['secondary_hall']) || empty($flight['hall'])
+            || (string)$flight['hall'] === (string)$flight['secondary_hall'];
+        if ($sameBelt && $sameHall) {
+            return 'confirmed';
+        }
+
+        $officialAt = $flight['authoritative_seen_at'] ?? $flight['observed_at'] ?? null;
+        $secondaryAt = $flight['secondary_belt_at'] ?? null;
+        if ($officialAt && $secondaryAt && strcmp((string)$secondaryAt, (string)$officialAt) <= 0) {
+            return 'not_confirmed';
+        }
+
+        return 'candidate';
+    }
+
     private function addHallLoad(array $flights): array
     {
         foreach ($flights as &$flight) {
@@ -107,4 +130,3 @@ final class MatrixEngine
         return (int)round(((new DateTimeImmutable($to))->getTimestamp() - (new DateTimeImmutable($from))->getTimestamp()) / 60);
     }
 }
-

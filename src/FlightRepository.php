@@ -30,6 +30,11 @@ SELECT
     COALESCE(latest_aena.stand, latest_other.stand) AS stand,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.baggage_state ELSE latest_other.baggage_state END AS baggage_state,
     COALESCE(latest_aena.occupancy_level, latest_other.occupancy_level, 'no_verificable') AS occupancy_level,
+    latest_secondary_belt.source AS secondary_belt_source,
+    latest_secondary_belt.observed_at AS secondary_belt_at,
+    latest_secondary_belt.hall AS secondary_hall,
+    latest_secondary_belt.belt AS secondary_belt,
+    aena_state.last_seen_at AS authoritative_seen_at,
     CONCAT_WS(' / ', f.physical_flight, NULLIF(codes.codes, '')) AS codes,
     CASE WHEN latest_aena.id IS NOT NULL
          THEN COALESCE(changes.aena_belt_changes, 0)
@@ -64,6 +69,19 @@ LEFT JOIN observations latest_other ON latest_other.id = (
     ORDER BY o.observed_at DESC, o.id DESC
     LIMIT 1
 )
+LEFT JOIN observations latest_secondary_belt ON latest_secondary_belt.id = (
+    SELECT o.id FROM observations o
+    WHERE o.flight_id = f.id AND o.source <> 'aena'
+      AND o.belt IS NOT NULL AND o.belt <> ''
+    ORDER BY o.observed_at DESC, o.id DESC
+    LIMIT 1
+)
+LEFT JOIN (
+    SELECT flight_id, MAX(last_seen_at) AS last_seen_at
+    FROM flight_source_state
+    WHERE provider = 'aena'
+    GROUP BY flight_id
+) aena_state ON aena_state.flight_id = f.id
 LEFT JOIN observations first_aena_belt ON first_aena_belt.id = (
     SELECT o.id FROM observations o
     WHERE o.flight_id = f.id AND o.source = 'aena'

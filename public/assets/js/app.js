@@ -4,6 +4,7 @@
   const els = {
     date: document.querySelector('#flightDate'), hall: document.querySelector('#hallFilter'),
     search: document.querySelector('#searchInput'), canary: document.querySelector('#canaryOnly'),
+    secondary: document.querySelector('#secondaryOnly'),
     refresh: document.querySelector('#refreshButton'), body: document.querySelector('#flightsBody'),
     table: document.querySelector('#tableWrap'), loading: document.querySelector('#loadingState'),
     empty: document.querySelector('#emptyState'), error: document.querySelector('#errorAlert'),
@@ -22,6 +23,35 @@
     if (item?.belt) return item.hall ? `${esc(item.hall)}/${esc(item.belt)}` : `cinta ${esc(item.belt)} · sala no informada`;
     return item?.hall ? `${esc(item.hall)}/cinta pendiente` : 'sin cinta';
   };
+  const secondaryBeltMarkup = flight => {
+    if (!flight.secondary_belt || !flight.secondary_belt_state) return '';
+    const source = esc((flight.secondary_belt_source || 'secundaria').toUpperCase());
+    const position = beltPosition({hall:flight.secondary_hall,belt:flight.secondary_belt});
+    const labels = {
+      candidate: `propuesta posterior · ${dateTime(flight.secondary_belt_at)}`,
+      confirmed: 'coincide con Aena',
+      not_confirmed: 'Aena actualizó después sin confirmarla'
+    };
+    return `<span class="secondary-belt secondary-belt-${esc(flight.secondary_belt_state)}" title="${esc(labels[flight.secondary_belt_state] || '')}">
+      <span class="secondary-dot" aria-hidden="true"></span>${source}: ${position}
+    </span>`;
+  };
+  const timelineKey = item => [item.source,item.status,item.eta,item.actual_departure,item.actual_arrival,item.hall,item.belt,item.gate,item.stand,item.baggage_state]
+    .map(value => value ?? '').join('|');
+  const compactHistory = history => history.reduce((groups, item) => {
+    const previous = groups[groups.length - 1];
+    const key = timelineKey(item);
+    if (item.source === 'opensky' && previous?.source === 'opensky' && previous._timelineKey === key) {
+      previous.repeat_count += 1;
+      previous.last_observed_at = item.observed_at;
+      return groups;
+    }
+    groups.push({...item, repeat_count:1, last_observed_at:item.observed_at, _timelineKey:key});
+    return groups;
+  }, []);
+  const timelinePeriod = item => item.repeat_count > 1
+    ? `${dateTime(item.observed_at)}–${item.observed_at?.slice(0,10)===item.last_observed_at?.slice(0,10)?time(item.last_observed_at):dateTime(item.last_observed_at)}`
+    : dateTime(item.observed_at);
 
   async function loadBoard(showSpinner = false) {
     if (state.loading) return;
@@ -49,6 +79,7 @@
     const query = els.search.value.trim().toLowerCase();
     return state.flights.filter(f => (!els.hall.value || f.hall === els.hall.value)
       && (!els.canary.checked || Number(f.is_canary) === 1)
+      && (!els.secondary.checked || Boolean(f.secondary_belt_state))
       && (!query || `${f.origin_name} ${f.origin_iata} ${f.physical_flight} ${f.codes}`.toLowerCase().includes(query)));
   }
 
@@ -60,7 +91,7 @@
       return `<tr class="flight-row ${Number(f.is_canary)===1?'canary':''}" data-flight-id="${Number(f.id)}" tabindex="0">
         <td><span class="indicator" title="${esc(pressureText(f.pressure))}">${esc(f.indicator)}</span></td>
         <td><span class="time-primary">${time(f.scheduled_arrival)}</span></td>
-        <td><span class="belt ${beltClass}">${esc(f.belt_label)}</span></td>
+        <td><span class="belt ${beltClass}">${esc(f.belt_label)}</span>${secondaryBeltMarkup(f)}</td>
         <td><span class="origin-name">${esc(f.origin_name)}</span><span class="origin-code d-block">${esc(f.origin_iata)} · ${esc(f.traffic_class)}</span></td>
         <td><strong>${esc(f.physical_flight)}</strong><span class="meta d-block">${esc(f.codes || '')}</span></td>
         <td><strong>${time(f.actual_arrival || f.eta || f.scheduled_arrival)}</strong><span class="meta d-block">${signed(f.deviation_minutes)}</span></td>
@@ -80,7 +111,7 @@
 
   function metrics(flights) {
     els.metricFlights.textContent = flights.length;
-    els.metricOrange.textContent = flights.filter(f => String(f.indicator).includes('🟠')).length;
+    els.metricOrange.textContent = flights.filter(f => String(f.indicator).includes('🟠') || f.secondary_belt_state === 'candidate').length;
     els.metricRed.textContent = flights.filter(f => ['7','8'].includes(String(f.belt))).length;
     const max = flights.reduce((best,f) => Number(f.hall_capacity_30m)>Number(best.hall_capacity_30m||0)?f:best,{});
     els.metricHall.textContent = max.hall_capacity_30m ? `${Number(max.hall_capacity_30m).toLocaleString('es-ES')} · ${max.hall||'A'}` : '—';
@@ -103,7 +134,8 @@
         <div class="detail-stat"><small>Aeronave</small><strong>${esc(flight.aircraft_registration||'No verificada')}</strong><span class="meta">${esc(flight.aircraft_type||'')}</span></div>
         <div class="detail-stat"><small>Ocupación</small><strong>${esc(flight.occupancy_level||'no verificable')}</strong></div>
       </div>`;
-      const timeline = payload.history.length ? payload.history.map(item => {
+      const history = compactHistory(payload.history || []);
+      const timeline = history.length ? history.map(item => {
         const isAena = item.source === 'aena';
         const officialPosition = beltPosition({hall:flight.hall,belt:flight.belt});
         const conflictsWithAena = !isAena && flight.source === 'aena' && item.belt
@@ -113,8 +145,11 @@
           : conflictsWithAena
             ? `<span class="badge text-bg-warning ms-2">provisional · Aena mantiene ${officialPosition}</span>`
             : '<span class="badge text-bg-secondary ms-2">secundario</span>';
+        const repeats = item.repeat_count > 1
+          ? `<span class="badge text-bg-info ms-2">${item.repeat_count} lecturas agrupadas</span>`
+          : '';
         return `<article class="timeline-item ${isAena?'aena':''}">
-          <div class="d-flex justify-content-between gap-2"><strong>${esc((item.source||'').toUpperCase())}${authority}</strong><time class="meta">${dateTime(item.observed_at)}</time></div>
+          <div class="d-flex justify-content-between gap-2"><strong>${esc((item.source||'').toUpperCase())}${authority}${repeats}</strong><time class="meta text-end">${timelinePeriod(item)}</time></div>
           <div>${esc(item.status||'Observación')} · ${beltPosition(item)}</div>
           <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
         </article>`;
@@ -124,7 +159,7 @@
   }
 
   function setLoading(show) { els.loading.classList.toggle('d-none', !show); if(show){els.table.classList.add('d-none');els.empty.classList.add('d-none');} }
-  [els.hall,els.canary].forEach(el => el.addEventListener('change', render));
+  [els.hall,els.canary,els.secondary].forEach(el => el.addEventListener('change', render));
   els.search.addEventListener('input', render); els.date.addEventListener('change', () => loadBoard(true));
   els.refresh.addEventListener('click', () => loadBoard(true));
   loadBoard(true);

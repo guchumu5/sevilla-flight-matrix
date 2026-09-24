@@ -6,6 +6,8 @@ use SevillaMatrix\Env;
 
 $pollSeconds = max(5, (int)Env::get('POLL_SECONDS', '15'));
 $today = date('Y-m-d');
+$cssVersion = (string)(@filemtime(__DIR__ . '/assets/css/app.css') ?: '1');
+$jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
 ?>
 <!doctype html>
 <html lang="es" data-bs-theme="dark">
@@ -16,7 +18,7 @@ $today = date('Y-m-d');
   <title>Matriz de Cintas · Sevilla</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1728'/%3E%3Cpath d='M12 38h40M18 30h28' stroke='%232fd38a' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='22' cy='46' r='5' fill='%23ffb547'/%3E%3Ccircle cx='42' cy='46' r='5' fill='%23ffb547'/%3E%3C/svg%3E">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="assets/css/app.css" rel="stylesheet">
+  <link href="assets/css/app.css?v=<?= e($cssVersion) ?>" rel="stylesheet">
 </head>
 <body>
 <nav class="navbar navbar-expand-lg sticky-top app-navbar border-bottom">
@@ -49,10 +51,16 @@ $today = date('Y-m-d');
         <label class="form-label" for="searchInput">Buscar</label>
         <input class="form-control" id="searchInput" placeholder="Origen o vuelo" autocomplete="off">
       </div>
-      <div class="col-5 col-md-2">
+      <div class="col-6 col-md-1">
         <div class="form-check form-switch filter-switch">
           <input class="form-check-input" type="checkbox" role="switch" id="canaryOnly">
           <label class="form-check-label" for="canaryOnly">Canarias</label>
+        </div>
+      </div>
+      <div class="col-6 col-md-1">
+        <div class="form-check form-switch filter-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="secondaryOnly">
+          <label class="form-check-label" for="secondaryOnly">Cintas API</label>
         </div>
       </div>
       <div class="col-12 col-md-3 text-md-end">
@@ -63,7 +71,7 @@ $today = date('Y-m-d');
 
   <section class="row g-3 mb-3" aria-label="Resumen operativo">
     <div class="col-6 col-xl-3"><article class="metric-card"><span>Vuelos</span><strong id="metricFlights">—</strong><small>en el tablero</small></article></div>
-    <div class="col-6 col-xl-3"><article class="metric-card metric-orange"><span>En revisión</span><strong id="metricOrange">—</strong><small>presión o desviación</small></article></div>
+    <div class="col-6 col-xl-3"><article class="metric-card metric-orange"><span>En revisión</span><strong id="metricOrange">—</strong><small>presión, desviación o propuesta</small></article></div>
     <div class="col-6 col-xl-3"><article class="metric-card metric-red"><span>Cintas 7/8</span><strong id="metricRed">—</strong><small>ubicación operativa</small></article></div>
     <div class="col-6 col-xl-3"><article class="metric-card metric-blue"><span>Afluencia máxima</span><strong id="metricHall">—</strong><small>plazas teóricas ±30 min</small></article></div>
   </section>
@@ -75,7 +83,7 @@ $today = date('Y-m-d');
         <p class="mb-0 text-secondary" id="lastUpdated">Esperando datos…</p>
       </div>
       <div class="legend d-flex flex-wrap gap-2" aria-label="Leyenda">
-        <span>🟢 estable</span><span>🟠 revisión</span><span>🔵 en vuelo</span><span>🔴 7/8</span>
+        <span>🟢 estable</span><span>🟠 revisión</span><span>🔵 en vuelo</span><span>🔴 7/8</span><span>🟡 propuesta secundaria</span>
       </div>
     </header>
 
@@ -104,7 +112,6 @@ $today = date('Y-m-d');
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="assets/js/app.js"></script>
+<script src="assets/js/app.js?v=<?= e($jsVersion) ?>"></script>
 </body>
 </html>
-

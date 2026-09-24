@@ -42,6 +42,13 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .belt { display:inline-flex; align-items:center; justify-content:center; min-width:72px; padding:.38rem .55rem; border-radius:9px; background:#102b28; color:#78efbc; border:1px solid #1f5c4b; font-weight:800; white-space:nowrap; }
 .belt.standby { background:#202c3b; color:#b6c4d3; border-color:#36485d; }
 .belt.red { background:#3b1720; color:#ff9ca5; border-color:#76303a; }
+.secondary-belt { display:flex; align-items:center; gap:.3rem; width:max-content; max-width:180px; margin-top:.35rem; color:var(--muted); font-size:.68rem; line-height:1.2; white-space:normal; }
+.secondary-dot { flex:0 0 auto; width:7px; height:7px; border-radius:50%; background:#708399; }
+.secondary-belt-candidate { color:#ffd47d; font-weight:750; }
+.secondary-belt-candidate .secondary-dot { background:var(--orange); box-shadow:0 0 0 3px rgba(255,181,71,.14); }
+.secondary-belt-confirmed { color:#72dbae; }
+.secondary-belt-confirmed .secondary-dot { background:var(--green); }
+.secondary-belt-not_confirmed .secondary-dot { background:#708399; }
 .pill { display:inline-flex; padding:.28rem .48rem; border-radius:999px; font-size:.78rem; font-weight:700; white-space:nowrap; }
 .pill-low { background:#17372e;color:#6fe8b0; }.pill-medium { background:#3a321b;color:#ffd47d; }.pill-high,.pill-very-high { background:#48202a;color:#ffadb4; }
 .source-aena { color:#73ebb6; font-weight:800; }.source-other { color:var(--muted); }
@@ -61,9 +68,8 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   .flights-table thead{display:none}.flights-table,.flights-table tbody,.flights-table tr,.flights-table td{display:block;width:100%}
   .flights-table tr{position:relative;padding:.8rem 1rem;border-bottom:1px solid var(--border)}
   .flights-table td{border:0;padding:.2rem 0}.flights-table td:nth-child(1){position:absolute;right:1rem;top:.85rem;width:auto}
-  .flights-table td:nth-child(2),.flights-table td:nth-child(3){display:inline-block;width:auto;margin-right:.45rem}
+  .flights-table td:nth-child(2),.flights-table td:nth-child(3){display:inline-block;width:auto;margin-right:.45rem;vertical-align:top}
   .flights-table td:nth-child(4){font-size:1.05rem}.flights-table td:nth-child(6)::before{content:"ETA/Real: ";color:var(--muted)}
   .flights-table td:nth-child(7)::before{content:"Cinta: ";color:var(--muted)}.flights-table td:nth-child(8)::before{content:"Sala: ";color:var(--muted)}
   .flights-table td:nth-child(9){display:none}
 }
-

@@ -186,6 +186,12 @@ Una cinta comunicada por AirLabs se conserva y aparece en la cronología como
 provisional, incluso si el proveedor no informa la sala. Si discrepa de Aena no
 sustituye la cinta oficial ni se contabiliza como un cambio operativo de Aena:
 la interfaz muestra ambas evidencias y señala expresamente la discrepancia.
+En el tablero principal la propuesta secundaria aparece debajo de la cinta
+oficial: amarilla mientras espera confirmación, verde cuando coincide y gris
+cuando una observación posterior de Aena no la confirma. Las lecturas OpenSky
+consecutivas que no cambian ningún dato visible se agrupan en un solo tramo.
+El filtro **Cintas API** permite aislar los vuelos con propuesta, confirmación o
+descarte secundario sin recorrer todo el listado.
 
 La futura carga semanal utilizará este mismo reconciliador. La periodicidad
 recomendada es: siete días completos una vez al día, hoy y mañana cada 30
