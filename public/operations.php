@@ -55,6 +55,11 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
     <div class="col-lg-7"><section class="panel overflow-hidden h-100"><header class="panel-header"><h2 class="h5 mb-1">Últimas ejecuciones del cerebro</h2><p class="text-secondary mb-0">Observaciones y eventos creados por cada captura.</p></header><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Hora</th><th>Fuente</th><th>Estado</th><th>Resultado</th></tr></thead><tbody id="runsBody"><tr><td colspan="4" class="text-secondary">Cargando…</td></tr></tbody></table></div></section></div>
     <div class="col-lg-5"><section class="panel p-3 p-md-4 h-100"><h2 class="h5">Diagnóstico</h2><div id="diagnostics" class="vstack gap-2 text-secondary">Cargando…</div><hr><p class="small text-secondary mb-0">Ningún botón permite ejecutar comandos, indicar rutas ni enviar SQL. Las acciones están fijadas en el servidor, requieren sesión y token CSRF, y bloquean dobles ejecuciones.</p></section></div>
   </div>
+
+  <section class="panel overflow-hidden mt-4">
+    <header class="panel-header"><h2 class="h5 mb-1">Ejecuciones de los recolectores</h2><p class="text-secondary mb-0">Confirma si el cron llegó a PHP aunque la API no devolviera vuelos.</p></header>
+    <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Inicio</th><th>Proceso</th><th>Estado</th><th>Registros</th><th>Detalle</th></tr></thead><tbody id="fetchRunsBody"><tr><td colspan="5" class="text-secondary">Cargando…</td></tr></tbody></table></div>
+  </section>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -90,6 +95,7 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
       ];
       document.querySelector('#diagnostics').innerHTML = items.map(item => `<div class="d-flex justify-content-between gap-3"><span>${esc(item[0])}</span><span class="badge ${item[1] ? 'text-bg-success' : 'text-bg-danger'}">${item[1] ? 'OK' : 'FALTA'}</span></div>`).join('');
       document.querySelector('#runsBody').innerHTML = data.latest_runs.length ? data.latest_runs.map(run => `<tr><td>${esc(run.started_at)}</td><td>${esc(run.provider)}</td><td><span class="badge ${run.status === 'success' ? 'text-bg-success' : run.status === 'failed' ? 'text-bg-danger' : 'text-bg-warning'}">${esc(run.status)}</span></td><td>${Number(run.observations_created)} obs. · ${Number(run.events_created)} eventos${run.error_message ? `<span class="d-block small text-danger">${esc(run.error_message)}</span>` : ''}</td></tr>`).join('') : '<tr><td colspan="4" class="text-secondary">Todavía no hay ejecuciones.</td></tr>';
+      document.querySelector('#fetchRunsBody').innerHTML = data.latest_fetch_runs.length ? data.latest_fetch_runs.map(run => `<tr><td>${esc(run.started_at)}</td><td>${esc(run.provider)}</td><td><span class="badge ${Number(run.ok) === 1 ? 'text-bg-success' : 'text-bg-danger'}">${Number(run.ok) === 1 ? 'Correcto' : 'Error'}</span></td><td>${Number(run.records_count)}</td><td>${run.error_message ? `<span class="text-danger">${esc(run.error_message)}</span>` : '<span class="text-secondary">Sin error</span>'}</td></tr>`).join('') : '<tr><td colspan="5" class="text-secondary">Ningún recolector ha alcanzado todavía la aplicación.</td></tr>';
     } catch (error) { showAlert(error.message, false); }
   }
 
