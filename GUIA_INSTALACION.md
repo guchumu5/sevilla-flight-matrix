@@ -54,7 +54,7 @@ Si el alojamiento no permite elegir la raíz pública, coloca solamente el conte
    AIRLABS_API_KEY=tu_clave
    ```
 
-6. Ejecuta manualmente `php bin/poll-airlabs.php` para hacer la primera prueba.
+6. Entra en **Administración → Procesos web** y pulsa **Actualizar AirLabs** para hacer la primera prueba.
 
 AirLabs es una fuente secundaria. Si su cinta discrepa con Aena, entra en **Aena / Admin** y registra la observación oficial.
 
@@ -76,13 +76,13 @@ AirLabs es una fuente secundaria. Si su cinta discrepa con Aena, entra en **Aena
 
 ## AviationWeather
 
-No requiere una clave. `bin/poll-weather.php` consulta el METAR de `LEZL` y guarda viento, rachas y observación completa.
+No requiere una clave. En **Administración → Procesos web** pulsa **Actualizar tiempo** para consultar el METAR de `LEZL` y guardar viento, rachas y observación completa.
 
 ## Primera puesta en marcha
 
 1. Entra en `/admin.php`.
 2. Añade los vuelos físicos del día. El código compartido se introduce aparte.
-3. Ejecuta el recopilador AirLabs o espera a la tarea cron.
+3. Abre **Procesos web**, comprueba que AirLabs aparece como `LISTO` y ejecútalo.
 4. Confirma manualmente en el panel las cintas publicadas por Aena.
 5. Abre el tablero desde un móvil y comprueba filtros, histórico y avisos.
 6. Cuando todo funcione, borra los datos de demostración antes de introducir vuelos reales.
@@ -111,7 +111,7 @@ contraseña y la cookie de sesión durante el transporte.
 2. Entra en **Administración → Actualizar MySQL**.
 3. Aplica `20260923_002_event_brain` después de cualquier paquete anterior pendiente.
 4. Abre **Administración → Cerebro de eventos**. Al principio aparecerá vacío.
-5. Desde una consola, ejecuta el contrato de ejemplo:
+5. Para una prueba técnica opcional, el contrato JSON continúa disponible desde consola:
 
    ```bash
    php bin/sync-json.php --file=database/examples/sync_flights.example.json
@@ -129,6 +129,41 @@ Para una carga completa se deben indicar `mode=full_window`, los límites de la
 ventana y `complete=true`. El sistema no elimina un vuelo por una sola ausencia:
 lo marca como `missing` y solo genera `flight_withdrawn` después de tres ventanas
 completas consecutivas. Si reaparece, genera `flight_reappeared`.
+
+## Plesk en ojito.top · trabajo sin terminal
+
+Con el proyecto instalado en `/var/www/vhosts/ojito.top/httpdocs`, no necesitas
+abrir una consola para el uso diario:
+
+1. Despliega la versión 1.3 completa.
+2. Entra en la aplicación y abre **Administración → Actualizar MySQL**. Aplica
+   las actualizaciones pendientes.
+3. Vuelve a Administración y abre **Procesos web**.
+4. Comprueba que MySQL, cURL, caché, tablas y proveedores aparecen en verde.
+5. Pulsa **Actualizar todo** para una captura limitada, o ejecuta cada proveedor
+   por separado para ver su resultado.
+6. Abre **Cerebro de eventos**: una respuesta válida de AirLabs o una observación
+   manual de Aena deberá crear una ejecución; solo habrá un evento nuevo si el
+   valor realmente cambió.
+
+Para automatizar sin terminal, entra en el panel web de **Plesk → Dominios →
+ojito.top → Tareas programadas → Añadir tarea** y selecciona **Ejecutar un script
+PHP**. Crea estas tres tareas usando el selector de versión PHP de Plesk:
+
+| Frecuencia | Ruta del script PHP |
+|---|---|
+| Cada 2 minutos | `/var/www/vhosts/ojito.top/httpdocs/bin/poll-airlabs.php` |
+| Cada minuto | `/var/www/vhosts/ojito.top/httpdocs/bin/poll-opensky.php` |
+| Cada 10 minutos | `/var/www/vhosts/ojito.top/httpdocs/bin/poll-weather.php` |
+
+Si el plan gratuito de una API tiene poca cuota, aumenta el intervalo de su
+tarea antes de activarla. Primero prueba cada botón en **Procesos web**: si un
+proveedor falla allí, la tarea programada también fallará. Los scripts usan el
+mismo servicio que los botones, de modo que no existen dos lógicas distintas.
+
+La carpeta pública del dominio debe seguir apuntando a `httpdocs/public` siempre
+que Plesk lo permita. `src/`, `bin/`, `database/`, `storage/` y `.env` no deben
+servirse directamente por HTTP.
 
 ### Programación diaria prevista
 
