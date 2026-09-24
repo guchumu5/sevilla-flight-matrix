@@ -1,0 +1,68 @@
+name: Calidad y conciliacion
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  php-mysql:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: sevilla_matrix
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+
+    env:
+      APP_ENV: testing
+      APP_DEBUG: "false"
+      APP_TIMEZONE: Europe/Madrid
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_NAME: sevilla_matrix
+      DB_USER: root
+      DB_PASS: root
+
+    steps:
+      - name: Descargar codigo
+        uses: actions/checkout@v4
+
+      - name: Verificar runtime PHP
+        run: |
+          php --version
+          php -m | grep -qi pdo_mysql
+
+      - name: Validar sintaxis PHP
+        run: find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+
+      - name: Crear esquema MySQL
+        run: mysql -h127.0.0.1 -uroot -proot sevilla_matrix < database/schema.sql
+
+      - name: Ejecutar dos capturas y una repeticion
+        run: |
+          php bin/sync-json.php --file=database/examples/sync_flights.example.json
+          php bin/sync-json.php --file=database/examples/sync_flights.changed.example.json
+          php bin/sync-json.php --file=database/examples/sync_flights.changed.example.json
+
+      - name: Comprobar idempotencia e historico
+        run: |
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM flights')" = "1"
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM flight_codes')" = "2"
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM observations')" = "2"
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM flight_events')" = "8"
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM flight_events WHERE event_type="belt_changed"')" = "1"
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM sync_runs')" = "3"
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM sync_runs WHERE status="failed"')" = "0"
