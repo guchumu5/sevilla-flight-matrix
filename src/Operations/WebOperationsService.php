@@ -23,7 +23,7 @@ final class WebOperationsService
     /** @return array<string,mixed> */
     public function status(): array
     {
-        $requiredTables = ['flights', 'observations', 'weather_observations', 'sync_runs', 'flight_source_state', 'flight_events'];
+        $requiredTables = ['flights', 'observations', 'weather_observations', 'fetch_runs', 'sync_runs', 'flight_source_state', 'flight_events'];
         $existing = [];
         $stmt = $this->pdo->query('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()');
         foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $table) {
