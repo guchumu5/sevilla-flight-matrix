@@ -61,6 +61,34 @@ limitación evita convertir el panel administrativo en una consola SQL remota.
 Para publicar una modificación se añade un manifiesto PHP nuevo y su fichero
 SQL al repositorio; después aparecerá como pendiente en la aplicación.
 
+### Cerebro de conciliación y eventos
+
+La versión 1.2 compara cada captura con el último estado del mismo proveedor.
+No sobrescribe el pasado: añade observaciones y genera eventos inmutables para
+altas, cambios de horario, ETA o estado, primera cinta, cambio o retirada de
+cinta, equipaje, cancelación, ausencia, retirada y reaparición.
+
+Los eventos guardan valor anterior y nuevo, fuente, hora, evidencia, confianza
+y motivo. Cuando la fuente no publica la causa operativa, el sistema registra
+expresamente **causa no publicada**; nunca inventa una explicación.
+
+Aplica primero el paquete `20260923_002_event_brain` desde **Actualizar MySQL**.
+Después puede probarse con el contrato JSON incluido:
+
+```bash
+php bin/sync-json.php --file=database/examples/sync_flights.example.json
+php bin/sync-json.php --file=database/examples/sync_flights.changed.example.json
+```
+
+El resultado puede consultarse desde **Administración → Cerebro de eventos**.
+Una ventana completa vacía se rechaza por defecto y un vuelo solo se considera
+retirado tras tres ausencias completas consecutivas. Esto protege frente a
+fallos temporales del proveedor.
+
+Cada registro JSON representa una instantánea completa de ese vuelo en su
+fuente. Si una cinta desaparece en la segunda captura, debe enviarse como
+`"belt": null`; así el cerebro puede distinguir una retirada real.
+
 ## Automatización
 
 Configura estas tareas cron. Ajusta las rutas a tu servidor:
@@ -72,6 +100,12 @@ Configura estas tareas cron. Ajusta las rutas a tu servidor:
 ```
 
 OpenSky se consulta solamente para vuelos con matrícula/ICAO24 conocido. AirLabs es una fuente secundaria. Las observaciones introducidas como Aena tienen prevalencia en sala, cinta y estado.
+
+La futura carga semanal utilizará este mismo reconciliador. La periodicidad
+recomendada es: siete días completos una vez al día, hoy y mañana cada 30
+minutos y la ventana operativa próxima cada 2-5 minutos. Los datos vivos deben
+entrar directamente en MySQL desde el servidor; GitHub conserva el código y las
+migraciones, no se usa como almacén de capturas diarias.
 
 ## Seguridad
 
@@ -94,6 +128,7 @@ OpenSky se consulta solamente para vuelos con matrícula/ICAO24 conocido. AirLab
 
 - `public/`: tablero, administración y endpoints JSON/SSE.
 - `src/`: acceso a datos, seguridad, proveedores y reglas.
+- `src/Sync/`: conciliación, eventos y lectura de ejecuciones.
 - `bin/`: recopiladores ejecutados por cron.
 - `database/`: estructura y datos de demostración.
 - `storage/`: caché OAuth y registros locales.

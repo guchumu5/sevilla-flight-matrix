@@ -105,6 +105,44 @@ HTTPS no es necesario para una prueba estrictamente local, pero sí debe
 activarse antes de exponer el administrador en Internet, porque protege la
 contraseña y la cookie de sesión durante el transporte.
 
+## Activar el cerebro de eventos
+
+1. Despliega la versión 1.2 completa.
+2. Entra en **Administración → Actualizar MySQL**.
+3. Aplica `20260923_002_event_brain` después de cualquier paquete anterior pendiente.
+4. Abre **Administración → Cerebro de eventos**. Al principio aparecerá vacío.
+5. Desde una consola, ejecuta el contrato de ejemplo:
+
+   ```bash
+   php bin/sync-json.php --file=database/examples/sync_flights.example.json
+   php bin/sync-json.php --file=database/examples/sync_flights.changed.example.json
+   ```
+
+6. Actualiza la pantalla del cerebro: verás la ejecución, la primera aparición,
+   el estado y la primera asignación de sala/cinta.
+
+El importador JSON es el contrato común entre las fuentes y la base. Cuando se
+conecte una API o un adaptador de Aena, este producirá el mismo formato y llamará
+al mismo reconciliador; las reglas de historial no dependerán del proveedor.
+
+Para una carga completa se deben indicar `mode=full_window`, los límites de la
+ventana y `complete=true`. El sistema no elimina un vuelo por una sola ausencia:
+lo marca como `missing` y solo genera `flight_withdrawn` después de tres ventanas
+completas consecutivas. Si reaparece, genera `flight_reappeared`.
+
+### Programación diaria prevista
+
+Cuando el adaptador semanal esté conectado, utiliza tareas equivalentes a:
+
+```cron
+15 3 * * * /usr/bin/php /ruta/sevilla-flight-matrix/bin/sync-week.php --days=7
+*/30 * * * * /usr/bin/php /ruta/sevilla-flight-matrix/bin/sync-near.php --days=2
+*/3 * * * * /usr/bin/php /ruta/sevilla-flight-matrix/bin/sync-live.php --window=180
+```
+
+No actives estas tres líneas hasta que existan los adaptadores correspondientes.
+El comando disponible en esta versión es `bin/sync-json.php`.
+
 ## Comprobaciones básicas
 
 - `/api/health.php` debe responder `ok: true`.
