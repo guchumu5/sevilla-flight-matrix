@@ -96,6 +96,23 @@ fuente. Si una cinta desaparece en la segunda captura, debe enviarse como
 
 ## Automatización
 
+### Uso completamente web
+
+La versión 1.3 añade **Administración → Procesos web**. Desde esa pantalla se
+puede comprobar si las claves y tablas están disponibles y ejecutar AirLabs,
+OpenSky y AviationWeather sin abrir una terminal. Las acciones están fijadas
+en el servidor, requieren la sesión administrativa y token CSRF, limitan el
+número de vuelos y bloquean ejecuciones simultáneas.
+
+AirLabs ya entra por el mismo conciliador que el importador JSON: conserva cada
+instantánea y genera los cambios correspondientes en el cerebro. Las
+observaciones de Aena introducidas en el formulario administrativo también
+generan eventos. OpenSky añade telemetría ADS-B y AviationWeather guarda el
+METAR, que son evidencias complementarias y no sustituyen la autoridad de Aena.
+
+Los scripts de `bin/` se conservan para automatizar desde el panel web de Plesk
+o cPanel. No deben hacerse accesibles como direcciones web.
+
 Configura estas tareas cron. Ajusta las rutas a tu servidor:
 
 ```cron
@@ -115,7 +132,7 @@ migraciones, no se usa como almacén de capturas diarias.
 ## Seguridad
 
 - El directorio público del dominio debe ser `public/`, nunca la raíz del proyecto.
-- No subis `.env` a GitHub.
+- No subas `.env` a GitHub.
 - No introduzcas claves API en JavaScript.
 - Usa HTTPS en producción.
 - Cambia la contraseña de administración antes de publicar.
@@ -131,7 +148,7 @@ migraciones, no se usa como almacén de capturas diarias.
 
 ## Estructura
 
-- `public/`: tablero, administración y endpoints JSON/SCE.
+- `public/`: tablero, administración y endpoints JSON/SSE.
 - `src/`: acceso a datos, seguridad, proveedores y reglas.
 - `src/Sync/`: conciliación, eventos y lectura de ejecuciones.
 - `bin/`: recopiladores ejecutados por cron.
