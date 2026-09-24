@@ -109,6 +109,17 @@ vuelos o termina con error. Así se distingue un cron que no alcanzó PHP de una
 API ejecutada correctamente pero sin datos. `sync_runs` solo contiene lotes que
 sí llegaron al conciliador de vuelos.
 
+Antes del primer uso aplica desde **Actualizar MySQL** el paquete
+`20260924_003_fetch_runs`. El cerebro muestra estos intentos por separado de
+las sincronizaciones que sí produjeron una captura válida.
+
+Los números publicados por Aena suelen usar prefijos ICAO de tres letras
+(`VLG`, `RYR`, `BAW`, `IBE`, etc.). El cliente AirLabs los consulta mediante
+`flight_icao`; los códigos de dos caracteres (`VY`, `FR`, `BA`, `IB`, etc.) se
+consultan mediante `flight_iata`. Si el vuelo físico no devuelve información,
+la aplicación prueba también sus códigos compartidos y deja constancia de todos
+los códigos intentados.
+
 AirLabs ya entra por el mismo conciliador que el importador JSON: conserva cada
 instantánea y genera los cambios correspondientes en el cerebro. Las
 observaciones de Aena introducidas en el formulario administrativo también
