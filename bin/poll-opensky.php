@@ -2,19 +2,13 @@
 declare(strict_types=1);
 require dirname(__DIR__) . '/src/bootstrap.php';
 
-use SevillaMatrix\Api\OpenSkyClient;
 use SevillaMatrix\Database;
-use SevillaMatrix\Env;
-use SevillaMatrix\FlightRepository;
+use SevillaMatrix\Operations\WebOperationsService;
 
-$pdo = Database::connection(); $repo = new FlightRepository($pdo);
-$client = new OpenSkyClient(Env::get('OPENSKY_CLIENT_ID','')??'', Env::get('OPENSKY_CLIENT_SECRET','')??'', PROJECT_ROOT.'/storage/cache/opensky-token.json');
-$insert = $pdo->prepare("INSERT INTO observations (flight_id,source,observed_at,status,latitude,longitude,altitude_m,ground_speed_ms,track_deg,vertical_rate_ms,raw_data) VALUES (?,'opensky',NOW(),?,?,?,?,?,?,?,?)");
-foreach ($repo->trackedAircraft() as $flight) {
-    try {
-        $state=$client->state($flight['aircraft_icao24']); if(!$state) continue;
-        $insert->execute([(int)$flight['id'],$state['on_ground']?'En tierra':'En vuelo',$state['latitude'],$state['longitude'],$state['altitude_m'],$state['ground_speed_ms'],$state['track_deg'],$state['vertical_rate_ms'],json_encode($state['raw'])]);
-        echo date('c')." {$flight['physical_flight']} ADS-B actualizado\n";
-    } catch(Throwable $e){fwrite(STDERR,date('c')." {$flight['physical_flight']}: {$e->getMessage()}\n");}
+try {
+    $result = (new WebOperationsService(Database::connection()))->run('opensky', 25);
+    echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . PHP_EOL;
+} catch (Throwable $error) {
+    fwrite(STDERR, date('c') . ' ' . $error->getMessage() . PHP_EOL);
+    exit(1);
 }
-
