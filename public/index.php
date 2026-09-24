@@ -89,29 +89,23 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
     <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
   </section>
 
-  <section class="row g-3 mb-3" aria-label="Situación visual del aeropuerto">
-    <div class="col-12 col-xl-6">
-      <article class="panel h-100 overflow-hidden radar-panel">
-        <header class="panel-header d-flex align-items-center justify-content-between gap-2">
-          <div>
-            <h2 class="h6 mb-1">Radar ADS‑B de llegadas</h2>
-            <p class="mb-0 text-secondary small" id="mapStatus">Esperando posiciones OpenSky…</p>
-          </div>
-          <button class="btn btn-sm btn-outline-light" id="fitMapButton" type="button">Encuadrar</button>
-        </header>
-        <div id="flightMap" role="application" aria-label="Mapa de aeronaves que llegan a Sevilla"></div>
-      </article>
-    </div>
-    <div class="col-12 col-xl-6">
-      <article class="panel h-100 overflow-hidden">
-        <header class="panel-header d-flex align-items-start justify-content-between gap-2">
-          <div>
-            <h2 class="h6 mb-1">Aeropuerto en movimiento</h2>
-            <p class="mb-0 text-secondary small">Escena HTML5 operativa; no representa puestos físicos exactos.</p>
-          </div>
-          <time class="scene-clock" id="sceneClock">--:--</time>
-        </header>
-        <div class="airport-scene" id="airportScene" aria-label="Infografía dinámica del flujo de llegadas">
+  <section class="panel upcoming-panel mb-3" aria-labelledby="upcomingTitle">
+    <header class="panel-header d-flex align-items-center justify-content-between gap-2">
+      <div><h2 class="h6 mb-1" id="upcomingTitle">Próximas 10 llegadas</h2><p class="mb-0 text-secondary small">Vuelo, procedencia, hora efectiva y cinta oficial.</p></div>
+      <span class="badge text-bg-primary">línea operativa</span>
+    </header>
+    <div class="upcoming-strip" id="upcomingStrip" aria-live="polite"></div>
+  </section>
+
+  <section class="panel mb-3 overflow-hidden" aria-label="Aeropuerto de Sevilla en movimiento">
+    <header class="panel-header d-flex align-items-start justify-content-between gap-2">
+      <div>
+        <h2 class="h5 mb-1">Aeropuerto de Sevilla en movimiento</h2>
+        <p class="mb-0 text-secondary small">Terminal de pasajeros · planta 0. Las posiciones exactas de estacionamiento solo aparecen si están publicadas.</p>
+      </div>
+      <time class="scene-clock" id="sceneClock">--:--</time>
+    </header>
+    <div class="airport-scene airport-scene-large" id="airportScene" aria-label="Infografía dinámica del flujo de llegadas">
           <svg viewBox="0 0 900 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
             <defs>
               <linearGradient id="sceneSky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#102f4a"/><stop offset="1" stop-color="#081522"/></linearGradient>
@@ -124,15 +118,29 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
             <rect class="scene-runway" x="280" y="158" width="330" height="42" rx="5"/>
             <rect x="290" y="161" width="310" height="36" fill="url(#runwayMarks)"/>
             <g class="runway-lights"><circle cx="280" cy="154" r="3"/><circle cx="330" cy="154" r="3"/><circle cx="380" cy="154" r="3"/><circle cx="430" cy="154" r="3"/><circle cx="480" cy="154" r="3"/><circle cx="530" cy="154" r="3"/><circle cx="580" cy="154" r="3"/><circle cx="610" cy="154" r="3"/></g>
-            <g class="scene-terminal"><path d="M675 228h198v79H675z"/><path d="M700 208h38v26h-38zM755 208h38v26h-38zM810 208h38v26h-38z"/><text x="774" y="276">TERMINAL · CINTAS</text></g>
-            <g class="scene-belt"><rect x="702" y="289" width="52" height="18" rx="9"/><rect x="765" y="289" width="52" height="18" rx="9"/><rect x="828" y="289" width="30" height="18" rx="9"/></g>
+            <g class="scene-terminal"><path d="M675 218h198v73H675z"/><path d="M700 198h38v26h-38zM755 198h38v26h-38zM810 198h38v26h-38z"/><text x="774" y="259">TERMINAL · PLANTA 0</text></g>
             <text class="scene-label" x="24" y="42">EN RUTA</text><text class="scene-label" x="205" y="112">APROXIMACIÓN</text><text class="scene-label" x="416" y="146">PISTA</text><text class="scene-label" x="610" y="213">TIERRA</text>
           </svg>
           <div class="scene-aircraft-layer" id="sceneAircraft"></div>
           <div class="scene-source"><span></span> Aena + ADS‑B <b id="sceneMovementCount">0</b></div>
-        </div>
-        <div class="airport-flow" id="airportFlow" aria-live="polite"></div>
-      </article>
+          <section class="scene-belts" aria-label="Cintas de equipajes de derecha a izquierda">
+            <header><span>← SALA B · CINTA 8</span><strong>RECOGIDA DE EQUIPAJES</strong><span>CINTA 1 · SALA A →</span></header>
+            <div class="scene-belts-grid" id="sceneBelts"></div>
+          </section>
+    </div>
+    <div class="airport-flow airport-flow-wide" id="airportFlow" aria-live="polite"></div>
+  </section>
+
+  <section class="panel mb-3 overflow-hidden radar-collapsed-panel">
+    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#radarCollapse" aria-expanded="false" aria-controls="radarCollapse">
+      <span><strong>Radar ADS‑B</strong><small id="radarToggleLabel">plegado · pulsa para abrir</small></span><b aria-hidden="true">⌄</b>
+    </button>
+    <div class="collapse" id="radarCollapse">
+      <header class="panel-header d-flex align-items-center justify-content-between gap-2">
+        <p class="mb-0 text-secondary small" id="mapStatus">Esperando posiciones OpenSky…</p>
+        <button class="btn btn-sm btn-outline-light" id="fitMapButton" type="button">Encuadrar</button>
+      </header>
+      <div id="flightMap" role="application" aria-label="Mapa de aeronaves que llegan a Sevilla"></div>
     </div>
   </section>
 

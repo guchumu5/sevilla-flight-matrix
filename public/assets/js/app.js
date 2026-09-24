@@ -15,9 +15,11 @@
     loading: document.querySelector('#loadingState'), empty: document.querySelector('#emptyState'),
     error: document.querySelector('#errorAlert'), updated: document.querySelector('#lastUpdated'),
     connection: document.querySelector('#connectionBadge'), canaryWatch: document.querySelector('#canaryWatch'),
+    upcomingStrip: document.querySelector('#upcomingStrip'),
     mapStatus: document.querySelector('#mapStatus'), airportFlow: document.querySelector('#airportFlow'),
     airportScene: document.querySelector('#airportScene'), sceneAircraft: document.querySelector('#sceneAircraft'),
-    sceneClock: document.querySelector('#sceneClock'), sceneMovementCount: document.querySelector('#sceneMovementCount'),
+    sceneClock: document.querySelector('#sceneClock'), sceneMovementCount: document.querySelector('#sceneMovementCount'), sceneBelts: document.querySelector('#sceneBelts'),
+    radarToggleLabel: document.querySelector('#radarToggleLabel'), radarCollapse: document.querySelector('#radarCollapse'),
     metricFlights: document.querySelector('#metricFlights'), metricOrange: document.querySelector('#metricOrange'),
     metricRed: document.querySelector('#metricRed'), metricHall: document.querySelector('#metricHall'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
@@ -149,6 +151,7 @@
     els.empty.classList.toggle('d-none', flights.length !== 0);
     metrics(flights);
     renderCanaryWatch();
+    renderUpcomingLine();
     renderMap();
     renderAirportFlow();
     bindFlightOpeners();
@@ -156,7 +159,7 @@
   }
 
   function bindFlightOpeners() {
-    document.querySelectorAll('.flight-row, .canary-card, .flow-flight, .scene-plane').forEach(item => {
+    document.querySelectorAll('.flight-row, .canary-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-belt.has-flight').forEach(item => {
       item.addEventListener('click', () => openDetail(item.dataset.flightId));
       item.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -183,6 +186,31 @@
         <div class="canary-card-time">${time(effectiveArrival(f))}</div>
         <div class="d-flex justify-content-between gap-2"><span>${esc(f.physical_flight)}</span><b>${esc(f.belt_label || 'sin cinta')}</b></div>
         ${f.secondary_belt_state === 'candidate' ? `<small class="canary-proposal">● ${esc((f.secondary_belt_source||'API').toUpperCase())}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}</small>` : ''}
+      </article>`;
+    }).join('');
+  }
+
+  function renderUpcomingLine() {
+    const now = madridNow();
+    const isToday = els.date.value === now.date;
+    const flights = state.flights.filter(f => {
+      const status = `${f.status || ''} ${f.baggage_state || ''}`.toLowerCase();
+      if (status.includes('final') || status.includes('cancel')) return false;
+      const minute = minuteOfDay(effectiveArrival(f));
+      return !isToday || minute === null || minute >= now.minutes - 10;
+    }).slice(0, 10);
+    if (!flights.length) {
+      els.upcomingStrip.innerHTML = '<div class="upcoming-empty">No quedan llegadas activas para esta fecha.</div>';
+      return;
+    }
+    els.upcomingStrip.innerHTML = flights.map((f,index) => {
+      const officialBelt = f.source === 'aena' && f.belt ? f.belt_label : 'pendiente Aena';
+      return `<article class="upcoming-flight ${Number(f.is_canary)===1?'canary':''}" data-flight-id="${Number(f.id)}" tabindex="0">
+        <span class="upcoming-order">${index + 1}</span>
+        <span class="upcoming-plane" aria-hidden="true">✈</span>
+        <div><strong>${esc(f.physical_flight)}</strong><b>${esc(f.origin_name)}</b><small>${esc(f.origin_iata)} · ${esc(f.aircraft_type || 'avión pendiente')}</small></div>
+        <time>${time(effectiveArrival(f))}</time>
+        <em>${esc(officialBelt)}</em>
       </article>`;
     }).join('');
   }
@@ -237,6 +265,10 @@
     els.mapStatus.textContent = tracked.length
       ? `${tracked.length} aeronave${tracked.length===1?'':'s'} con posición · OpenSky es telemetría secundaria`
       : 'Sin posiciones ADS‑B disponibles para los vuelos cargados.';
+    if (els.radarToggleLabel) {
+      const radarState = els.radarCollapse?.classList.contains('show') ? 'visible' : 'plegado';
+      els.radarToggleLabel.textContent = `${tracked.length} aeronave${tracked.length===1?'':'s'} con posición · ${radarState}`;
+    }
     if (tracked.length && !state.mapHasFitted) {
       state.map.fitBounds(bounds, {padding:[36,36], maxZoom:9});
       state.mapHasFitted = true;
@@ -310,7 +342,7 @@
       enroute:  [[8,38],[17,31],[25,44],[31,28]],
       approach: [[34,38],[40,44],[46,48],[51,50]],
       ground:   [[61,57],[67,63],[72,58],[75,67]],
-      baggage:  [[78,76],[84,82],[90,76],[86,68]]
+      baggage:  [[76,62],[82,67],[89,62],[86,55]]
     };
     const list = positions[stage] || positions.waiting;
     const point = list[index % list.length];
@@ -338,10 +370,23 @@
         style="--scene-left:${position.left}%;--scene-top:${position.top}%;--scene-heading:${sceneHeading(stage,f)}deg"
         title="${esc(f.physical_flight)} · ${esc(f.origin_name)} · ${esc(stageLabels[stage])} · ${destination}">
         <span class="scene-plane-icon" aria-hidden="true">✈</span>
-        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}</strong><small>${time(effectiveArrival(f))} · ${destination}</small></span>
+        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}</strong><em>${esc(f.origin_name)}</em><small>${time(effectiveArrival(f))} · ${destination}</small></span>
       </button>`;
     }).join('');
     els.sceneMovementCount.textContent = active.length;
+    renderSceneBelts(active);
+  }
+
+  function renderSceneBelts(active) {
+    if (!els.sceneBelts) return;
+    els.sceneBelts.innerHTML = [8,7,6,5,4,3,2,1].map(number => {
+      const flights = active.filter(f => f.source === 'aena' && String(f.belt) === String(number));
+      const danger = number >= 7 ? 'danger' : '';
+      const codes = flights.slice(0,2).map(f => esc(f.physical_flight)).join(' · ');
+      return `<button type="button" class="scene-belt ${danger} ${flights.length?'has-flight':''}" ${flights.length?`data-flight-id="${Number(flights[0].id)}"`:''} title="${flights.length?esc(flights.map(f=>`${f.physical_flight} ${f.origin_name}`).join(' · ')):`Cinta ${number} sin vuelo activo`}">
+        <span>${number}</span><small>${codes || 'libre'}</small>${flights.length>2?`<b>+${flights.length-2}</b>`:''}
+      </button>`;
+    }).join('');
   }
 
   function updateSceneClock() {
@@ -466,6 +511,16 @@
   els.refresh.addEventListener('click', () => loadBoard(true));
   els.now.addEventListener('click', () => scrollToCurrent(true));
   els.fitMap.addEventListener('click', fitTrackedAircraft);
+  if (els.radarCollapse) els.radarCollapse.addEventListener('shown.bs.collapse', () => {
+    if (state.map) {
+      state.map.invalidateSize();
+      fitTrackedAircraft();
+    }
+    if (els.radarToggleLabel) els.radarToggleLabel.textContent = els.radarToggleLabel.textContent.replace('plegado','visible');
+  });
+  if (els.radarCollapse) els.radarCollapse.addEventListener('hidden.bs.collapse', () => {
+    if (els.radarToggleLabel) els.radarToggleLabel.textContent = els.radarToggleLabel.textContent.replace('visible','plegado');
+  });
 
   updateSceneClock();
   setInterval(updateSceneClock, 1000);

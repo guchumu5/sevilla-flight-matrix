@@ -225,6 +225,13 @@ deducible de los datos, los canarios quedan resaltados y cualquier aeronave se
 puede pulsar para abrir su ficha. Es un esquema de situación, no un plano de
 puestos; por eso nunca convierte una posición pendiente en finger o remoto.
 
+La versión 1.8 amplía esa escena y representa las ocho cintas de la planta 0 en
+el orden operativo indicado para el proyecto: **8–1 de izquierda a derecha**,
+equivalente a **1–8 de derecha a izquierda**. Encima aparece una línea con las
+diez próximas llegadas, siempre con vuelo, procedencia, hora efectiva y cinta
+oficial o `pendiente Aena`. El radar ADS-B queda plegado por defecto y se abre
+solo cuando el usuario lo necesita.
+
 La futura carga semanal utilizará este mismo reconciliador. La periodicidad
 recomendada es: siete días completos una vez al día, hoy y mañana cada 30
 minutos y la ventana operativa próxima cada 2-5 minutos. Los datos vivos deben
