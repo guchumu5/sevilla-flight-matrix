@@ -101,7 +101,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
     <header class="panel-header d-flex align-items-start justify-content-between gap-2">
       <div>
         <h2 class="h5 mb-1">Aeropuerto de Sevilla en movimiento</h2>
-        <p class="mb-0 text-secondary small">Terminal de pasajeros · planta 0. Las posiciones exactas de estacionamiento solo aparecen si están publicadas.</p>
+        <p class="mb-0 text-secondary small">Posición GPS real cuando existe ADS‑B; sin señal, el vuelo queda en cola prevista. La ruta hacia la cinta representa el equipaje, no el rodaje del avión.</p>
       </div>
       <time class="scene-clock" id="sceneClock">--:--</time>
     </header>
@@ -113,14 +113,16 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
             </defs>
             <rect width="900" height="360" fill="url(#sceneSky)"/>
             <path class="scene-coast" d="M0 305 C130 250 225 332 355 282 S615 270 900 238 V360 H0Z"/>
-            <path class="scene-approach-line" d="M25 70 C145 78 205 120 295 178"/>
+            <path class="scene-approach-line" d="M18 76 C145 78 205 120 295 178"/>
+            <path class="scene-approach-line scene-approach-right" d="M882 76 C755 78 690 120 602 178"/>
             <path class="scene-taxiway" d="M560 181 C650 183 650 250 722 257"/>
             <rect class="scene-runway" x="280" y="158" width="330" height="42" rx="5"/>
             <rect x="290" y="161" width="310" height="36" fill="url(#runwayMarks)"/>
             <g class="runway-lights"><circle cx="280" cy="154" r="3"/><circle cx="330" cy="154" r="3"/><circle cx="380" cy="154" r="3"/><circle cx="430" cy="154" r="3"/><circle cx="480" cy="154" r="3"/><circle cx="530" cy="154" r="3"/><circle cx="580" cy="154" r="3"/><circle cx="610" cy="154" r="3"/></g>
             <g class="scene-terminal"><path d="M675 218h198v73H675z"/><path d="M700 198h38v26h-38zM755 198h38v26h-38zM810 198h38v26h-38z"/><text x="774" y="259">TERMINAL · PLANTA 0</text></g>
-            <text class="scene-label" x="24" y="42">EN RUTA</text><text class="scene-label" x="205" y="112">APROXIMACIÓN</text><text class="scene-label" x="416" y="146">PISTA</text><text class="scene-label" x="610" y="213">TIERRA</text>
+            <text class="scene-label" x="24" y="42">COLA OESTE</text><text class="scene-label" x="196" y="112">APROXIMACIÓN</text><text class="scene-label" x="416" y="146">PISTA</text><text class="scene-label" x="610" y="213">TIERRA</text><text class="scene-label" x="785" y="42">COLA ESTE</text>
           </svg>
+          <svg class="scene-trails" id="sceneTrails" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
           <div class="scene-aircraft-layer" id="sceneAircraft"></div>
           <div class="scene-source"><span></span> Aena + ADS‑B <b id="sceneMovementCount">0</b></div>
           <section class="scene-belts" aria-label="Cintas de equipajes de derecha a izquierda">
@@ -128,7 +130,14 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
             <div class="scene-belts-grid" id="sceneBelts"></div>
           </section>
     </div>
-    <div class="airport-flow airport-flow-wide" id="airportFlow" aria-live="polite"></div>
+    <section class="belt-changes-section d-none" id="beltChangesSection" aria-labelledby="beltChangesTitle">
+      <header><div><strong id="beltChangesTitle">Cambios de cinta</strong><small>Primera asignación, cambio oficial y contexto observado</small></div><span class="badge text-bg-warning" id="beltChangesCount">0</span></header>
+      <div class="belt-changes-strip" id="beltChangesStrip"></div>
+    </section>
+    <details class="flow-details">
+      <summary>Ver desglose por fase</summary>
+      <div class="airport-flow airport-flow-wide" id="airportFlow" aria-live="polite"></div>
+    </details>
   </section>
 
   <section class="panel mb-3 overflow-hidden radar-collapsed-panel">
@@ -147,7 +156,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
   <section class="panel overflow-hidden" id="arrivalsPanel">
     <header class="panel-header d-flex flex-wrap align-items-center justify-content-between gap-2">
       <div>
-        <h1 class="h5 mb-1">Llegadas físicas</h1>
+        <h1 class="h5 mb-1">Llegadas físicas · ventana 5 + 5 + 5</h1>
         <p class="mb-0 text-secondary" id="lastUpdated">Esperando datos…</p>
       </div>
       <div class="legend d-flex flex-wrap gap-2" aria-label="Leyenda">

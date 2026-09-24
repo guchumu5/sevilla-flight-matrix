@@ -126,7 +126,128 @@ ORDER BY effective_arrival, f.physical_flight
 SQL;
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(['date' => $date]);
-        return (new MatrixEngine())->decorate($stmt->fetchAll());
+        $rows = (new MatrixEngine())->decorate($stmt->fetchAll());
+        if (!$rows) return [];
+        $this->attachBeltAverages($rows, $date);
+        $this->attachBeltEvents($rows);
+        $this->attachTelemetryTrails($rows);
+        return $rows;
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function attachBeltAverages(array &$rows, string $date): void
+    {
+        $physicalFlights = array_values(array_unique(array_filter(array_column($rows, 'physical_flight'))));
+        $origins = array_values(array_unique(array_filter(array_column($rows, 'origin_iata'))));
+        $conditions = [];
+        $params = ['history_date' => $date];
+
+        if ($physicalFlights) {
+            $names = [];
+            foreach ($physicalFlights as $index => $code) {
+                $name = 'physical_' . $index;
+                $names[] = ':' . $name;
+                $params[$name] = $code;
+            }
+            $conditions[] = 'hf.physical_flight IN (' . implode(',', $names) . ')';
+        }
+        if ($origins) {
+            $names = [];
+            foreach ($origins as $index => $origin) {
+                $name = 'origin_' . $index;
+                $names[] = ':' . $name;
+                $params[$name] = $origin;
+            }
+            $conditions[] = 'hf.origin_iata IN (' . implode(',', $names) . ')';
+        }
+        if (!$conditions) return;
+
+        $stmt = $this->pdo->prepare(
+            'SELECT hf.id,hf.physical_flight,hf.origin_iata,
+             TIMESTAMPDIFF(MINUTE, MIN(o.observed_at), hf.scheduled_arrival) AS lead_minutes
+             FROM flights hf
+             INNER JOIN observations o ON o.flight_id=hf.id
+             WHERE hf.flight_date<:history_date AND o.source=\'aena\'
+             AND o.belt IS NOT NULL AND o.belt<>\'\'
+             AND (' . implode(' OR ', $conditions) . ')
+             GROUP BY hf.id,hf.physical_flight,hf.origin_iata,hf.scheduled_arrival'
+        );
+        $stmt->execute($params);
+
+        $byPhysical = [];
+        $byOrigin = [];
+        foreach ($stmt->fetchAll() as $history) {
+            $lead = (int)$history['lead_minutes'];
+            if ($lead < -720 || $lead > 10080) continue;
+            $byPhysical[$history['physical_flight']][] = $lead;
+            $byOrigin[$history['origin_iata']][] = $lead;
+        }
+
+        foreach ($rows as &$row) {
+            $flightSamples = $byPhysical[$row['physical_flight']] ?? [];
+            $originSamples = $byOrigin[$row['origin_iata']] ?? [];
+            $row['belt_lead_flight_average_minutes'] = $flightSamples
+                ? (int)round(array_sum($flightSamples) / count($flightSamples)) : null;
+            $row['belt_lead_flight_samples'] = count($flightSamples);
+            $row['belt_lead_origin_average_minutes'] = $originSamples
+                ? (int)round(array_sum($originSamples) / count($originSamples)) : null;
+            $row['belt_lead_origin_samples'] = count($originSamples);
+        }
+        unset($row);
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function attachBeltEvents(array &$rows): void
+    {
+        $ids = array_map('intval', array_column($rows, 'id'));
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT id,flight_id,source,event_type,before_value,after_value,reason_code,
+             reason_detail,confidence,evidence,detected_at
+             FROM flight_events
+             WHERE flight_id IN ($placeholders)
+             AND event_type IN ('belt_assigned','belt_changed','belt_removed')
+             ORDER BY detected_at,id"
+        );
+        $stmt->execute($ids);
+        $eventsByFlight = [];
+        foreach ($stmt->fetchAll() as $event) {
+            if (is_string($event['evidence'] ?? null)) {
+                $decoded = json_decode($event['evidence'], true);
+                $event['evidence'] = is_array($decoded) ? $decoded : null;
+            }
+            $eventsByFlight[(int)$event['flight_id']][] = $event;
+        }
+        foreach ($rows as &$row) {
+            $row['belt_events'] = $eventsByFlight[(int)$row['id']] ?? [];
+        }
+        unset($row);
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function attachTelemetryTrails(array &$rows): void
+    {
+        $ids = array_map('intval', array_column($rows, 'id'));
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT flight_id,observed_at,latitude,longitude,altitude_m,ground_speed_ms,track_deg
+             FROM observations
+             WHERE flight_id IN ($placeholders) AND source='opensky'
+             AND latitude IS NOT NULL AND longitude IS NOT NULL
+             AND observed_at>=DATE_SUB(NOW(),INTERVAL 6 HOUR)
+             ORDER BY flight_id,observed_at,id"
+        );
+        $stmt->execute($ids);
+        $trails = [];
+        foreach ($stmt->fetchAll() as $point) {
+            $flightId = (int)$point['flight_id'];
+            $trails[$flightId][] = $point;
+            if (count($trails[$flightId]) > 20) array_shift($trails[$flightId]);
+        }
+        foreach ($rows as &$row) {
+            $row['telemetry_trail'] = $trails[(int)$row['id']] ?? [];
+        }
+        unset($row);
     }
 
     public function history(int $flightId): array
@@ -134,7 +255,7 @@ SQL;
         $stmt = $this->pdo->prepare(
             'SELECT id, source, observed_at, status, eta, actual_departure, actual_arrival,
                     hall, belt, gate, stand, baggage_state, latitude, longitude,
-                    altitude_m, ground_speed_ms, track_deg, occupancy_level
+                    altitude_m, ground_speed_ms, track_deg, vertical_rate_ms, occupancy_level
              FROM observations WHERE flight_id = ? ORDER BY observed_at, id'
         );
         $stmt->execute([$flightId]);

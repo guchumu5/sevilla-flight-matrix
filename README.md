@@ -232,6 +232,21 @@ diez próximas llegadas, siempre con vuelo, procedencia, hora efectiva y cinta
 oficial o `pendiente Aena`. El radar ADS-B queda plegado por defecto y se abre
 solo cuando el usuario lo necesita.
 
+La versión 1.9 convierte la escena en un panel operativo centrado en cintas. El
+nombre del origen aparece en grande dentro de cada cinta; las posiciones y las
+trazas solo avanzan cuando OpenSky aporta nuevas coordenadas ADS-B. Cuando no
+existe señal, el vuelo se conserva como previsto sin simular una posición. Las
+líneas verdes terminal–cinta representan el recorrido conceptual del equipaje,
+no el rodaje del avión.
+
+El listado principal se reduce a cinco vuelos anteriores, hasta cinco activos
+en una ventana de ±60 minutos y cinco posteriores, con carga incremental de
+cinco en cinco. Cada vuelo muestra la media histórica de antelación de la
+primera cinta oficial para el mismo número de vuelo y para el mismo origen,
+junto con sus tamaños de muestra. Un panel independiente reúne los cambios de
+cinta oficiales; la ficha explica el cambio publicado y separa expresamente el
+contexto observado de cualquier causa no demostrada.
+
 La futura carga semanal utilizará este mismo reconciliador. La periodicidad
 recomendada es: siete días completos una vez al día, hoy y mañana cada 30
 minutos y la ventana operativa próxima cada 2-5 minutos. Los datos vivos deben
