@@ -14,6 +14,7 @@
   };
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const time = value => value ? new Intl.DateTimeFormat('es-ES',{hour:'2-digit',minute:'2-digit'}).format(new Date(value.replace(' ','T'))) : '—';
+  const dateTime = value => value ? new Intl.DateTimeFormat('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(new Date(value.replace(' ','T'))) : '—';
   const signed = value => Number(value) > 0 ? `+${value} min` : `${value} min`;
   const pressureText = p => ({baja:'Sin presión',media:'Presión media',alta:'Presión alta',muy_alta:'Presión muy alta'}[p] || p);
   const hallLoadText = p => ({baja:'Baja',media:'Media',alta:'Alta'}[p] || p);
@@ -113,7 +114,7 @@
             ? `<span class="badge text-bg-warning ms-2">provisional · Aena mantiene ${officialPosition}</span>`
             : '<span class="badge text-bg-secondary ms-2">secundario</span>';
         return `<article class="timeline-item ${isAena?'aena':''}">
-          <div class="d-flex justify-content-between gap-2"><strong>${esc((item.source||'').toUpperCase())}${authority}</strong><time class="meta">${time(item.observed_at)}</time></div>
+          <div class="d-flex justify-content-between gap-2"><strong>${esc((item.source||'').toUpperCase())}${authority}</strong><time class="meta">${dateTime(item.observed_at)}</time></div>
           <div>${esc(item.status||'Observación')} · ${beltPosition(item)}</div>
           <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
         </article>`;
