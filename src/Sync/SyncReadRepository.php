@@ -32,6 +32,36 @@ final class SyncReadRepository
              ORDER BY e.detected_at DESC,e.id DESC LIMIT ' . $eventLimit
         )->fetchAll();
 
+        $fetchRuns = [];
+        $fetchSummary = [
+            'attempts' => 0,
+            'successful_attempts' => 0,
+            'failed_attempts' => 0,
+            'records_received' => 0,
+            'last_attempt_at' => null,
+        ];
+        if ($this->tableExists('fetch_runs')) {
+            $fetchRuns = $this->pdo->query(
+                'SELECT id,provider,started_at,finished_at,ok,records_count,error_message
+                 FROM fetch_runs ORDER BY started_at DESC,id DESC LIMIT ' . $runLimit
+            )->fetchAll();
+            $fetchSummaryRow = $this->pdo->query(
+                "SELECT COUNT(*) AS attempts,
+                 SUM(ok=1) AS successful_attempts,
+                 SUM(ok=0) AS failed_attempts,
+                 SUM(records_count) AS records_received,
+                 MAX(started_at) AS last_attempt_at
+                 FROM fetch_runs"
+            )->fetch() ?: [];
+            $fetchSummary = [
+                'attempts' => (int)($fetchSummaryRow['attempts'] ?? 0),
+                'successful_attempts' => (int)($fetchSummaryRow['successful_attempts'] ?? 0),
+                'failed_attempts' => (int)($fetchSummaryRow['failed_attempts'] ?? 0),
+                'records_received' => (int)($fetchSummaryRow['records_received'] ?? 0),
+                'last_attempt_at' => $fetchSummaryRow['last_attempt_at'] ?? null,
+            ];
+        }
+
         $summary = $this->pdo->query(
             "SELECT
              SUM(status='success') AS successful_runs,
@@ -57,8 +87,19 @@ final class SyncReadRepository
                 'belt_events_today' => (int)($eventSummary['belt_events_today'] ?? 0),
                 'visibility_events_today' => (int)($eventSummary['visibility_events_today'] ?? 0),
             ],
+            'collector_summary' => $fetchSummary,
+            'fetch_runs' => $fetchRuns,
             'runs' => $runs,
             'events' => $events,
         ];
+    }
+
+    private function tableExists(string $table): bool
+    {
+        $stmt = $this->pdo->prepare(
+            'SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=:table_name'
+        );
+        $stmt->execute(['table_name' => $table]);
+        return (int)$stmt->fetchColumn() > 0;
     }
 }
