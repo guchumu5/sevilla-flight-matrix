@@ -38,6 +38,13 @@ final class WebOperationsService
                  FROM sync_runs ORDER BY id DESC LIMIT 8'
             )->fetchAll();
         }
+        $latestFetchRuns = [];
+        if (isset($existing['fetch_runs'])) {
+            $latestFetchRuns = $this->pdo->query(
+                'SELECT id, provider, started_at, finished_at, ok, records_count, error_message
+                 FROM fetch_runs ORDER BY id DESC LIMIT 12'
+            )->fetchAll();
+        }
 
         return [
             'ok' => true,
@@ -62,6 +69,7 @@ final class WebOperationsService
                 $requiredTables
             ),
             'latest_runs' => $latestRuns,
+            'latest_fetch_runs' => $latestFetchRuns,
             'limits' => ['airlabs_max' => 20, 'opensky_max' => 25],
         ];
     }
@@ -74,9 +82,9 @@ final class WebOperationsService
         }
 
         return match ($action) {
-            'airlabs' => $this->withLock('airlabs', fn(): array => $this->airLabs($this->clamp($limit, 1, 20))),
-            'opensky' => $this->withLock('opensky', fn(): array => $this->openSky($this->clamp($limit, 1, 25))),
-            'weather' => $this->withLock('weather', fn(): array => $this->weather()),
+            'airlabs' => $this->recordFetch('airlabs', fn(): array => $this->withLock('airlabs', fn(): array => $this->airLabs($this->clamp($limit, 1, 20)))),
+            'opensky' => $this->recordFetch('opensky', fn(): array => $this->withLock('opensky', fn(): array => $this->openSky($this->clamp($limit, 1, 25)))),
+            'weather' => $this->recordFetch('aviationweather', fn(): array => $this->withLock('weather', fn(): array => $this->weather())),
             'all' => $this->runAll($this->clamp($limit, 1, 10)),
         };
     }
@@ -306,6 +314,31 @@ final class WebOperationsService
         } finally {
             $release = $this->pdo->prepare('SELECT RELEASE_LOCK(:lock_name)');
             $release->execute(['lock_name' => $lock]);
+        }
+    }
+
+    /** @template T of array<string,mixed> @param callable():T $callback @return T */
+    private function recordFetch(string $provider, callable $callback): array
+    {
+        $insert = $this->pdo->prepare(
+            'INSERT INTO fetch_runs (provider,started_at,ok,records_count) VALUES (:provider,NOW(),0,0)'
+        );
+        $insert->execute(['provider' => $provider]);
+        $runId = (int)$this->pdo->lastInsertId();
+        try {
+            $result = $callback();
+            $count = (int)($result['received'] ?? $result['updated'] ?? 0);
+            $finish = $this->pdo->prepare(
+                'UPDATE fetch_runs SET finished_at=NOW(),ok=1,records_count=:records_count,error_message=NULL WHERE id=:id'
+            );
+            $finish->execute(['records_count' => $count, 'id' => $runId]);
+            return $result + ['fetch_run_id' => $runId];
+        } catch (Throwable $error) {
+            $finish = $this->pdo->prepare(
+                'UPDATE fetch_runs SET finished_at=NOW(),ok=0,error_message=:error_message WHERE id=:id'
+            );
+            $finish->execute(['error_message' => substr($error->getMessage(), 0, 1000), 'id' => $runId]);
+            throw $error;
         }
     }
 
