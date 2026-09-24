@@ -42,6 +42,11 @@ if (!Auth::check()) {
   </section>
 
   <section class="panel overflow-hidden mb-4">
+    <header class="panel-header"><h2 class="h5 mb-1">Intentos de los recolectores</h2><p class="text-secondary mb-0">Aparecen aunque AirLabs u OpenSky respondan sin vuelos. Así se distingue una consulta vacía de un cron que nunca llegó a PHP.</p></header>
+    <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Estado</th><th>Fuente</th><th>Registros</th><th>Detalle</th><th>Hora</th></tr></thead><tbody id="fetchRunsBody"><tr><td colspan="5" class="text-center py-5 text-secondary">Cargando…</td></tr></tbody></table></div>
+  </section>
+
+  <section class="panel overflow-hidden mb-4">
     <header class="panel-header"><h2 class="h5 mb-1">Ejecuciones recientes</h2><p class="text-secondary mb-0">Permite saber qué fuente se consultó, cuándo y qué produjo.</p></header>
     <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Estado</th><th>Fuente / modo</th><th>Ventana</th><th>Resultado</th><th>Hora</th></tr></thead><tbody id="runsBody"><tr><td colspan="5" class="text-center py-5 text-secondary">Cargando…</td></tr></tbody></table></div>
   </section>
@@ -70,6 +75,13 @@ if (!Auth::check()) {
       document.querySelector('#eventsToday').textContent = data.summary.events_today;
       document.querySelector('#beltEvents').textContent = data.summary.belt_events_today;
       document.querySelector('#visibilityEvents').textContent = data.summary.visibility_events_today;
+      const fetchRuns = data.fetch_runs || [];
+      document.querySelector('#fetchRunsBody').innerHTML = fetchRuns.length ? fetchRuns.map(run => `<tr>
+        <td><span class="badge ${Number(run.ok) === 1 ? 'text-bg-success' : 'text-bg-danger'}">${Number(run.ok) === 1 ? 'Ejecutado' : 'Error'}</span></td>
+        <td><strong>${esc(run.provider)}</strong><span class="meta d-block">intento #${esc(run.id)}</span></td>
+        <td><strong>${Number(run.records_count).toLocaleString('es-ES')}</strong></td>
+        <td>${run.error_message ? `<span class="text-danger">${esc(run.error_message)}</span>` : '<span class="text-secondary">La fuente respondió sin error técnico.</span>'}</td>
+        <td>${empty(run.finished_at || run.started_at)}</td></tr>`).join('') : '<tr><td colspan="5" class="text-center py-5 text-secondary">Todavía no hay intentos registrados. Aplica la actualización de recolectores y ejecuta un proceso.</td></tr>';
       document.querySelector('#runsBody').innerHTML = data.runs.length ? data.runs.map(run => `<tr>
         <td>${statusBadge(run.status)}</td><td><strong>${esc(run.provider)}</strong><span class="meta d-block">${esc(run.mode)} · ejecución #${esc(run.id)}</span></td>
         <td>${empty(run.window_from)}<span class="meta d-block">hasta ${empty(run.window_to)}</span></td>
