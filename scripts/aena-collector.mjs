@@ -65,11 +65,15 @@ async function chooseClock(page, side, totalMinutes) {
 }
 
 async function selectDay(page, day) {
-  await page.getByRole('textbox', { name: 'Fecha del vuelo (dd/mm/yyyy):' }).click();
+  await page.locator('#fecha').click();
   const buttonName = dayLabel(day);
-  const button = page.getByRole('button', { name: buttonName }).first();
-  await button.click();
-  await page.getByRole('button', { name: buttonName }).first().click();
+  // Aena usa un selector de rango, pero un único clic sobre el mismo día ya
+  // fija inicio y fin y cierra el calendario. El segundo clic anterior esperaba
+  // un botón que ya no estaba en el DOM y agotaba el tiempo de GitHub Actions.
+  await page.getByRole('button', { name: buttonName, exact: true }).first().click();
+  const [year, month, dayOfMonth] = day.split('-');
+  const expected = `${dayOfMonth}/${month}/${year} - ${dayOfMonth}/${month}/${year}`;
+  await page.waitForFunction(value => document.querySelector('#fecha')?.value === value, expected, { timeout: 5000 });
 }
 
 async function preparePage(browser, day) {
