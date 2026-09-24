@@ -18,6 +18,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
   <title>Matriz de Cintas · Sevilla</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1728'/%3E%3Cpath d='M12 38h40M18 30h28' stroke='%232fd38a' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='22' cy='46' r='5' fill='%23ffb547'/%3E%3Ccircle cx='42' cy='46' r='5' fill='%23ffb547'/%3E%3C/svg%3E">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
   <link href="assets/css/app.css?v=<?= e($cssVersion) ?>" rel="stylesheet">
 </head>
 <body>
@@ -63,8 +64,9 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
           <label class="form-check-label" for="secondaryOnly">Cintas API</label>
         </div>
       </div>
-      <div class="col-12 col-md-3 text-md-end">
-        <button class="btn btn-success w-100 w-md-auto" id="refreshButton" type="button">Actualizar ahora</button>
+      <div class="col-12 col-md-3 text-md-end d-flex gap-2 justify-content-md-end">
+        <button class="btn btn-outline-light flex-fill flex-md-grow-0" id="nowButton" type="button">Ir a ahora</button>
+        <button class="btn btn-success flex-fill flex-md-grow-0" id="refreshButton" type="button">Actualizar</button>
       </div>
     </div>
   </section>
@@ -76,7 +78,42 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
     <div class="col-6 col-xl-3"><article class="metric-card metric-blue"><span>Afluencia máxima</span><strong id="metricHall">—</strong><small>plazas teóricas ±30 min</small></article></div>
   </section>
 
-  <section class="panel overflow-hidden">
+  <section class="panel canary-watch-panel mb-3" aria-labelledby="canaryWatchTitle">
+    <header class="panel-header d-flex align-items-center justify-content-between gap-2">
+      <div>
+        <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias siempre visible</h2>
+        <p class="mb-0 text-secondary small">Todos los vuelos canarios del día, aunque filtres la tabla principal.</p>
+      </div>
+      <span class="canary-watch-mark" aria-hidden="true">🌴</span>
+    </header>
+    <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
+  </section>
+
+  <section class="row g-3 mb-3" aria-label="Situación visual del aeropuerto">
+    <div class="col-12 col-xl-7">
+      <article class="panel h-100 overflow-hidden radar-panel">
+        <header class="panel-header d-flex align-items-center justify-content-between gap-2">
+          <div>
+            <h2 class="h6 mb-1">Radar ADS‑B de llegadas</h2>
+            <p class="mb-0 text-secondary small" id="mapStatus">Esperando posiciones OpenSky…</p>
+          </div>
+          <button class="btn btn-sm btn-outline-light" id="fitMapButton" type="button">Encuadrar</button>
+        </header>
+        <div id="flightMap" role="application" aria-label="Mapa de aeronaves que llegan a Sevilla"></div>
+      </article>
+    </div>
+    <div class="col-12 col-xl-5">
+      <article class="panel h-100 overflow-hidden">
+        <header class="panel-header">
+          <h2 class="h6 mb-1">Flujo del aeropuerto</h2>
+          <p class="mb-0 text-secondary small">Aproximación, tierra y destino del equipaje según el último dato disponible.</p>
+        </header>
+        <div class="airport-flow" id="airportFlow" aria-live="polite"></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="panel overflow-hidden" id="arrivalsPanel">
     <header class="panel-header d-flex flex-wrap align-items-center justify-content-between gap-2">
       <div>
         <h1 class="h5 mb-1">Llegadas físicas</h1>
@@ -112,6 +149,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="assets/js/app.js?v=<?= e($jsVersion) ?>"></script>
 </body>
 </html>

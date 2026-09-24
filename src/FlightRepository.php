@@ -30,6 +30,14 @@ SELECT
     COALESCE(latest_aena.stand, latest_other.stand) AS stand,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.baggage_state ELSE latest_other.baggage_state END AS baggage_state,
     COALESCE(latest_aena.occupancy_level, latest_other.occupancy_level, 'no_verificable') AS occupancy_level,
+    latest_opensky.observed_at AS telemetry_observed_at,
+    latest_opensky.status AS telemetry_status,
+    latest_opensky.latitude,
+    latest_opensky.longitude,
+    latest_opensky.altitude_m,
+    latest_opensky.ground_speed_ms,
+    latest_opensky.track_deg,
+    latest_opensky.vertical_rate_ms,
     latest_secondary_belt.source AS secondary_belt_source,
     latest_secondary_belt.observed_at AS secondary_belt_at,
     latest_secondary_belt.hall AS secondary_hall,
@@ -66,6 +74,12 @@ LEFT JOIN observations latest_aena ON latest_aena.id = (
 LEFT JOIN observations latest_other ON latest_other.id = (
     SELECT o.id FROM observations o
     WHERE o.flight_id = f.id AND o.source <> 'aena'
+    ORDER BY o.observed_at DESC, o.id DESC
+    LIMIT 1
+)
+LEFT JOIN observations latest_opensky ON latest_opensky.id = (
+    SELECT o.id FROM observations o
+    WHERE o.flight_id = f.id AND o.source = 'opensky'
     ORDER BY o.observed_at DESC, o.id DESC
     LIMIT 1
 )

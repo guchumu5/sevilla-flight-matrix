@@ -199,6 +199,26 @@ consecutivas que no cambian ningún dato visible se agrupan en un solo tramo.
 El filtro **Cintas API** permite aislar los vuelos con propuesta, confirmación o
 descarte secundario sin recorrer todo el listado.
 
+### Tablero visual y radar ADS-B
+
+La versión 1.6 mantiene una banda independiente con todos los vuelos de
+Canarias: no desaparecen al aplicar filtros en la tabla principal. Al abrir el
+día actual, el navegador baja una sola vez hasta la primera llegada vigente;
+el botón **Ir a ahora** repite el salto cuando sea necesario.
+
+El mapa utiliza Leaflet y cartografía OpenStreetMap. Las aeronaves solo aparecen
+cuando OpenSky ha guardado una posición ADS-B para un ICAO24 conocido. Al pulsar
+un avión se muestran tipo, matrícula, altura, velocidad, rumbo, antigüedad de la
+señal y destino de equipaje. Una señal de más de diez minutos se representa
+atenuada. La silueta es una representación del tipo, no una fotografía de la
+matrícula.
+
+La infografía **Flujo del aeropuerto** clasifica automáticamente los vuelos de
+la ventana activa en prevista, en ruta, aterrizando, en tierra y en cintas. La
+clasificación usa telemetría y estados publicados; puerta, posición, finger y
+cinta se muestran como pendientes si ninguna fuente los ha facilitado. Aena
+continúa prevaleciendo para hora, estado, sala y cinta.
+
 La futura carga semanal utilizará este mismo reconciliador. La periodicidad
 recomendada es: siete días completos una vez al día, hoy y mañana cada 30
 minutos y la ventana operativa próxima cada 2-5 minutos. Los datos vivos deben
