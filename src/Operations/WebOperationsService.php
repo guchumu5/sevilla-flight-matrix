@@ -449,7 +449,7 @@ final class WebOperationsService
         $combined = trim((string)Env::get('AIRLABS_API_KEYS', ''));
         $keys = $combined === ''
             ? []
-            : preg_split('/[,;\r\n]+/', $combined) ?: [];
+            : (preg_split('/[,;\r\n]+/', $combined) ?: []);
         foreach (['AIRLABS_API_KEY_1', 'AIRLABS_API_KEY_2', 'AIRLABS_API_KEY_3', 'AIRLABS_API_KEY'] as $name) {
             $value = trim((string)Env::get($name, ''));
             if ($value !== '') $keys[] = $value;
