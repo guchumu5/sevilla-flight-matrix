@@ -79,6 +79,12 @@ async function selectDay(page, day) {
 async function preparePage(browser, day) {
   const page = await browser.newPage({ timezoneId: TIME_ZONE });
   await page.goto(AENA_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  // El aviso de cookies añade un botón "Aceptar todas". Se cierra antes de
+  // manejar los selectores de Aena para que no interfiera con sus botones.
+  const acceptCookies = page.getByRole('button', { name: 'Aceptar todas', exact: true }).first();
+  if (await acceptCookies.isVisible().catch(() => false)) {
+    await acceptCookies.click();
+  }
   const arrivals = page.getByRole('textbox', { name: 'Llegadas en la red Aena:' });
   await arrivals.fill('Sevilla');
   await page.waitForTimeout(700);
@@ -90,7 +96,7 @@ async function setTimeRange(page, start, end = null) {
   await page.getByRole('textbox', { name: 'Horas:' }).click();
   await chooseClock(page, 'desde', start);
   if (end !== null) await chooseClock(page, 'hasta', end);
-  await page.getByRole('button', { name: 'Aceptar' }).click();
+  await page.getByRole('button', { name: 'Aceptar', exact: true }).click();
 }
 
 async function executeSearch(page) {

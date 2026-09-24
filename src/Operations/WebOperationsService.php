@@ -57,7 +57,8 @@ final class WebOperationsService
             ],
             'providers' => [
                 'aena' => $this->configured('AENA_INGEST_TOKEN'),
-                'airlabs' => $this->configured('AIRLABS_API_KEY'),
+                'airlabs' => $this->airLabsKeys() !== [],
+                'airlabs_keys' => count($this->airLabsKeys()),
                 'opensky' => $this->configured('OPENSKY_CLIENT_ID') && $this->configured('OPENSKY_CLIENT_SECRET'),
                 'aviationweather' => true,
             ],
@@ -71,7 +72,7 @@ final class WebOperationsService
             ),
             'latest_runs' => $latestRuns,
             'latest_fetch_runs' => $latestFetchRuns,
-            'limits' => ['airlabs_max' => 20, 'opensky_max' => 25],
+            'limits' => ['airlabs_max' => 50, 'opensky_max' => 25],
         ];
     }
 
@@ -83,7 +84,7 @@ final class WebOperationsService
         }
 
         return match ($action) {
-            'airlabs' => $this->recordFetch('airlabs', fn(): array => $this->withLock('airlabs', fn(): array => $this->airLabs($this->clamp($limit, 1, 20)))),
+            'airlabs' => $this->recordFetch('airlabs', fn(): array => $this->withLock('airlabs', fn(): array => $this->airLabs($this->clamp($limit, 1, 50)))),
             'opensky' => $this->recordFetch('opensky', fn(): array => $this->withLock('opensky', fn(): array => $this->openSky($this->clamp($limit, 1, 25)))),
             'weather' => $this->recordFetch('aviationweather', fn(): array => $this->withLock('weather', fn(): array => $this->weather())),
             'all' => $this->runAll($this->clamp($limit, 1, 10)),
@@ -93,9 +94,9 @@ final class WebOperationsService
     /** @return array<string,mixed> */
     private function airLabs(int $limit): array
     {
-        $key = trim((string)Env::get('AIRLABS_API_KEY', ''));
-        if ($key === '') {
-            throw new RuntimeException('AIRLABS_API_KEY no está configurada en .env.');
+        $keys = $this->airLabsKeys();
+        if ($keys === []) {
+            throw new RuntimeException('No hay ninguna clave AirLabs configurada en .env.');
         }
 
         $stmt = $this->pdo->prepare(
@@ -103,13 +104,11 @@ final class WebOperationsService
                     GROUP_CONCAT(DISTINCT fc.flight_code ORDER BY fc.flight_code SEPARATOR ',') AS codeshares
              FROM flights f
              LEFT JOIN flight_codes fc ON fc.flight_id=f.id AND fc.flight_code<>f.physical_flight
-             WHERE f.scheduled_arrival BETWEEN DATE_SUB(NOW(), INTERVAL 3 HOUR) AND DATE_ADD(NOW(), INTERVAL 36 HOUR)
+             WHERE f.scheduled_arrival BETWEEN DATE_SUB(NOW(), INTERVAL 3 HOUR) AND DATE_ADD(NOW(), INTERVAL 10 HOUR)
              GROUP BY f.id
-             ORDER BY CASE WHEN f.scheduled_arrival >= NOW() THEN 0 ELSE 1 END,
-                      ABS(TIMESTAMPDIFF(MINUTE, NOW(), f.scheduled_arrival))
-             LIMIT :limit"
+             ORDER BY f.scheduled_arrival
+             LIMIT 250"
         );
-        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
         $flights = $stmt->fetchAll();
 
@@ -117,9 +116,11 @@ final class WebOperationsService
             return ['ok' => true, 'action' => 'airlabs', 'message' => 'No hay vuelos próximos para consultar.', 'requested' => 0, 'received' => 0, 'errors' => []];
         }
 
-        $client = new AirLabsClient($key);
+        $client = new AirLabsClient($keys, PROJECT_ROOT . '/storage/cache/airlabs-key-slot.txt');
+        $scheduleRows = $client->arrivals('SVQ', 50);
         $records = [];
         $errors = [];
+        $matchedRows = [];
         foreach ($flights as $flight) {
             try {
                 $codeshares = $flight['codeshares'] ? explode(',', (string)$flight['codeshares']) : [];
@@ -128,23 +129,17 @@ final class WebOperationsService
                     array_merge([(string)$flight['physical_flight']], $codeshares)
                 ))));
 
-                $data = null;
-                $lookupCode = null;
-                foreach ($candidateCodes as $candidateCode) {
-                    $data = $client->flight($candidateCode);
-                    if ($data !== null) {
-                        $lookupCode = $candidateCode;
-                        break;
-                    }
-                }
+                $data = $this->matchAirLabsSchedule($flight, $candidateCodes, $scheduleRows);
                 if (!$data) {
-                    $errors[] = sprintf(
-                        '%s: sin datos actuales (probados: %s)',
-                        $flight['physical_flight'],
-                        implode(', ', $candidateCodes)
-                    );
                     continue;
                 }
+                $lookupCode = (string)($data['_matched_flight_code'] ?? $flight['physical_flight']);
+                $rowKey = implode('|', [
+                    (string)($data['flight_icao'] ?? $data['flight_iata'] ?? $lookupCode),
+                    (string)($data['arr_time'] ?? ''),
+                ]);
+                if (isset($matchedRows[$rowKey])) continue;
+                $matchedRows[$rowKey] = true;
                 $destination = strtoupper(trim((string)($data['arr_iata'] ?? 'SVQ')));
                 $origin = strtoupper(trim((string)($data['dep_iata'] ?? $flight['origin_iata'])));
                 if ($destination !== 'SVQ' || $origin !== strtoupper((string)$flight['origin_iata'])) {
@@ -176,8 +171,8 @@ final class WebOperationsService
                     'occupancy_level' => 'no_verificable',
                     'confidence' => 'provisional',
                     'reason_code' => 'secondary_provider_update',
-                    'reason_detail' => 'AirLabs actualizó la información secundaria; no constituye una causa operativa publicada por Aena.',
-                    'raw_data' => $data + ['_matched_flight_code' => $lookupCode],
+                    'reason_detail' => 'AirLabs actualizó la información secundaria mediante una consulta agrupada de llegadas; no constituye una causa operativa publicada por Aena.',
+                    'raw_data' => $data + ['_matched_flight_code' => $lookupCode, '_transport' => 'airport_schedule_batch'],
                 ];
                 foreach ([
                     'aircraft_registration' => $data['reg_number'] ?? null,
@@ -199,7 +194,13 @@ final class WebOperationsService
                 'mode' => 'delta',
                 'observed_at' => date('Y-m-d H:i:s'),
                 'complete' => false,
-                'metadata' => ['transport' => 'admin_web', 'requested' => count($flights)],
+                'metadata' => [
+                    'transport' => 'airport_schedule_batch',
+                    'upstream_requests' => 1,
+                    'schedule_rows' => count($scheduleRows),
+                    'candidate_flights' => count($flights),
+                    'configured_keys' => count($keys),
+                ],
             ]);
         }
 
@@ -208,13 +209,60 @@ final class WebOperationsService
             'useful' => $records !== [],
             'action' => 'airlabs',
             'message' => $records !== []
-                ? sprintf('AirLabs consultó %d vuelos y devolvió %d registros válidos.', count($flights), count($records))
-                : sprintf('AirLabs respondió, pero ninguno de los %d vuelos produjo un registro válido.', count($flights)),
-            'requested' => count($flights),
+                ? sprintf('AirLabs hizo 1 consulta agrupada, recibió %d llegadas y concilió %d vuelos.', count($scheduleRows), count($records))
+                : sprintf('AirLabs hizo 1 consulta agrupada y recibió %d llegadas, sin coincidencias válidas.', count($scheduleRows)),
+            'requested' => 1,
+            'schedule_rows' => count($scheduleRows),
+            'candidate_flights' => count($flights),
+            'configured_keys' => count($keys),
             'received' => count($records),
             'errors' => $errors,
             'sync' => $sync,
         ];
+    }
+
+    /**
+     * @param array<string,mixed> $flight
+     * @param list<string> $candidateCodes
+     * @param list<array<string,mixed>> $rows
+     * @return array<string,mixed>|null
+     */
+    private function matchAirLabsSchedule(array $flight, array $candidateCodes, array $rows): ?array
+    {
+        $candidateCodes = array_map('strtoupper', $candidateCodes);
+        $best = null;
+        $bestDistance = PHP_INT_MAX;
+        $scheduledTimestamp = strtotime((string)$flight['scheduled_arrival']) ?: 0;
+
+        foreach ($rows as $row) {
+            $destination = strtoupper(trim((string)($row['arr_iata'] ?? '')));
+            $origin = strtoupper(trim((string)($row['dep_iata'] ?? '')));
+            if ($destination !== 'SVQ' || ($origin !== '' && $origin !== strtoupper((string)$flight['origin_iata']))) continue;
+
+            $rowCodes = array_values(array_unique(array_filter(array_map(
+                static fn(mixed $value): string => strtoupper(trim((string)$value)),
+                [
+                    $row['flight_icao'] ?? null,
+                    $row['flight_iata'] ?? null,
+                    $row['cs_flight_icao'] ?? null,
+                    $row['cs_flight_iata'] ?? null,
+                ]
+            ))));
+            $matches = array_values(array_intersect($candidateCodes, $rowCodes));
+            if ($matches === []) continue;
+
+            $arrivalValue = (string)($row['arr_time'] ?? $row['arr_estimated'] ?? '');
+            $arrivalDate = substr(trim($arrivalValue), 0, 10);
+            if ($arrivalDate !== '' && $arrivalDate !== (string)$flight['flight_date']) continue;
+            $arrivalTimestamp = strtotime($arrivalValue) ?: $scheduledTimestamp;
+            $distance = abs($arrivalTimestamp - $scheduledTimestamp);
+            if ($distance >= $bestDistance) continue;
+
+            $bestDistance = $distance;
+            $best = $row;
+            $best['_matched_flight_code'] = $matches[0];
+        }
+        return $best;
     }
 
     /** @return array<string,mixed> */
@@ -228,14 +276,33 @@ final class WebOperationsService
 
         $stmt = $this->pdo->prepare(
             'SELECT id, physical_flight, aircraft_icao24 FROM flights
-             WHERE flight_date BETWEEN CURRENT_DATE() AND DATE_ADD(CURRENT_DATE(), INTERVAL 1 DAY)
+             WHERE scheduled_arrival BETWEEN DATE_SUB(NOW(), INTERVAL 3 HOUR) AND DATE_ADD(NOW(), INTERVAL 8 HOUR)
                AND aircraft_icao24 IS NOT NULL AND aircraft_icao24<>\'\'
              ORDER BY ABS(TIMESTAMPDIFF(MINUTE, NOW(), scheduled_arrival)) LIMIT :limit'
         );
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
-        $flights = $stmt->fetchAll();
+        $rows = $stmt->fetchAll();
+        $flights = [];
+        foreach ($rows as $flight) {
+            $icao24 = strtolower(trim((string)$flight['aircraft_icao24']));
+            if ($icao24 === '' || isset($flights[$icao24])) continue;
+            $flights[$icao24] = $flight;
+        }
+        if ($flights === []) {
+            return [
+                'ok' => true,
+                'action' => 'opensky',
+                'message' => 'No hay matrículas próximas para consultar.',
+                'requested' => 0,
+                'updated' => 0,
+                'errors' => [],
+            ];
+        }
+
         $client = new OpenSkyClient($clientId, $secret, PROJECT_ROOT . '/storage/cache/opensky-token.json');
+        $batch = $client->states(array_keys($flights));
+        $states = $batch['states'];
         $insert = $this->pdo->prepare(
             "INSERT INTO observations
              (flight_id,source,observed_at,status,latitude,longitude,altitude_m,ground_speed_ms,track_deg,vertical_rate_ms,occupancy_level,raw_data)
@@ -243,9 +310,9 @@ final class WebOperationsService
         );
         $updated = 0;
         $errors = [];
-        foreach ($flights as $flight) {
+        foreach ($flights as $icao24 => $flight) {
             try {
-                $state = $client->state((string)$flight['aircraft_icao24']);
+                $state = $states[$icao24] ?? null;
                 if (!$state) continue;
                 $insert->execute([
                     'flight_id' => (int)$flight['id'],
@@ -267,9 +334,11 @@ final class WebOperationsService
         return [
             'ok' => true,
             'action' => 'opensky',
-            'message' => sprintf('OpenSky comprobó %d matrículas y guardó %d posiciones.', count($flights), $updated),
+            'message' => sprintf('OpenSky hizo 1 consulta agrupada para %d matrículas y guardó %d posiciones.', count($flights), $updated),
             'requested' => count($flights),
+            'upstream_requests' => 1,
             'updated' => $updated,
+            'rate_limit' => $batch['rate_limit'],
             'errors' => $errors,
         ];
     }
@@ -372,6 +441,23 @@ final class WebOperationsService
             $finish->execute(['error_message' => substr($error->getMessage(), 0, 1000), 'id' => $runId]);
             throw $error;
         }
+    }
+
+    /** @return list<string> */
+    private function airLabsKeys(): array
+    {
+        $combined = trim((string)Env::get('AIRLABS_API_KEYS', ''));
+        $keys = $combined === ''
+            ? []
+            : preg_split('/[,;\r\n]+/', $combined) ?: [];
+        foreach (['AIRLABS_API_KEY_1', 'AIRLABS_API_KEY_2', 'AIRLABS_API_KEY_3', 'AIRLABS_API_KEY'] as $name) {
+            $value = trim((string)Env::get($name, ''));
+            if ($value !== '') $keys[] = $value;
+        }
+        return array_values(array_unique(array_filter(array_map(
+            static fn(mixed $key): string => trim((string)$key),
+            $keys
+        ))));
     }
 
     private function configured(string $key): bool

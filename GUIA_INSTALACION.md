@@ -48,15 +48,26 @@ Si el alojamiento no permite elegir la raíz pública, coloca solamente el conte
 2. Pulsa **Get FREE API Key**.
 3. Registra una cuenta y verifica el correo electrónico.
 4. En el panel de la cuenta, copia la API key.
-5. Pégala únicamente en `.env`:
+5. La aplicación admite hasta tres claves pertenecientes a planes autorizados.
+   Pégalas únicamente en `.env`:
 
    ```env
-   AIRLABS_API_KEY=tu_clave
+   AIRLABS_API_KEY_1=primera_clave
+   AIRLABS_API_KEY_2=segunda_clave_opcional
+   AIRLABS_API_KEY_3=tercera_clave_opcional
    ```
 
-6. Entra en **Administración → Procesos web** y pulsa **Actualizar AirLabs** para hacer la primera prueba.
+   `AIRLABS_API_KEY` sigue funcionando para instalaciones anteriores. No
+   configures la misma clave en varios campos.
+
+6. Entra en **Administración → Procesos web** y pulsa **Actualizar AirLabs**
+   para hacer la primera prueba. Cada ejecución realiza una sola consulta
+   agrupada de llegadas a SVQ y rota el punto de inicio entre las claves.
 
 AirLabs es una fuente secundaria. Si su cinta discrepa con Aena, entra en **Aena / Admin** y registra la observación oficial.
+El plan gratuito publicado por AirLabs tiene una cuota mensual reducida: aunque
+haya varias claves, no programes consultas cada cinco minutos salvo que la suma
+de los planes contratados cubra ese consumo.
 
 ## Alta en OpenSky
 
@@ -152,12 +163,13 @@ tres tareas:
 
 | Estilo cron | Comando |
 |---|---|
-| `*/10 * * * *` | `/opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-airlabs.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1` |
+| `7 * * * *` | `/opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-airlabs.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1` |
 | `*/5 * * * *` | `/opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-opensky.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1` |
 | `*/10 * * * *` | `/opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-weather.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1` |
 
-Si el plan gratuito de una API tiene poca cuota, aumenta el intervalo de su
-tarea antes de activarla. Primero prueba cada botón en **Procesos web**: si un
+AirLabs se ejecuta una vez por hora para reservar cuota mensual. OpenSky agrupa
+todas las matrículas próximas en una sola petición, por lo que puede mantenerse
+cada cinco minutos. Primero prueba cada botón en **Procesos web**: si un
 proveedor falla allí, la tarea programada también fallará. Los scripts usan el
 mismo servicio que los botones, de modo que no existen dos lógicas distintas.
 

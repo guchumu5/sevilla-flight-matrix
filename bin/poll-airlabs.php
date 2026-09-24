@@ -6,7 +6,7 @@ use SevillaMatrix\Database;
 use SevillaMatrix\Operations\WebOperationsService;
 
 try {
-    $result = (new WebOperationsService(Database::connection()))->run('airlabs', 20);
+    $result = (new WebOperationsService(Database::connection()))->run('airlabs', 50);
     echo json_encode($result, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . PHP_EOL;
 } catch (Throwable $error) {
     fwrite(STDERR, date('c') . ' ' . $error->getMessage() . PHP_EOL);

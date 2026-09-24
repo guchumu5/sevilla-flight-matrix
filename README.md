@@ -140,12 +140,13 @@ Antes del primer uso aplica desde **Actualizar MySQL** el paquete
 `20260924_003_fetch_runs`. El cerebro muestra estos intentos por separado de
 las sincronizaciones que sí produjeron una captura válida.
 
-Los números publicados por Aena suelen usar prefijos ICAO de tres letras
-(`VLG`, `RYR`, `BAW`, `IBE`, etc.). El cliente AirLabs los consulta mediante
-`flight_icao`; los códigos de dos caracteres (`VY`, `FR`, `BA`, `IB`, etc.) se
-consultan mediante `flight_iata`. Si el vuelo físico no devuelve información,
-la aplicación prueba también sus códigos compartidos y deja constancia de todos
-los códigos intentados.
+AirLabs se consulta mediante el tablero agrupado de llegadas a SVQ: una única
+petición devuelve hasta 50 movimientos y la aplicación los concilia localmente
+por ruta, fecha, vuelo físico y códigos compartidos. El `.env` admite
+`AIRLABS_API_KEY_1`, `AIRLABS_API_KEY_2` y `AIRLABS_API_KEY_3`; también
+mantiene `AIRLABS_API_KEY` por compatibilidad. Las claves se usan por turnos y,
+si una responde con límite o credencial caducada, se prueba la siguiente sin
+mostrar nunca su valor.
 
 AirLabs ya entra por el mismo conciliador que el importador JSON: conserva cada
 instantánea y genera los cambios correspondientes en el cerebro. Las
@@ -170,7 +171,7 @@ En Plesk, crea tareas de tipo **Ejecutar un comando**. Para la instalación de
 `ojito.top` con PHP 8.3, usa exactamente:
 
 ```cron
-*/10 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-airlabs.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
+7 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-airlabs.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
 */5 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-opensky.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
 */10 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-weather.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
 ```
@@ -180,7 +181,12 @@ esta versión y no deben añadirse como tareas. `bin/sync-json.php` sí forma pa
 del repositorio, pero es una herramienta manual de importación y no necesita
 cron.
 
-OpenSky se consulta solamente para vuelos con matrícula/ICAO24 conocido. AirLabs es una fuente secundaria. Las observaciones introducidas como Aena tienen prevalencia en sala, cinta y estado.
+OpenSky se consulta solamente para vuelos próximos con matrícula/ICAO24
+conocido. Todas las matrículas se envían en una única petición y la respuesta
+incluye la cuota restante cuando OpenSky publica esa cabecera. AirLabs es una
+fuente secundaria y se recomienda ejecutarlo una vez por hora para conservar
+cuota. Las observaciones introducidas como Aena tienen prevalencia en sala,
+cinta y estado.
 
 Una cinta comunicada por AirLabs se conserva y aparece en la cronología como
 provisional, incluso si el proveedor no informa la sala. Si discrepa de Aena no

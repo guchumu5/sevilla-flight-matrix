@@ -33,7 +33,7 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
 
   <section class="row g-3 mb-4">
     <div class="col-md-6 col-xl-3"><article class="metric-card"><span>Aena</span><strong id="aenaState">—</strong><small>estado, sala y cinta oficiales</small></article></div>
-    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>AirLabs</span><strong id="airlabsState">—</strong><small>horas, estados y datos secundarios</small></article></div>
+    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>AirLabs</span><strong id="airlabsState">—</strong><small id="airlabsDetail">consulta agrupada de llegadas</small></article></div>
     <div class="col-md-6 col-xl-3"><article class="metric-card"><span>OpenSky</span><strong id="openskyState">—</strong><small>posición ADS-B con ICAO24 conocido</small></article></div>
     <div class="col-md-6 col-xl-3"><article class="metric-card"><span>Meteorología</span><strong id="weatherState">—</strong><small>METAR LEZL sin clave API</small></article></div>
   </section>
@@ -41,7 +41,7 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
   <section class="panel p-3 p-md-4 mb-4">
     <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-3">
       <div><h2 class="h5 mb-1">Ejecutar actualizaciones</h2><p class="text-secondary mb-0">Los límites evitan agotar cuotas o bloquear el hosting.</p></div>
-      <div><label class="form-label small" for="operationLimit">Máximo de vuelos</label><input class="form-control" id="operationLimit" type="number" min="1" max="20" value="10" style="width:9rem"></div>
+      <div><label class="form-label small" for="operationLimit">Máximo OpenSky</label><input class="form-control" id="operationLimit" type="number" min="1" max="25" value="10" style="width:9rem"></div>
     </div>
     <div class="row g-3">
       <div class="col-sm-6 col-xl-3"><button class="btn btn-primary w-100 operation-button" data-action="airlabs">Actualizar AirLabs</button></div>
@@ -49,7 +49,7 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
       <div class="col-sm-6 col-xl-3"><button class="btn btn-outline-light w-100 operation-button" data-action="weather">Actualizar tiempo</button></div>
       <div class="col-sm-6 col-xl-3"><button class="btn btn-success w-100 operation-button" data-action="all">Actualizar todo</button></div>
     </div>
-    <p class="small text-secondary mt-3 mb-0">Aena se recoge mediante el barrido automático de Infovuelos y prevalece en estado, sala y cinta. AirLabs entra como fuente provisional; OpenSky solo añade telemetría y AviationWeather el METAR.</p>
+    <p class="small text-secondary mt-3 mb-0">Aena se recoge mediante el barrido automático de Infovuelos y prevalece en estado, sala y cinta. AirLabs consulta las llegadas en bloque, rota las claves configuradas y entra como fuente provisional; OpenSky solo añade telemetría y AviationWeather el METAR.</p>
   </section>
 
   <section class="panel p-3 p-md-4 mb-4">
@@ -98,6 +98,10 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
       if (!response.ok) throw new Error(data.error || 'No se pudo leer el diagnóstico.');
       document.querySelector('#aenaState').innerHTML = state(data.providers.aena);
       document.querySelector('#airlabsState').innerHTML = state(data.providers.airlabs);
+      const airlabsKeys = Number(data.providers.airlabs_keys || 0);
+      document.querySelector('#airlabsDetail').textContent = data.providers.airlabs
+        ? `consulta agrupada · ${airlabsKeys} clave${airlabsKeys === 1 ? '' : 's'}`
+        : 'sin claves configuradas';
       document.querySelector('#openskyState').innerHTML = state(data.providers.opensky);
       document.querySelector('#weatherState').innerHTML = state(data.providers.aviationweather);
       const items = [

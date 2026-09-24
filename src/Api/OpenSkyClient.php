@@ -19,31 +19,85 @@ final class OpenSkyClient
 
     public function state(string $icao24): ?array
     {
-        $url = self::API_URL . '?' . http_build_query(['icao24' => strtolower($icao24)]);
+        $result = $this->states([$icao24]);
+        return $result['states'][strtolower(trim($icao24))] ?? null;
+    }
+
+    /**
+     * Consulta varias matrículas en una única petición OpenSky.
+     *
+     * @param array<int,string> $icao24s
+     * @return array{states:array<string,array<string,mixed>>,rate_limit:array<string,int|null>}
+     */
+    public function states(array $icao24s): array
+    {
+        $codes = array_values(array_unique(array_filter(array_map(
+            static fn(mixed $value): string => strtolower(trim((string)$value)),
+            $icao24s
+        ), static fn(string $value): bool => preg_match('/^[0-9a-f]{6}$/', $value) === 1)));
+        if ($codes === []) {
+            return ['states' => [], 'rate_limit' => ['remaining' => null, 'retry_after_seconds' => null]];
+        }
+
+        $query = implode('&', array_map(
+            static fn(string $value): string => 'icao24=' . rawurlencode($value),
+            $codes
+        ));
+        $url = self::API_URL . '?' . $query;
+        $headers = [];
         $curl = curl_init($url);
         curl_setopt_array($curl, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 20,
             CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $this->token(), 'Accept: application/json'],
+            CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$headers): int {
+                $length = strlen($line);
+                if (str_contains($line, ':')) {
+                    [$name, $value] = explode(':', $line, 2);
+                    $headers[strtolower(trim($name))] = trim($value);
+                }
+                return $length;
+            },
         ]);
         $body = curl_exec($curl);
         $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        $error = curl_error($curl);
         curl_close($curl);
-        if ($body === false || $status >= 400) throw new RuntimeException("OpenSky HTTP {$status}");
+        $retryAfter = isset($headers['x-rate-limit-retry-after-seconds'])
+            ? (int)$headers['x-rate-limit-retry-after-seconds']
+            : (isset($headers['retry-after']) ? (int)$headers['retry-after'] : null);
+        if ($body === false || $status >= 400) {
+            $suffix = $retryAfter !== null && $retryAfter > 0
+                ? "; reintentar dentro de {$retryAfter} segundos"
+                : ($error !== '' ? ': ' . $error : '');
+            throw new RuntimeException("OpenSky HTTP {$status}{$suffix}");
+        }
         $data = json_decode($body, true, 512, JSON_THROW_ON_ERROR);
-        $row = $data['states'][0] ?? null;
-        if (!is_array($row)) return null;
+        $states = [];
+        foreach (($data['states'] ?? []) as $row) {
+            if (!is_array($row) || empty($row[0])) continue;
+            $code = strtolower(trim((string)$row[0]));
+            $states[$code] = [
+                'icao24' => $code,
+                'callsign' => isset($row[1]) ? trim((string)$row[1]) : null,
+                'longitude' => $row[5] ?? null,
+                'latitude' => $row[6] ?? null,
+                'altitude_m' => $row[7] ?? null,
+                'on_ground' => $row[8] ?? null,
+                'ground_speed_ms' => $row[9] ?? null,
+                'track_deg' => $row[10] ?? null,
+                'vertical_rate_ms' => $row[11] ?? null,
+                'raw' => $row,
+            ];
+        }
         return [
-            'icao24' => $row[0] ?? null,
-            'callsign' => isset($row[1]) ? trim((string)$row[1]) : null,
-            'longitude' => $row[5] ?? null,
-            'latitude' => $row[6] ?? null,
-            'altitude_m' => $row[7] ?? null,
-            'on_ground' => $row[8] ?? null,
-            'ground_speed_ms' => $row[9] ?? null,
-            'track_deg' => $row[10] ?? null,
-            'vertical_rate_ms' => $row[11] ?? null,
-            'raw' => $row,
+            'states' => $states,
+            'rate_limit' => [
+                'remaining' => isset($headers['x-rate-limit-remaining'])
+                    ? (int)$headers['x-rate-limit-remaining']
+                    : null,
+                'retry_after_seconds' => $retryAfter,
+            ],
         ];
     }
 
@@ -76,4 +130,3 @@ final class OpenSkyClient
         return $payload['token'];
     }
 }
-
