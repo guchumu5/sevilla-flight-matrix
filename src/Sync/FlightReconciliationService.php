@@ -492,9 +492,9 @@ final class FlightReconciliationService
     private function saveSourceState(int $flightId, string $provider, string $sourceKey, string $observedAt, string $hash, array $snapshot, string $visibility): void
     {
         $stmt = $this->pdo->prepare(
-            'INSERT INTO flight_source_state
+             'INSERT INTO flight_source_state
              (flight_id,provider,source_key,first_seen_at,last_seen_at,last_payload_hash,snapshot,consecutive_misses,visibility_status,withdrawn_at)
-             VALUES (:flight_id,:provider,:source_key,:observed_at,:observed_at,:hash,:snapshot,0,:visibility,NULL)
+             VALUES (:flight_id,:provider,:source_key,:first_observed_at,:last_observed_at,:hash,:snapshot,0,:visibility,NULL)
              ON DUPLICATE KEY UPDATE flight_id=VALUES(flight_id),last_seen_at=VALUES(last_seen_at),
              last_payload_hash=VALUES(last_payload_hash),snapshot=VALUES(snapshot),consecutive_misses=0,
              visibility_status=VALUES(visibility_status),withdrawn_at=NULL'
@@ -503,7 +503,8 @@ final class FlightReconciliationService
             'flight_id' => $flightId,
             'provider' => $provider,
             'source_key' => $sourceKey,
-            'observed_at' => $observedAt,
+            'first_observed_at' => $observedAt,
+            'last_observed_at' => $observedAt,
             'hash' => $hash,
             'snapshot' => $this->canonicalJson($snapshot),
             'visibility' => $visibility,
