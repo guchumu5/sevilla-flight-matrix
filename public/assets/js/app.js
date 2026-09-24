@@ -17,6 +17,10 @@
   const signed = value => Number(value) > 0 ? `+${value} min` : `${value} min`;
   const pressureText = p => ({baja:'Sin presión',media:'Presión media',alta:'Presión alta',muy_alta:'Presión muy alta'}[p] || p);
   const hallLoadText = p => ({baja:'Baja',media:'Media',alta:'Alta'}[p] || p);
+  const beltPosition = item => {
+    if (item?.belt) return item.hall ? `${esc(item.hall)}/${esc(item.belt)}` : `cinta ${esc(item.belt)} · sala no informada`;
+    return item?.hall ? `${esc(item.hall)}/cinta pendiente` : 'sin cinta';
+  };
 
   async function loadBoard(showSpinner = false) {
     if (state.loading) return;
@@ -93,16 +97,27 @@
       const summary = `<div class="detail-grid mb-4">
         <div class="detail-stat"><small>Programada</small><strong>${time(flight.scheduled_arrival)}</strong></div>
         <div class="detail-stat"><small>ETA / real</small><strong>${time(flight.actual_arrival||flight.eta||flight.scheduled_arrival)}</strong></div>
-        <div class="detail-stat"><small>Primera cinta</small><strong>${flight.first_belt_at?`${esc(flight.first_hall||'')}/${esc(flight.first_belt||'')} · ${flight.first_belt_lead_minutes} min antes`:'Pendiente'}</strong></div>
-        <div class="detail-stat"><small>Cambios detectados</small><strong>${Number(flight.belt_changes||0)}</strong></div>
+        <div class="detail-stat"><small>${flight.source==='aena'?'Primera cinta oficial':'Primera cinta disponible'}</small><strong>${flight.first_belt_at?`${beltPosition({hall:flight.first_hall,belt:flight.first_belt})} · ${flight.first_belt_lead_minutes} min antes`:'Pendiente'}</strong></div>
+        <div class="detail-stat"><small>Cambios de la fuente prevalente</small><strong>${Number(flight.belt_changes||0)}</strong></div>
         <div class="detail-stat"><small>Aeronave</small><strong>${esc(flight.aircraft_registration||'No verificada')}</strong><span class="meta">${esc(flight.aircraft_type||'')}</span></div>
         <div class="detail-stat"><small>Ocupación</small><strong>${esc(flight.occupancy_level||'no verificable')}</strong></div>
       </div>`;
-      const timeline = payload.history.length ? payload.history.map(item => `<article class="timeline-item ${item.source==='aena'?'aena':''}">
-        <div class="d-flex justify-content-between gap-2"><strong>${esc((item.source||'').toUpperCase())}</strong><time class="meta">${time(item.observed_at)}</time></div>
-        <div>${esc(item.status||'Observación')} · ${item.hall&&item.belt?`${esc(item.hall)}/${esc(item.belt)}`:'sin cinta'}</div>
-        <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
-      </article>`).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
+      const timeline = payload.history.length ? payload.history.map(item => {
+        const isAena = item.source === 'aena';
+        const officialPosition = beltPosition({hall:flight.hall,belt:flight.belt});
+        const conflictsWithAena = !isAena && flight.source === 'aena' && item.belt
+          && (String(item.belt) !== String(flight.belt) || (item.hall && String(item.hall) !== String(flight.hall)));
+        const authority = isAena
+          ? '<span class="badge text-bg-success ms-2">oficial</span>'
+          : conflictsWithAena
+            ? `<span class="badge text-bg-warning ms-2">provisional · Aena mantiene ${officialPosition}</span>`
+            : '<span class="badge text-bg-secondary ms-2">secundario</span>';
+        return `<article class="timeline-item ${isAena?'aena':''}">
+          <div class="d-flex justify-content-between gap-2"><strong>${esc((item.source||'').toUpperCase())}${authority}</strong><time class="meta">${time(item.observed_at)}</time></div>
+          <div>${esc(item.status||'Observación')} · ${beltPosition(item)}</div>
+          <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
+        </article>`;
+      }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
       els.detailBody.innerHTML = summary + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
     } catch (error) { els.detailBody.innerHTML = `<div class="alert alert-danger">${esc(error.message)}</div>`; }
   }

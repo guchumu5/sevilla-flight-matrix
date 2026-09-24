@@ -1,0 +1,35 @@
+{
+  "context": {
+    "provider": "airlabs",
+    "mode": "delta",
+    "window_from": "2026-09-24 00:00:00",
+    "window_to": "2026-09-24 23:59:59",
+    "observed_at": "2026-09-24 08:20:00",
+    "complete": false,
+    "metadata": {
+      "airport": "SVQ",
+      "note": "Prueba de discrepancia secundaria: AirLabs informa cinta 3 sin sala mientras Aena mantiene A/2"
+    }
+  },
+  "flights": [
+    {
+      "source_key": "2026-09-24|VLG3049|LPA|SVQ",
+      "flight_date": "2026-09-24",
+      "physical_flight": "VLG3049",
+      "codeshares": ["IBE5354"],
+      "origin_iata": "LPA",
+      "origin_name": "Gran Canaria",
+      "scheduled_departure": "2026-09-24 06:45:00",
+      "scheduled_arrival": "2026-09-24 10:00:00",
+      "status": "en-route",
+      "hall": null,
+      "belt": "3",
+      "aircraft_type": "A320neo",
+      "capacity": 186,
+      "traffic_class": "domestico",
+      "is_canary": true,
+      "confidence": "provisional",
+      "occupancy_level": "no_verificable"
+    }
+  ]
+}

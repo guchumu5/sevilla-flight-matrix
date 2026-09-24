@@ -69,3 +69,10 @@ jobs:
           test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM flight_events WHERE event_type="belt_changed"')" = "1"
           test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM sync_runs')" = "3"
           test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM sync_runs WHERE status="failed"')" = "0"
+
+      - name: Comprobar discrepancia entre Aena y AirLabs
+        run: |
+          php bin/sync-json.php --file=database/examples/sync_flights.airlabs-conflict.example.json
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM flight_events WHERE source="airlabs" AND event_type="belt_assigned"')" = "1"
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM flight_events WHERE source="airlabs" AND event_type="belt_changed"')" = "0"
+          php -r 'require "src/bootstrap.php"; $rows=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-24"); $f=$rows[0]??[]; if (($f["source"]??null)!=="aena" || ($f["hall"]??null)!=="A" || ($f["belt"]??null)!=="2" || (int)($f["belt_changes"]??-1)!==1 || ($f["first_belt"]??null)!=="1") { fwrite(STDERR, json_encode($f, JSON_PRETTY_PRINT)); exit(1); }'

@@ -31,11 +31,26 @@ SELECT
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.baggage_state ELSE latest_other.baggage_state END AS baggage_state,
     COALESCE(latest_aena.occupancy_level, latest_other.occupancy_level, 'no_verificable') AS occupancy_level,
     CONCAT_WS(' / ', f.physical_flight, NULLIF(codes.codes, '')) AS codes,
-    COALESCE(changes.belt_changes, 0) AS belt_changes,
-    changes.first_belt_at,
-    changes.first_belt,
-    changes.first_hall,
-    TIMESTAMPDIFF(MINUTE, changes.first_belt_at, f.scheduled_arrival) AS first_belt_lead_minutes
+    CASE WHEN latest_aena.id IS NOT NULL
+         THEN COALESCE(changes.aena_belt_changes, 0)
+         ELSE COALESCE(changes.other_belt_changes, 0)
+    END AS belt_changes,
+    CASE WHEN latest_aena.id IS NOT NULL
+         THEN first_aena_belt.observed_at ELSE first_other_belt.observed_at
+    END AS first_belt_at,
+    CASE WHEN latest_aena.id IS NOT NULL
+         THEN first_aena_belt.belt ELSE first_other_belt.belt
+    END AS first_belt,
+    CASE WHEN latest_aena.id IS NOT NULL
+         THEN first_aena_belt.hall ELSE first_other_belt.hall
+    END AS first_hall,
+    TIMESTAMPDIFF(
+        MINUTE,
+        CASE WHEN latest_aena.id IS NOT NULL
+             THEN first_aena_belt.observed_at ELSE first_other_belt.observed_at
+        END,
+        f.scheduled_arrival
+    ) AS first_belt_lead_minutes
 FROM flights f
 LEFT JOIN observations latest_aena ON latest_aena.id = (
     SELECT o.id FROM observations o
@@ -49,19 +64,29 @@ LEFT JOIN observations latest_other ON latest_other.id = (
     ORDER BY o.observed_at DESC, o.id DESC
     LIMIT 1
 )
+LEFT JOIN observations first_aena_belt ON first_aena_belt.id = (
+    SELECT o.id FROM observations o
+    WHERE o.flight_id = f.id AND o.source = 'aena'
+      AND o.belt IS NOT NULL AND o.belt <> ''
+    ORDER BY o.observed_at, o.id
+    LIMIT 1
+)
+LEFT JOIN observations first_other_belt ON first_other_belt.id = (
+    SELECT o.id FROM observations o
+    WHERE o.flight_id = f.id AND o.source <> 'aena'
+      AND o.belt IS NOT NULL AND o.belt <> ''
+    ORDER BY o.observed_at, o.id
+    LIMIT 1
+)
 LEFT JOIN (
     SELECT flight_id, GROUP_CONCAT(flight_code ORDER BY flight_code SEPARATOR ' / ') AS codes
     FROM flight_codes GROUP BY flight_id
 ) codes ON codes.flight_id = f.id
 LEFT JOIN (
     SELECT flight_id,
-           GREATEST(COUNT(DISTINCT CASE
-               WHEN belt IS NOT NULL AND belt <> '' THEN CONCAT(COALESCE(hall,''), '/', belt)
-           END) - 1, 0) AS belt_changes,
-           MIN(CASE WHEN belt IS NOT NULL AND belt <> '' THEN observed_at END) AS first_belt_at,
-           SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN belt IS NOT NULL AND belt <> '' THEN belt END ORDER BY observed_at, id SEPARATOR ','), ',', 1) AS first_belt,
-           SUBSTRING_INDEX(GROUP_CONCAT(CASE WHEN belt IS NOT NULL AND belt <> '' THEN hall END ORDER BY observed_at, id SEPARATOR ','), ',', 1) AS first_hall
-    FROM observations
+           SUM(CASE WHEN source = 'aena' AND event_type = 'belt_changed' THEN 1 ELSE 0 END) AS aena_belt_changes,
+           SUM(CASE WHEN source <> 'aena' AND event_type = 'belt_changed' THEN 1 ELSE 0 END) AS other_belt_changes
+    FROM flight_events
     GROUP BY flight_id
 ) changes ON changes.flight_id = f.id
 WHERE f.flight_date = :date

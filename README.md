@@ -182,6 +182,11 @@ cron.
 
 OpenSky se consulta solamente para vuelos con matrícula/ICAO24 conocido. AirLabs es una fuente secundaria. Las observaciones introducidas como Aena tienen prevalencia en sala, cinta y estado.
 
+Una cinta comunicada por AirLabs se conserva y aparece en la cronología como
+provisional, incluso si el proveedor no informa la sala. Si discrepa de Aena no
+sustituye la cinta oficial ni se contabiliza como un cambio operativo de Aena:
+la interfaz muestra ambas evidencias y señala expresamente la discrepancia.
+
 La futura carga semanal utilizará este mismo reconciliador. La periodicidad
 recomendada es: siete días completos una vez al día, hoy y mañana cada 30
 minutos y la ventana operativa próxima cada 2-5 minutos. Los datos vivos deben
