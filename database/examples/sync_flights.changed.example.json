@@ -1,0 +1,38 @@
+{
+  "context": {
+    "provider": "aena",
+    "mode": "full_window",
+    "window_from": "2026-09-24 00:00:00",
+    "window_to": "2026-09-24 23:59:59",
+    "observed_at": "2026-09-24 08:15:00",
+    "complete": true,
+    "withdraw_after": 3,
+    "metadata": {
+      "airport": "SVQ",
+      "note": "Segunda captura de ejemplo con ETA, estado y cinta modificados"
+    }
+  },
+  "flights": [
+    {
+      "source_key": "2026-09-24|VLG3049|LPA|SVQ",
+      "flight_date": "2026-09-24",
+      "physical_flight": "VLG3049",
+      "codeshares": ["IBE5354"],
+      "origin_iata": "LPA",
+      "origin_name": "Gran Canaria",
+      "scheduled_departure": "2026-09-24 06:45:00",
+      "scheduled_arrival": "2026-09-24 10:00:00",
+      "status": "En vuelo",
+      "eta": "2026-09-24 09:50:00",
+      "hall": "A",
+      "belt": "2",
+      "aircraft_registration": "EC-NCF",
+      "aircraft_type": "A320neo",
+      "capacity": 186,
+      "traffic_class": "domestico",
+      "is_canary": true,
+      "confidence": "confirmado",
+      "occupancy_level": "no_verificable"
+    }
+  ]
+}
