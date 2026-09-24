@@ -175,7 +175,9 @@ en GitHub Actions porque la página oficial necesita un navegador. Haz lo siguie
 2. En GitHub abre **Settings → Secrets and variables → Actions** y crea el
    secreto `MATRIX_INGEST_TOKEN` con exactamente la misma cadena.
 3. Abre **Actions → Aena en directo → Run workflow**. La primera ejecución
-   manual permite verificarlo; después se repetirá cada 15 minutos.
+   manual permite verificarlo; después se repetirá cada 15 minutos. La acción
+   **Aena programación semanal** actualizará diariamente los siete días sin
+   añadir ningún cron en Plesk.
 
 No crees cron llamados `sync-week.php`, `sync-near.php` o `sync-live.php`: no
 existen. `bin/sync-json.php` sí existe en el repositorio, pero solo sirve para

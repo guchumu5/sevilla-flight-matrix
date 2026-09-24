@@ -1,8 +1,8 @@
-name: Aena en directo
+name: Aena programación semanal
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '17 3 * * *'
   workflow_dispatch:
 
 permissions:
@@ -15,11 +15,11 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 25
     env:
       MATRIX_INGEST_URL: ${{ vars.MATRIX_INGEST_URL }}
       MATRIX_INGEST_TOKEN: ${{ secrets.MATRIX_INGEST_TOKEN }}
-      AENA_MODE: live
+      AENA_MODE: week
     steps:
       - name: Descargar código
         uses: actions/checkout@v4
@@ -35,5 +35,5 @@ jobs:
       - name: Instalar Chromium
         run: npx playwright install --with-deps chromium
 
-      - name: Leer Infovuelos y conciliar
+      - name: Leer siete días y conciliar
         run: node scripts/aena-collector.mjs

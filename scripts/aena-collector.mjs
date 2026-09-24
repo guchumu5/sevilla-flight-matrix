@@ -5,6 +5,7 @@ const INGEST_URL = process.env.MATRIX_INGEST_URL || 'https://ojito.top/public/ap
 const INGEST_TOKEN = process.env.MATRIX_INGEST_TOKEN || '';
 const TIME_ZONE = 'Europe/Madrid';
 const MAX_VISIBLE_ROWS = 20;
+const MODE = process.env.AENA_MODE === 'week' ? 'week' : 'live';
 
 if (INGEST_TOKEN.length < 24) {
   throw new Error('Falta MATRIX_INGEST_TOKEN o tiene menos de 24 caracteres.');
@@ -29,9 +30,10 @@ function localNow() {
   return `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}:${p.second}`;
 }
 
-function localDay() {
+function localDay(offset = 0) {
   const p = madridParts();
-  return `${p.year}-${p.month}-${p.day}`;
+  const shifted = new Date(Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day) + offset, 12));
+  return shifted.toISOString().slice(0, 10);
 }
 
 function dayLabel(isoDate) {
@@ -256,34 +258,36 @@ async function postCapture(payload) {
 
 const browser = await chromium.launch({ headless: true });
 try {
-  const day = localDay();
+  const days = Array.from({ length: MODE === 'week' ? 7 : 1 }, (_, index) => localDay(index));
   const rows = [];
   const updatedLabels = new Set();
-  const page = await preparePage(browser, day);
-  for (let start = 0; start < 22 * 60; start += 120) {
-    await collectBounded(page, day, start, start + 120, rows, updatedLabels);
+  for (const day of days) {
+    const page = await preparePage(browser, day);
+    for (let start = 0; start < 22 * 60; start += 120) {
+      await collectBounded(page, day, start, start + 120, rows, updatedLabels);
+    }
+    await page.close();
+    await collectTail(browser, day, 22 * 60, rows, updatedLabels);
   }
-  await page.close();
-  await collectTail(browser, day, 22 * 60, rows, updatedLabels);
 
   const now = localNow();
   const nowDate = new Date();
   const fromDate = new Date(nowDate.getTime() - 2 * 60 * 60 * 1000);
   const fromParts = madridParts(fromDate);
   const windowFrom = `${fromParts.year}-${fromParts.month}-${fromParts.day} ${fromParts.hour}:${fromParts.minute}:00`;
-  const windowTo = `${day} 23:59:59`;
+  const windowTo = `${days[days.length - 1]} 23:59:59`;
   const flights = groupPhysicalFlights(rows, windowFrom);
   if (!flights.length) throw new Error('La captura Aena no produjo vuelos físicos en la ventana viva.');
 
   const response = await postCapture({
-    collector: 'aena-playwright-v1',
+    collector: `aena-playwright-v1-${MODE}`,
     observed_at: now,
     window_from: windowFrom,
     window_to: windowTo,
     aena_updated_label: [...updatedLabels].join(', '),
     flights,
   });
-  console.log(JSON.stringify({ ok: true, day, raw_rows: rows.length, physical_flights: flights.length, response }, null, 2));
+  console.log(JSON.stringify({ ok: true, mode: MODE, days, raw_rows: rows.length, physical_flights: flights.length, response }, null, 2));
 } finally {
   await browser.close();
 }

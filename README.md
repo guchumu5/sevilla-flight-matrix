@@ -112,7 +112,9 @@ la aplicación JavaScript de Infovuelos. Para activarlo:
 2. En GitHub abre **Settings → Secrets and variables → Actions → New repository
    secret**, crea `MATRIX_INGEST_TOKEN` y pega exactamente la misma cadena.
 3. En la pestaña **Actions** abre **Aena en directo** y pulsa **Run workflow**
-   para la primera prueba. Después se ejecutará cada 15 minutos.
+   para la primera prueba. Después se ejecutará cada 15 minutos. La acción
+   **Aena programación semanal** carga hoy y los seis días siguientes una vez
+   al día con el mismo secreto; tampoco necesita cron en Plesk.
 4. Si la aplicación no está en `https://ojito.top/public`, crea además la
    variable de repositorio `MATRIX_INGEST_URL` con la URL completa del endpoint
    `public/api/aena-board.php`. Para la instalación actual no hace falta.
