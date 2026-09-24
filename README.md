@@ -2,6 +2,11 @@
 
 Aplicación web PHP/MySQL para vigilar las llegadas físicas a Sevilla, registrar el historial de sala/cinta y aplicar la matriz operativa acordada.
 
+Cada subida a `main` ejecuta una comprobación automática con PHP y MySQL 8:
+sintaxis, creación del esquema, dos capturas consecutivas y repetición
+idempotente. El ensayo exige un único vuelo físico, dos observaciones y un solo
+evento `belt_changed`.
+
 ## Requisitos
 
 - PHP 8.1 o superior con extensiones `pdo_mysql`, `curl` y `json`.
@@ -110,7 +115,7 @@ migraciones, no se usa como almacén de capturas diarias.
 ## Seguridad
 
 - El directorio público del dominio debe ser `public/`, nunca la raíz del proyecto.
-- No subas `.env` a GitHub.
+- No subis `.env` a GitHub.
 - No introduzcas claves API en JavaScript.
 - Usa HTTPS en producción.
 - Cambia la contraseña de administración antes de publicar.
@@ -126,7 +131,7 @@ migraciones, no se usa como almacén de capturas diarias.
 
 ## Estructura
 
-- `public/`: tablero, administración y endpoints JSON/SSE.
+- `public/`: tablero, administración y endpoints JSON/SCE.
 - `src/`: acceso a datos, seguridad, proveedores y reglas.
 - `src/Sync/`: conciliación, eventos y lectura de ejecuciones.
 - `bin/`: recopiladores ejecutados por cron.
