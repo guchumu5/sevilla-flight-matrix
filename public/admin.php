@@ -15,7 +15,7 @@ $flights = $repo->board($_GET['date'] ?? date('Y-m-d'));
 <title>Aena / Admin · Matriz Sevilla</title>
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 <link href="assets/css/app.css" rel="stylesheet"></head><body>
-<nav class="navbar app-navbar border-bottom"><div class="container-fluid px-lg-4"><a class="navbar-brand" href="index.php">← Matriz de Cintas</a><div class="d-flex flex-wrap gap-2"><a class="btn btn-sm btn-outline-info" href="sync-runs.php">Cerebro de eventos</a><a class="btn btn-sm btn-outline-info" href="database-updates.php">Actualizar MySQL</a><a class="btn btn-sm btn-outline-light" href="logout.php">Salir</a></div></div></nav>
+<nav class="navbar app-navbar border-bottom"><div class="container-fluid px-lg-4"><a class="navbar-brand" href="index.php">← Matriz de Cintas</a><div class="d-flex flex-wrap gap-2"><a class="btn btn-sm btn-success" href="operations.php">Procesos web</a><a class="btn btn-sm btn-outline-info" href="sync-runs.php">Cerebro de eventos</a><a class="btn btn-sm btn-outline-info" href="database-updates.php">Actualizar MySQL</a><a class="btn btn-sm btn-outline-light" href="logout.php">Salir</a></div></div></nav>
 <main class="container py-4">
 <section class="panel p-3 p-md-4 mb-4">
   <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3"><div><h1 class="h4 mb-1">Añadir vuelo físico</h1><p class="text-secondary mb-0">Los códigos compartidos se guardan dentro del mismo vuelo.</p></div><span class="badge text-bg-secondary">Paso 1</span></div>
@@ -60,7 +60,7 @@ $flights = $repo->board($_GET['date'] ?? date('Y-m-d'));
 document.querySelector('#observationForm').addEventListener('submit', async event => {
   event.preventDefault(); const form=event.currentTarget, alert=document.querySelector('#adminAlert');
   const response=await fetch('api/aena-observation.php',{method:'POST',body:new FormData(form)}); const data=await response.json();
-  alert.className='alert '+(response.ok?'alert-success':'alert-danger'); alert.textContent=response.ok?'Observación guardada correctamente.':(data.error||'No se pudo guardar.');
+  alert.className='alert '+(response.ok?'alert-success':'alert-danger'); alert.textContent=response.ok?`Observación procesada: ${data.result.observations_created} observación y ${data.result.events_created} eventos nuevos.`:(data.error||'No se pudo guardar.');
   if(response.ok) form.reset();
 });
 document.querySelector('#flightForm').addEventListener('submit', async event => {
