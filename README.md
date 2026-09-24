@@ -104,6 +104,11 @@ OpenSky y AviationWeather sin abrir una terminal. Las acciones están fijadas
 en el servidor, requieren la sesión administrativa y token CSRF, limitan el
 número de vuelos y bloquean ejecuciones simultáneas.
 
+Cada intento queda además registrado en `fetch_runs`, incluso si devuelve cero
+vuelos o termina con error. Así se distingue un cron que no alcanzó PHP de una
+API ejecutada correctamente pero sin datos. `sync_runs` solo contiene lotes que
+sí llegaron al conciliador de vuelos.
+
 AirLabs ya entra por el mismo conciliador que el importador JSON: conserva cada
 instantánea y genera los cambios correspondientes en el cerebro. Las
 observaciones de Aena introducidas en el formulario administrativo también
