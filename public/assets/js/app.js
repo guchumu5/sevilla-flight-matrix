@@ -636,7 +636,7 @@
       const runwaySpan = RWY.east.lon - RWY.west.lon;
       return {
         left:clamp(5 + ((lon - RWY.west.lon) / runwaySpan) * 90, 3, 97),
-        top:clamp(36 + (RWY.west.lat - lat) * 6000, 33, 68)
+        top:clamp(28 + (RWY.west.lat - lat) * 6000, 24, 55)
       };
     }
     const side = lon < SVQ.lon ? 'left' : 'right';
@@ -666,8 +666,8 @@
       const belt = Number(flight.belt);
       const queueRank = Number(flight._beltQueueRank) || 0;
       return Number.isInteger(belt) && belt >= 1 && belt <= 8
-        ? {left:(8-belt+.5)*12.5,top:69 - Math.min(queueRank,1) * 7,gps:false,flow:true}
-        : {left:50 + (index % 3) * 5,top:63,gps:false,flow:true};
+        ? {left:(8-belt+.5)*12.5,top:75 - Math.min(queueRank,1) * 9,gps:false,flow:true}
+        : {left:50 + (index % 3) * 5,top:67,gps:false,flow:true};
     }
     if (stage === 'baggage') return {left:29 + (index % 6) * 9,top:58 + (index % 2) * 7,gps:false};
     return {left:32 + (index % 5) * 9, top:7 + Math.floor(index / 5) * 7, gps:false};
@@ -693,8 +693,8 @@
       const beltNumber = Number(f.belt);
       if (!Number.isInteger(beltNumber) || beltNumber < 1 || beltNumber > 8) return '';
       const beltX = (8 - beltNumber + .5) * 12.5;
-      const start = state.scenePositions.get(Number(f.id)) || {left:50,top:62};
-      return `<path class="scene-baggage-link" d="M${start.left} ${Math.min(start.top,64)} Q${(start.left+beltX)/2} 67 ${beltX} 71"/>`;
+      const start = state.scenePositions.get(Number(f.id)) || {left:50,top:67};
+      return `<path class="scene-baggage-link" d="M${start.left} ${Math.min(start.top,75)} Q${(start.left+beltX)/2} 77 ${beltX} 79"/>`;
     }).join('');
     els.sceneTrails.innerHTML = gpsTrails + baggageLinks;
   }

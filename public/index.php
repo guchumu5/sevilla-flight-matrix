@@ -109,14 +109,14 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
       <time class="scene-clock" id="sceneClock">--:--</time>
     </header>
     <div class="airport-scene airport-scene-large" id="airportScene" aria-label="Infografía dinámica del flujo de llegadas">
-          <svg class="scene-aerodrome" viewBox="0 0 1000 430" preserveAspectRatio="none" aria-hidden="true">
+          <svg class="scene-aerodrome" viewBox="0 0 1000 560" preserveAspectRatio="none" aria-hidden="true">
             <defs>
               <linearGradient id="sceneSky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#102f4a"/><stop offset="1" stop-color="#081522"/></linearGradient>
               <linearGradient id="sceneApron" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#172634"/><stop offset="1" stop-color="#0b1723"/></linearGradient>
               <pattern id="runwayMarks" width="90" height="46" patternUnits="userSpaceOnUse"><rect x="32" y="20" width="34" height="6" rx="2" fill="#eaf3fa" opacity=".88"/></pattern>
             </defs>
             <rect width="1000" height="190" fill="url(#sceneSky)"/>
-            <rect y="190" width="1000" height="240" fill="url(#sceneApron)"/>
+            <rect y="190" width="1000" height="370" fill="url(#sceneApron)"/>
             <path class="scene-approach-line" d="M12 125 C165 125 225 160 305 212"/>
             <path class="scene-approach-line scene-approach-right" d="M988 125 C835 125 775 160 695 212"/>
             <rect class="scene-runway" x="54" y="190" width="892" height="54" rx="5"/>
@@ -136,6 +136,8 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
               <g transform="translate(612 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
               <g transform="translate(702 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
             </g>
+            <path class="scene-baggage-zone-line" d="M35 466 H965"/>
+            <text class="scene-label scene-baggage-zone-label" x="500" y="493" text-anchor="middle">EQUIPAJES EN TRÁNSITO · MÁS NUEVO ARRIBA · MÁS ANTIGUO ABAJO</text>
             <text class="scene-label" x="24" y="177">ENTRADA OESTE · RWY 09</text><text class="scene-label" x="976" y="177" text-anchor="end">RWY 27 · ENTRADA ESTE</text>
             <text class="scene-label" x="500" y="267" text-anchor="middle">PLATAFORMA · 6 PASARELAS (FINGERS)</text>
             <text class="scene-note" x="500" y="323" text-anchor="middle">PUERTA ≠ PUESTO ≠ FINGER · SOLO SE VINCULAN CON DATO PUBLICADO</text>

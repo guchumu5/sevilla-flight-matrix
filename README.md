@@ -304,6 +304,13 @@ al recuadro cuando Aena informa entrega de equipaje. En móvil vertical, la
 escena separa el aeródromo y dispone las ocho cintas en dos columnas, evitando
 forzar la orientación y mostrando el siguiente vuelo dentro de la propia cinta.
 
+La corrección 1.11.5 amplía la infografía a 1.080 px en escritorio y crea una
+franja independiente de equipajes en tránsito entre la terminal y las cintas.
+La maleta más antigua queda en el nivel inferior y la siguiente, más reciente,
+en el superior; las cintas aumentan su altura y dejan de mezclarse visualmente
+con plataforma, fingers y aeronaves. En móvil vertical la escena crece a 1.580
+px y reserva 830 px para las ocho cintas en dos columnas.
+
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
 posición, aeronave y propuestas secundarias con la lectura anterior guardada en

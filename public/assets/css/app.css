@@ -72,9 +72,9 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .aircraft-silhouette { display:block; width:130px; height:68px; }
 .scene-clock { flex:0 0 auto; padding:.27rem .48rem; border:1px solid var(--border); border-radius:7px; color:#78efbc; background:#091625; font:800 .78rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .airport-scene { position:relative; height:286px; overflow:hidden; border-bottom:1px solid var(--border); background:#081522; isolation:isolate; }
-.airport-scene-large { height:800px; }
+.airport-scene-large { height:1080px; }
 .airport-scene > svg { display:block; width:100%; }
-.scene-aerodrome { height:calc(100% - 170px); }
+.scene-aerodrome { height:calc(100% - 210px); }
 .scene-approach-line { fill:none; stroke:#74c7ff; stroke-width:2; stroke-dasharray:8 10; opacity:.58; animation:scene-dash 4s linear infinite; }
 .scene-approach-right { animation-direction:reverse; }
 .scene-taxiway { fill:none; stroke:#e8c46c; stroke-width:14; stroke-linecap:round; opacity:.24; }
@@ -86,6 +86,8 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .scene-fingers rect { fill:#1c3e58; stroke:#75a7c7; stroke-width:2; }.scene-fingers path { fill:none; stroke:#9dcbe7; stroke-width:8; stroke-linecap:round; stroke-linejoin:round; }.scene-fingers circle { fill:#78efbc; stroke:#133c31; stroke-width:3; }
 .scene-label { fill:#9bb5ca; font-size:13px; font-weight:800; letter-spacing:1.5px; }
 .scene-note { fill:#6f8da3; font-size:10px; font-weight:750; letter-spacing:.8px; }
+.scene-baggage-zone-line { fill:none; stroke:#2f6f63; stroke-width:2; stroke-dasharray:8 10; opacity:.62; }
+.scene-baggage-zone-label { fill:#78bca2; font-size:11px; letter-spacing:1.2px; }
 .scene-trails { position:absolute; inset:0; z-index:2; width:100%; height:100%; pointer-events:none; }
 .scene-gps-trail { fill:none; stroke:#52a8ff; stroke-width:.34; stroke-linecap:round; stroke-linejoin:round; stroke-dasharray:1.1 1.2; opacity:.72; vector-effect:non-scaling-stroke; }
 .scene-gps-trail.canary { stroke:var(--orange); }
@@ -108,10 +110,10 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .scene-source span { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px rgba(47,211,138,.15); }.scene-source b { color:var(--text); }
 .scene-legend { position:absolute; left:.55rem; top:.55rem; z-index:9; display:flex; flex-wrap:wrap; gap:.45rem; padding:.26rem .45rem; border:1px solid #2e5068; border-radius:999px; background:rgba(7,17,31,.86); color:#a8bfd1; font-size:.59rem; font-weight:750; }
 .scene-legend span { display:flex; align-items:center; gap:.22rem; }.scene-legend i { width:7px; height:7px; border-radius:50%; background:var(--blue); }.scene-legend i.planned { background:var(--orange); }.scene-legend i.flow { background:var(--green); }
-.scene-belts { position:absolute; left:0; right:0; bottom:0; z-index:5; min-height:170px; padding:.5rem .65rem .65rem; border-top:1px solid #36536c; background:linear-gradient(180deg,rgba(9,22,37,.96),rgba(6,15,26,.99)); overflow-x:auto; }
+.scene-belts { position:absolute; left:0; right:0; bottom:0; z-index:5; min-height:210px; padding:.65rem .75rem .8rem; border-top:1px solid #36536c; background:linear-gradient(180deg,rgba(9,22,37,.96),rgba(6,15,26,.99)); overflow-x:auto; }
 .scene-belts > header { display:flex; justify-content:space-between; gap:1rem; min-width:720px; margin-bottom:.42rem; color:var(--muted); font-size:.64rem; font-weight:800; letter-spacing:.05em; text-transform:uppercase; }.scene-belts > header strong { color:#d9e9f7; }
 .scene-belts-grid { display:grid; grid-template-columns:repeat(8,minmax(78px,1fr)); gap:.42rem; min-width:720px; }
-.scene-belt { position:relative; min-height:112px; padding:.35rem; border:1px solid #31516c; border-radius:12px; background:#0d2235; color:var(--text); overflow:hidden; }
+.scene-belt { position:relative; min-height:142px; padding:.48rem .4rem; border:1px solid #31516c; border-radius:12px; background:#0d2235; color:var(--text); overflow:hidden; }
 .scene-belt > span { display:grid; place-items:center; width:31px; height:31px; margin:0 auto .15rem; border:2px solid #4d718d; border-radius:50%; color:#bcd4e6; font-size:.95rem; font-weight:900; }.scene-belt small { display:block; min-height:1.7em; color:var(--muted); font-size:.58rem; line-height:1.1; text-align:center; }.scene-belt b { position:absolute; right:.3rem; top:.3rem; color:var(--orange); font-size:.6rem; }
 .scene-belt-origin { display:-webkit-box; min-height:2.45em; overflow:hidden; color:#f4fbff; font-size:.84rem; line-height:1.16; text-align:center; text-overflow:ellipsis; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
 .scene-belt-origin.free { color:#6f8598; font-size:.7rem; letter-spacing:.06em; }
@@ -215,18 +217,18 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   .flights-table td:nth-child(4){font-size:1.05rem}.flights-table td:nth-child(6)::before{content:"ETA/Real: ";color:var(--muted)}
   .flights-table td:nth-child(7)::before{content:"Cinta: ";color:var(--muted)}.flights-table td:nth-child(8)::before{content:"Sala: ";color:var(--muted)}
   .flights-table td:nth-child(9){display:none}
-  .canary-card{flex-basis:190px}.upcoming-strip{grid-auto-columns:minmax(175px,82vw)}#flightMap{height:240px}.airport-scene-large{height:720px}.airport-flow{max-height:280px}.flow-flight{flex-basis:170px}
+  .canary-card{flex-basis:190px}.upcoming-strip{grid-auto-columns:minmax(175px,82vw)}#flightMap{height:240px}.airport-scene-large{height:980px}.airport-flow{max-height:280px}.flow-flight{flex-basis:170px}
   .scene-plane{max-width:145px}.scene-plane-icon{width:25px;height:25px;flex-basis:25px;font-size:.82rem}.scene-plane-data{padding:.18rem .28rem}.scene-plane-data em{max-width:88px;font-size:.66rem}.scene-plane-data small{max-width:88px;font-size:.52rem}.scene-source{right:.45rem;top:.45rem}.scene-legend{left:.45rem;top:.45rem;max-width:210px;border-radius:9px}.scene-belt-origin{font-size:.72rem}.scene-belts-grid{grid-template-columns:repeat(8,minmax(88px,1fr))}.belt-change-card{flex-basis:225px}
   .airport-flow-wide{grid-template-columns:repeat(5,minmax(165px,1fr));max-height:none}.scene-belts{padding-left:.4rem;padding-right:.4rem}
   .telemetry-values{grid-template-columns:1fr}.telemetry-visual{flex-direction:column;gap:.1rem}
 }
 @media (max-width:767.98px) and (orientation:portrait){
-  .airport-scene-large{height:1420px;overflow:visible}
-  .scene-aerodrome{height:660px}
-  .scene-aircraft-layer,.scene-trails{height:825px;bottom:auto}
+  .airport-scene-large{height:1580px;overflow:visible}
+  .scene-aerodrome{height:750px}
+  .scene-aircraft-layer,.scene-trails{height:920px;bottom:auto}
   .scene-plane-ground{display:none}
   .scene-baggage-link{display:none}
-  .scene-belts{min-height:760px;height:760px;padding:.7rem;overflow:visible}
+  .scene-belts{min-height:830px;height:830px;padding:.8rem .7rem;overflow:visible}
   .scene-belts>header{min-width:0;margin-bottom:.62rem}
   .scene-belts>header>span{display:none}
   .scene-belts>header>strong{width:100%;text-align:center}
