@@ -654,19 +654,19 @@
     const side = approachSide(flight);
     if (stage === 'approach') {
       return side === 'right'
-        ? {left:88 - (index % 3) * 4, top:28 + (index % 2) * 4, gps:false}
-        : {left:12 + (index % 3) * 4, top:28 + (index % 2) * 4, gps:false};
+        ? {left:88, top:28 + (index % 3) * 7, gps:false}
+        : {left:12, top:28 + (index % 3) * 7, gps:false};
     }
     if (stage === 'enroute') {
-      if (side === 'right') return {left:96 - (index % 4) * 6, top:8 + (index % 4) * 6, gps:false};
-      if (side === 'left') return {left:4 + (index % 4) * 6, top:8 + (index % 4) * 6, gps:false};
-      return {left:34 + (index % 5) * 8, top:8 + Math.floor(index / 5) * 7, gps:false};
+      const rank = Math.max(0, Number(flight._sceneRank || index + 1) - 1);
+      return {left:10 + (rank % 5) * 20, top:8 + Math.floor(rank / 5) * 9, gps:false};
     }
     if (stage === 'ground') {
       const belt = Number(flight.belt);
       const queueRank = Number(flight._beltQueueRank) || 0;
+      const beltColumn = 8 - belt;
       return Number.isInteger(belt) && belt >= 1 && belt <= 8
-        ? {left:(8-belt+.5)*12.5,top:75 - Math.min(queueRank,1) * 9,gps:false,flow:true}
+        ? {left:(beltColumn+.5)*12.5,top:74.5 - Math.min(queueRank,1) * 11 + (beltColumn % 2 ? -2.2 : 2.2),gps:false,flow:true}
         : {left:50 + (index % 3) * 5,top:67,gps:false,flow:true};
     }
     if (stage === 'baggage') return {left:29 + (index % 6) * 9,top:58 + (index % 2) * 7,gps:false};

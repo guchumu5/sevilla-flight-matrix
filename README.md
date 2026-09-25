@@ -311,6 +311,13 @@ en el superior; las cintas aumentan su altura y dejan de mezclarse visualmente
 con plataforma, fingers y aeronaves. En móvil vertical la escena crece a 1.580
 px y reserva 830 px para las ocho cintas en dos columnas.
 
+La corrección 1.11.6 ensancha la terminal hasta prácticamente la longitud de la
+pista y distribuye las seis pasarelas de extremo a extremo. Los carteles usan
+ahora una anchura fluida limitada, los diez vuelos previstos se reparten en una
+cuadrícula de cinco columnas y dos filas, las aproximaciones se apilan en
+vertical por cada cabecera y las maletas de cintas contiguas alternan su altura.
+Esto evita que las fichas se pisen tanto en escritorio como en móvil apaisado.
+
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
 posición, aeronave y propuestas secundarias con la lectura anterior guardada en

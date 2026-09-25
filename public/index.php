@@ -125,16 +125,16 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
             <g class="runway-lights"><circle cx="54" cy="185" r="3"/><circle cx="160" cy="185" r="3"/><circle cx="270" cy="185" r="3"/><circle cx="380" cy="185" r="3"/><circle cx="500" cy="185" r="3"/><circle cx="620" cy="185" r="3"/><circle cx="730" cy="185" r="3"/><circle cx="840" cy="185" r="3"/><circle cx="946" cy="185" r="3"/></g>
             <path class="scene-taxiway" d="M500 244 V278 M280 244 Q280 278 345 282 M720 244 Q720 278 655 282"/>
             <g class="scene-terminal">
-              <path d="M205 354h590v68H205z"/>
+              <path d="M55 354h890v68H55z"/>
               <text x="500" y="402">TERMINAL · PASAJEROS</text>
             </g>
             <g class="scene-fingers">
-              <g transform="translate(252 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
-              <g transform="translate(342 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
-              <g transform="translate(432 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
-              <g transform="translate(522 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
-              <g transform="translate(612 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
-              <g transform="translate(702 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(105 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(250 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(395 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(540 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(685 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(830 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
             </g>
             <path class="scene-baggage-zone-line" d="M35 466 H965"/>
             <text class="scene-label scene-baggage-zone-label" x="500" y="493" text-anchor="middle">EQUIPAJES EN TRÁNSITO · MÁS NUEVO ARRIBA · MÁS ANTIGUO ABAJO</text>

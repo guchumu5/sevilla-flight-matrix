@@ -1,4 +1,4 @@
 Matriz Operativa de Cintas · Sevilla
-Versión: 1.11.5
+Versión: 1.11.6
 Fecha: 2026-09-25
 Tecnología: PHP 8.1+, MySQL 8/MariaDB 10.6+, Bootstrap 5.3, JavaScript
