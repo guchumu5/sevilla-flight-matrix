@@ -273,6 +273,13 @@ ENAIRE](https://aip.enaire.es/AIP/contenido_AIP/AD/AD2/LEZL/LE_AD_2_LEZL_es.html
 y de la información de [Aena sobre las seis pasarelas de
 Sevilla](https://www.aena.es/es/prensa/el-aeropuerto-de-sevilla-adjudica-por-mas-de-cinco-millones-la-instalacion---de-seis-pasarelas-de-embarque-de-ultima-generacion.html%26p%3D1575078740846).
 
+La corrección 1.11.1 separa visualmente la asignación de la entrega: una maleta
+con origen y vuelo espera en una franja situada encima de su cinta mientras
+Aena solo la mantiene asignada. El recuadro inferior queda marcado como
+`ESPERA ARRIBA` y no muestra el vuelo como si ya estuviera entregando. Cuando el
+estado pasa a entrega de equipaje, la maleta desaparece de la espera y el vuelo
+ocupa el recuadro de la cinta. Ningún marcador invade los botones.
+
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
 posición, aeronave y propuestas secundarias con la lectura anterior guardada en

@@ -143,6 +143,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
           </svg>
           <svg class="scene-trails" id="sceneTrails" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
           <div class="scene-aircraft-layer" id="sceneAircraft"></div>
+          <div class="scene-baggage-queue" id="sceneBaggageQueue" aria-label="Equipajes con cinta asignada pendientes de entrega"></div>
           <div class="scene-source"><span></span> Aena + ADS‑B <b id="sceneMovementCount">0</b></div>
           <div class="scene-legend"><span><i class="live"></i>GPS real</span><span><i class="planned"></i>previsto</span><span><i class="flow"></i>flujo a cinta</span></div>
           <section class="scene-belts" aria-label="Cintas de equipajes de derecha a izquierda">

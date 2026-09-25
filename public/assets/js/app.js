@@ -24,6 +24,7 @@
     upcomingStrip: document.querySelector('#upcomingStrip'),
     mapStatus: document.querySelector('#mapStatus'), airportFlow: document.querySelector('#airportFlow'),
     airportScene: document.querySelector('#airportScene'), sceneAircraft: document.querySelector('#sceneAircraft'),
+    sceneBaggageQueue: document.querySelector('#sceneBaggageQueue'),
     sceneTrails: document.querySelector('#sceneTrails'), sceneClock: document.querySelector('#sceneClock'),
     sceneMovementCount: document.querySelector('#sceneMovementCount'), sceneBelts: document.querySelector('#sceneBelts'),
     beltChangesSection: document.querySelector('#beltChangesSection'), beltChangesStrip: document.querySelector('#beltChangesStrip'),
@@ -315,7 +316,7 @@
   }
 
   function bindFlightOpeners() {
-    document.querySelectorAll('.flight-row, .canary-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-belt.has-flight, .belt-change-card').forEach(item => {
+    document.querySelectorAll('.flight-row, .canary-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-baggage-waiting, .scene-belt.has-flight, .belt-change-card').forEach(item => {
       if (item.dataset.flightOpenerBound === '1') return;
       item.dataset.flightOpenerBound = '1';
       item.addEventListener('click', () => openDetail(item.dataset.flightId));
@@ -563,12 +564,7 @@
       return {left:34 + (index % 5) * 8, top:8 + Math.floor(index / 5) * 7, gps:false};
     }
     if (stage === 'ground') return {left:29 + (index % 6) * 9, top:53 + (index % 2) * 7, gps:false};
-    if (stage === 'baggage') {
-      const belt = Number(flight.belt);
-      return Number.isInteger(belt) && belt >= 1 && belt <= 8
-        ? {left:(8-belt+.5)*12.5,top:82,gps:false,flow:true}
-        : {left:50 + (index % 4) * 5,top:69,gps:false,flow:true};
-    }
+    if (stage === 'baggage') return {left:29 + (index % 6) * 9,top:58 + (index % 2) * 7,gps:false};
     return {left:32 + (index % 5) * 9, top:7 + Math.floor(index / 5) * 7, gps:false};
   }
 
@@ -588,12 +584,12 @@
       if (points.length < 2) return '';
       return `<polyline class="scene-gps-trail ${Number(f.is_canary)===1?'canary':''}" points="${points.map(point=>`${point.left},${point.top}`).join(' ')}"/>`;
     }).join('');
-    const baggageLinks = active.filter(f => f.source === 'aena' && f.belt && ['ground','baggage'].includes(flowStage(f))).map(f => {
+    const baggageLinks = active.filter(f => f.source === 'aena' && f.belt && flowStage(f) === 'ground').map(f => {
       const beltNumber = Number(f.belt);
       if (!Number.isInteger(beltNumber) || beltNumber < 1 || beltNumber > 8) return '';
       const beltX = (8 - beltNumber + .5) * 12.5;
       const start = state.scenePositions.get(Number(f.id)) || {left:50,top:62};
-      return `<path class="scene-baggage-link" d="M${start.left} ${Math.min(start.top,68)} Q${(start.left+beltX)/2} 73 ${beltX} 83"/>`;
+      return `<path class="scene-baggage-link" d="M${start.left} ${Math.min(start.top,64)} Q${(start.left+beltX)/2} 67 ${beltX} 71"/>`;
     }).join('');
     els.sceneTrails.innerHTML = gpsTrails + baggageLinks;
   }
@@ -646,8 +642,8 @@
       node.dataset.targetTop = position.top;
       node.style.setProperty('--scene-heading', `${sceneHeading(stage,f)}deg`);
       node.title = `${f.physical_flight} · ${f.origin_name} · ${stageLabels[stage]} · ${destination}`;
-      node.innerHTML = `<span class="scene-plane-icon" aria-hidden="true">${stage==='baggage'?'🧳':'✈'}</span>
-        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}${f._sceneRank?` · #${f._sceneRank}`:''}</strong><em>${esc(f.origin_name)}</em><small>${stage==='ground'?positionText:stage==='baggage'?`flujo → ${destination}`:detail}</small></span>`;
+      node.innerHTML = `<span class="scene-plane-icon" aria-hidden="true">✈</span>
+        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}${f._sceneRank?` · #${f._sceneRank}`:''}</strong><em>${esc(f.origin_name)}</em><small>${stage==='ground'?positionText:stage==='baggage'?`equipaje en ${destination}`:detail}</small></span>`;
       requestAnimationFrame(() => {
         node.classList.remove('scene-plane-entering');
         node.style.left = `${position.left}%`;
@@ -670,18 +666,39 @@
     state.scenePositions = nextPositions;
     els.sceneMovementCount.textContent = active.length;
     renderSceneTrails(active);
+    renderSceneBaggageQueue(active);
     renderSceneBelts(active);
+  }
+
+  function renderSceneBaggageQueue(active) {
+    if (!els.sceneBaggageQueue) return;
+    const assigned = active.filter(f => f.source === 'aena' && f.belt && flowStage(f) !== 'baggage');
+    const slotsByBelt = new Map();
+    els.sceneBaggageQueue.innerHTML = assigned.map(f => {
+      const belt = Number(f.belt);
+      if (!Number.isInteger(belt) || belt < 1 || belt > 8) return '';
+      const slot = slotsByBelt.get(belt) || 0;
+      slotsByBelt.set(belt,slot+1);
+      const beltX = (8-belt+.5)*12.5;
+      return `<button type="button" class="scene-baggage-waiting ${Number(f.is_canary)===1?'canary':''}" data-flight-id="${Number(f.id)}"
+        style="left:${beltX}%;bottom:${6+slot*34}px" title="${esc(f.origin_name)} · cinta ${belt} asignada · entrega pendiente">
+        <span aria-hidden="true">🧳</span><strong>${esc(f.origin_name)}</strong><small>${esc(f.physical_flight)} · espera C${belt}</small>
+      </button>`;
+    }).join('');
   }
 
   function renderSceneBelts(active) {
     if (!els.sceneBelts) return;
     els.sceneBelts.innerHTML = [8,7,6,5,4,3,2,1].map(number => {
-      const flights = active.filter(f => f.source === 'aena' && String(f.belt) === String(number));
+      const flights = active.filter(f => f.source === 'aena' && String(f.belt) === String(number) && flowStage(f) === 'baggage');
+      const queued = active.filter(f => f.source === 'aena' && String(f.belt) === String(number) && flowStage(f) !== 'baggage');
       const danger = number >= 7 ? 'danger' : '';
-      return `<button type="button" class="scene-belt ${danger} ${flights.length?'has-flight':''}" ${flights.length?`data-flight-id="${Number(flights[0].id)}"`:''} title="${flights.length?esc(flights.map(f=>`${f.physical_flight} ${f.origin_name}`).join(' · ')):`Cinta ${number} sin vuelo activo`}">
+      return `<button type="button" class="scene-belt ${danger} ${flights.length?'has-flight':queued.length?'reserved':''}" ${flights.length?`data-flight-id="${Number(flights[0].id)}"`:''} title="${flights.length?esc(flights.map(f=>`${f.physical_flight} ${f.origin_name}`).join(' · ')):queued.length?`Cinta ${number}: ${queued.length} vuelo${queued.length===1?'':'s'} asignado${queued.length===1?'':'s'}, entrega pendiente`:`Cinta ${number} sin vuelo activo`}">
         <span>${number}</span>${flights.length
           ? `<strong class="scene-belt-origin">${esc(flights[0].origin_name)}</strong><small>${esc(flights[0].physical_flight)} · ${time(effectiveArrival(flights[0]))}</small><em>μ ${leadText(flights[0].belt_lead_flight_average_minutes)}</em>`
-          : '<strong class="scene-belt-origin free">LIBRE</strong><small>sin vuelo activo</small>'}${flights.length>1?`<b>+${flights.length-1}</b>`:''}
+          : queued.length
+            ? `<strong class="scene-belt-origin free">ESPERA ARRIBA</strong><small>${queued.length} asignado${queued.length===1?'':'s'} · sin entrega</small>`
+            : '<strong class="scene-belt-origin free">LIBRE</strong><small>sin vuelo activo</small>'}${flights.length>1?`<b>+${flights.length-1}</b>`:''}
       </button>`;
     }).join('');
   }
