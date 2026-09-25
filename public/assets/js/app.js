@@ -473,11 +473,24 @@
   }
 
   function currentBeltFlights(flights) {
-    return oneFlightPerBelt(flights.filter(f => f.source === 'aena' && f.belt && flowStage(f) === 'baggage'),true);
+    return oneFlightPerBelt(flights.filter(f => f.source === 'aena' && f.belt && flowStage(f) === 'baggage'));
   }
 
-  function waitingBaggageFlights(flights) {
-    return oneFlightPerBelt(flights.filter(f => f.source === 'aena' && f.belt && flowStage(f) === 'ground'));
+  function waitingBaggageFlights(flights, perBeltLimit = 2) {
+    const beltsWithActiveDelivery = new Set(currentBeltFlights(flights).map(f => Number(f.belt)));
+    const ordered = flights
+      .filter(f => f.source === 'aena' && f.belt && flowStage(f) === 'ground')
+      .sort((a,b) => (parseDate(effectiveArrival(a))?.getTime() || 0) - (parseDate(effectiveArrival(b))?.getTime() || 0));
+    const beltCounts = new Map();
+    return ordered.filter(f => {
+      const belt = Number(f.belt);
+      if (!Number.isInteger(belt) || belt < 1 || belt > 8) return false;
+      const count = beltCounts.get(belt) || 0;
+      const limit = beltsWithActiveDelivery.has(belt) ? 1 : perBeltLimit;
+      if (count >= limit) return false;
+      beltCounts.set(belt,count + 1);
+      return true;
+    });
   }
 
   function renderAirportFlow() {
@@ -586,8 +599,9 @@
     }
     if (stage === 'ground') {
       const belt = Number(flight.belt);
+      const queueRank = Number(flight._beltQueueRank) || 0;
       return Number.isInteger(belt) && belt >= 1 && belt <= 8
-        ? {left:(8-belt+.5)*12.5,top:69,gps:false,flow:true}
+        ? {left:(8-belt+.5)*12.5,top:69 - Math.min(queueRank,1) * 7,gps:false,flow:true}
         : {left:50 + (index % 3) * 5,top:63,gps:false,flow:true};
     }
     if (stage === 'baggage') return {left:29 + (index % 6) * 9,top:58 + (index % 2) * 7,gps:false};
@@ -624,9 +638,17 @@
     if (!els.sceneAircraft) return;
     const counters = {waiting:0,enroute:0,approach:0,ground:0,baggage:0};
     const stageLabels = {waiting:'previsto',enroute:'en ruta',approach:'aterrizando',ground:'en tierra',baggage:'equipaje'};
+    const surfaceWaiting = waitingBaggageFlights(active);
+    const beltQueueCounts = new Map();
+    surfaceWaiting.forEach(f => {
+      const belt = Number(f.belt);
+      const rank = beltQueueCounts.get(belt) || 0;
+      f._beltQueueRank = rank;
+      beltQueueCounts.set(belt,rank + 1);
+    });
     const sceneFlights = [
       ...active.filter(f => ['waiting','enroute','approach'].includes(flowStage(f))),
-      ...waitingBaggageFlights(active)
+      ...surfaceWaiting
     ];
     const activeById = new Map(active.map(f => [Number(f.id),f]));
     const activeIds = new Set(sceneFlights.map(f => Number(f.id)));
@@ -674,7 +696,7 @@
       node.style.setProperty('--scene-heading', `${sceneHeading(stage,f)}deg`);
       node.title = `${f.physical_flight} · ${f.origin_name} · ${stageLabels[stage]} · ${destination}`;
       node.innerHTML = `<span class="scene-plane-icon" aria-hidden="true">${stage==='ground'?'🧳':'✈'}</span>
-        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}${f._sceneRank?` · #${f._sceneRank}`:''}</strong><em>${esc(f.origin_name)}</em><small>${stage==='ground'?`desembarcando → ${destination}`:detail}</small></span>`;
+        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}${f._sceneRank?` · #${f._sceneRank}`:''}</strong><em>${esc(f.origin_name)}</em><small>${stage==='ground'?`${destination} oficial · entrega pendiente`:detail}</small></span>`;
       requestAnimationFrame(() => {
         node.classList.remove('scene-plane-entering');
         node.style.left = `${position.left}%`;
@@ -713,17 +735,29 @@
   function renderSceneBelts(active) {
     if (!els.sceneBelts) return;
     const currentByBelt = new Map(currentBeltFlights(active).map(f => [Number(f.belt),f]));
-    const waitingByBelt = new Map(waitingBaggageFlights(active).map(f => [Number(f.belt),f]));
+    const waitingByBelt = new Map();
+    waitingBaggageFlights(active).forEach(f => {
+      const belt = Number(f.belt);
+      if (!waitingByBelt.has(belt)) waitingByBelt.set(belt,[]);
+      waitingByBelt.get(belt).push(f);
+    });
     els.sceneBelts.innerHTML = [8,7,6,5,4,3,2,1].map(number => {
       const current = currentByBelt.get(number) || null;
-      const queued = waitingByBelt.get(number) || null;
+      const waiting = waitingByBelt.get(number) || [];
+      const queued = waiting[0] || null;
+      const next = waiting[1] || null;
+      const selected = current || queued;
       const danger = number >= 7 ? 'danger' : '';
-      return `<button type="button" class="scene-belt ${danger} ${current?'has-flight':queued?'reserved':''}" ${current?`data-flight-id="${Number(current.id)}"`:''} title="${current?esc(`${current.physical_flight} ${current.origin_name}`):queued?`Cinta ${number}: ${queued.physical_flight} esperando entrega`:`Cinta ${number} sin vuelo activo`}">
+      const mobileNext = current && queued
+        ? queued
+        : next;
+      return `<button type="button" class="scene-belt ${danger} ${current?'has-flight':queued?'reserved':''}" ${selected?`data-flight-id="${Number(selected.id)}"`:''} title="${current?esc(`${current.physical_flight} ${current.origin_name}`):queued?`Cinta ${number}: ${queued.physical_flight} con entrega pendiente`:`Cinta ${number} sin vuelo activo`}">
         <span>${number}</span>${current
           ? `<strong class="scene-belt-origin">${esc(current.origin_name)}</strong><small>${esc(current.physical_flight)} · ${time(effectiveArrival(current))}</small><em>entrega activa</em>`
           : queued
-            ? `<strong class="scene-belt-origin free">ESPERA ARRIBA</strong><small>${esc(queued.physical_flight)} · desembarcando</small>`
+            ? `<strong class="scene-belt-origin free">ESPERA ARRIBA</strong><small>${esc(queued.physical_flight)} · entrega pendiente</small>`
             : '<strong class="scene-belt-origin free">LIBRE</strong><small>sin vuelo activo</small>'}
+        ${mobileNext ? `<span class="scene-belt-next"><i>🧳 SIGUIENTE</i><b>${esc(mobileNext.origin_name)}</b><small>${esc(mobileNext.physical_flight)} · entrega pendiente</small></span>` : ''}
       </button>`;
     }).join('');
   }

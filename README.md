@@ -289,6 +289,15 @@ muestran el vuelo actual y, si existe, el siguiente aterrizado en espera. Las
 entregas con más de 45 minutos dejan de contaminar la vista aunque una fuente
 mantenga temporalmente un estado antiguo.
 
+La corrección 1.11.3 ordena cada cola por tiempo real: la entrega más antigua
+ocupa el recuadro inferior y la siguiente llegada queda encima; si aún no hay
+entrega publicada, pueden verse como máximo dos maletas pendientes, con la más
+antigua abajo y la más nueva arriba. Una cinta de Aena ya es una asignación
+oficial, pero no equivale a que la descarga haya comenzado: el vuelo solo baja
+al recuadro cuando Aena informa entrega de equipaje. En móvil vertical, la
+escena separa el aeródromo y dispone las ocho cintas en dos columnas, evitando
+forzar la orientación y mostrando el siguiente vuelo dentro de la propia cinta.
+
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
 posición, aeronave y propuestas secundarias con la lectura anterior guardada en
