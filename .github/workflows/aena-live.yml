@@ -15,7 +15,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 18
     env:
       MATRIX_INGEST_URL: ${{ vars.MATRIX_INGEST_URL }}
       MATRIX_INGEST_TOKEN: ${{ secrets.MATRIX_INGEST_TOKEN }}
@@ -36,4 +36,16 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Leer Infovuelos y conciliar
-        run: node scripts/aena-collector.mjs
+        shell: bash
+        run: |
+          for attempt in 1 2; do
+            if node scripts/aena-collector.mjs; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "::error::Aena no respondió correctamente tras dos intentos."
+              exit 1
+            fi
+            echo "::warning::Infovuelos no estuvo listo; se repetirá la captura completa en 20 segundos."
+            sleep 20
+          done

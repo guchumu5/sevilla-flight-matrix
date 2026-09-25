@@ -123,6 +123,12 @@ El endpoint exige token Bearer, limita el tamaño y el número de vuelos y no
 acepta SQL ni comandos. La ventana completa vacía se rechaza, de modo que un
 fallo temporal de Aena no puede retirar masivamente vuelos.
 
+La corrección 1.11.4 tolera las cargas intermitentes de Infovuelos: espera hasta
+60 segundos a que el formulario y el botón de búsqueda estén realmente listos
+y, si Aena aun así falla, GitHub Actions repite una vez la captura completa a
+los 20 segundos. Solo el segundo fallo consecutivo deja la ejecución en rojo,
+por lo que no se oculta una caída real del servicio.
+
 ### Uso completamente web
 
 La versión 1.3 añade **Administración → Procesos web**. Desde esa pantalla se
@@ -301,9 +307,11 @@ forzar la orientación y mostrando el siguiente vuelo dentro de la propia cinta.
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
 posición, aeronave y propuestas secundarias con la lectura anterior guardada en
-el navegador. El aviso interno permanece hasta cerrarlo; el botón **Activar
-avisos** permite además habilitar notificaciones del navegador mientras la web
-esté abierta.
+el navegador. La corrección 1.11.4 muestra un único aviso cada vez: dura 60
+segundos si no hay otro esperando y 30 segundos si existe cola. Los cambios del
+mismo vuelo se fusionan en ese aviso y las notificaciones del navegador siguen
+la misma secuencia, evitando acumulaciones. El botón **Activar avisos** permite
+habilitarlas mientras la web esté abierta.
 
 La futura carga semanal utilizará este mismo reconciliador. La periodicidad
 recomendada es: siete días completos una vez al día, hoy y mañana cada 30

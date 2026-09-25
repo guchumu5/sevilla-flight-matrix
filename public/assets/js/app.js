@@ -9,8 +9,11 @@
   const state = {
     flights: [], loading: false, autoScrolledDate: null, pastExtra: 0, futureExtra: 0,
     scenePositions: new Map(), sceneRemovalTimers: new Map(), alertDate: null,
-    map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false
+    map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
+    canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null
   };
+  const CANARY_ALERT_DEFAULT_MS = 60_000;
+  const CANARY_ALERT_QUEUED_MS = 30_000;
   const els = {
     date: document.querySelector('#flightDate'), hall: document.querySelector('#hallFilter'),
     search: document.querySelector('#searchInput'), canary: document.querySelector('#canaryOnly'),
@@ -133,8 +136,45 @@
     };
   }
 
-  function showCanaryAlert(flight, changes, isNew = false) {
-    if (!els.canaryAlertStack) return;
+  function updateCanaryAlertCounter() {
+    const counter = state.activeCanaryAlert?.toast?.querySelector('[data-alert-counter]');
+    if (!counter) return;
+    counter.textContent = state.canaryAlertQueue.length
+      ? `${state.canaryAlertQueue.length} en cola`
+      : '60 s';
+  }
+
+  function scheduleCanaryAlertHide(targetDuration) {
+    if (!state.activeCanaryAlert) return;
+    clearTimeout(state.canaryAlertTimer);
+    const elapsed = Date.now() - state.activeCanaryAlert.startedAt;
+    const remaining = Math.max(750, targetDuration - elapsed);
+    state.canaryAlertTimer = window.setTimeout(() => {
+      state.activeCanaryAlert?.instance?.hide();
+    }, remaining);
+    updateCanaryAlertCounter();
+  }
+
+  function notifyCanaryAlert(alert) {
+    if (!window.isSecureContext || !('Notification' in window) || Notification.permission !== 'granted') return null;
+    try {
+      const notification = new Notification(`${alert.flight.origin_name} · ${alert.flight.physical_flight}`, {
+        body:alert.changes.join('\n'), tag:`canary-${alert.key}`, renotify:true
+      });
+      notification.onclick = () => { window.focus(); openDetail(alert.flight.id); notification.close(); };
+      return notification;
+    } catch (_) { return null; }
+  }
+
+  function renderActiveCanaryChanges() {
+    const container = state.activeCanaryAlert?.toast?.querySelector('[data-alert-changes]');
+    if (container) container.innerHTML = state.activeCanaryAlert.changes.map(change => `<span>${esc(change)}</span>`).join('');
+  }
+
+  function showNextCanaryAlert() {
+    if (!els.canaryAlertStack || state.activeCanaryAlert || !state.canaryAlertQueue.length) return;
+    const alert = state.canaryAlertQueue.shift();
+    const {flight, changes, isNew} = alert;
     const danger = ['7','8'].includes(String(flight.position || '').split('/').pop());
     const toast = document.createElement('article');
     toast.className = `toast canary-alert-toast ${danger?'canary-alert-danger':''}`;
@@ -143,23 +183,48 @@
     toast.setAttribute('aria-atomic','true');
     toast.innerHTML = `<div class="toast-header">
       <strong class="me-auto">🌴 ${esc(flight.origin_name)} · ${esc(flight.physical_flight)}</strong>
-      <small>ahora</small><button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Cerrar"></button>
+      <small data-alert-counter>ahora</small><button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast" aria-label="Cerrar"></button>
     </div><div class="toast-body">
       <b>${isNew?'Nuevo vuelo canario detectado':'Actualización prioritaria de Canarias'}</b>
-      ${changes.map(change=>`<span>${esc(change)}</span>`).join('')}
+      <div data-alert-changes>${changes.map(change=>`<span>${esc(change)}</span>`).join('')}</div>
       <button type="button" class="btn btn-sm btn-warning mt-2" data-flight-id="${Number(flight.id)}">Abrir vuelo</button>
     </div>`;
-    els.canaryAlertStack.prepend(toast);
-    while (els.canaryAlertStack.children.length > 6) els.canaryAlertStack.lastElementChild.remove();
+    els.canaryAlertStack.replaceChildren(toast);
     toast.querySelector('[data-flight-id]')?.addEventListener('click', event => openDetail(event.currentTarget.dataset.flightId));
-    bootstrap.Toast.getOrCreateInstance(toast, {autohide:false}).show();
-    if (window.isSecureContext && 'Notification' in window && Notification.permission === 'granted') {
-      try {
-        const notification = new Notification(`${flight.origin_name} · ${flight.physical_flight}`, {
-          body:changes.join('\n'), tag:`canary-${canarySnapshotKey(flight)}`, renotify:true
-        });
-        notification.onclick = () => { window.focus(); openDetail(flight.id); notification.close(); };
-      } catch (_) {}
+    const instance = bootstrap.Toast.getOrCreateInstance(toast, {autohide:false});
+    state.activeCanaryAlert = {...alert, toast, instance, startedAt:Date.now()};
+    toast.addEventListener('hidden.bs.toast', () => {
+      clearTimeout(state.canaryAlertTimer);
+      state.canaryAlertTimer = null;
+      state.activeCanaryAlert?.notification?.close();
+      toast.remove();
+      state.activeCanaryAlert = null;
+      showNextCanaryAlert();
+    }, {once:true});
+    instance.show();
+    const duration = state.canaryAlertQueue.length ? CANARY_ALERT_QUEUED_MS : CANARY_ALERT_DEFAULT_MS;
+    scheduleCanaryAlertHide(duration);
+    state.activeCanaryAlert.notification = notifyCanaryAlert(alert);
+  }
+
+  function showCanaryAlert(flight, changes, isNew = false) {
+    if (!els.canaryAlertStack) return;
+    const key = canarySnapshotKey(flight);
+    const existing = state.activeCanaryAlert?.key === key
+      ? state.activeCanaryAlert
+      : state.canaryAlertQueue.find(alert => alert.key === key);
+    if (existing) {
+      existing.flight = flight;
+      existing.isNew = existing.isNew || isNew;
+      existing.changes = [...new Set([...existing.changes, ...changes])];
+      if (existing === state.activeCanaryAlert) renderActiveCanaryChanges();
+    } else {
+      state.canaryAlertQueue.push({key, flight, changes:[...new Set(changes)], isNew});
+    }
+    if (state.activeCanaryAlert && state.canaryAlertQueue.length) {
+      scheduleCanaryAlertHide(CANARY_ALERT_QUEUED_MS);
+    } else {
+      showNextCanaryAlert();
     }
   }
 

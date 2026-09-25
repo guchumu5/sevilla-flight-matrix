@@ -6,6 +6,9 @@ const INGEST_TOKEN = process.env.MATRIX_INGEST_TOKEN || '';
 const TIME_ZONE = 'Europe/Madrid';
 const MAX_VISIBLE_ROWS = 20;
 const MODE = process.env.AENA_MODE === 'week' ? 'week' : 'live';
+const FORM_TIMEOUT = 60000;
+const DATE_TIMEOUT = 15000;
+const RESULT_TIMEOUT = 45000;
 
 if (INGEST_TOKEN.length < 24) {
   throw new Error('Falta MATRIX_INGEST_TOKEN o tiene menos de 24 caracteres.');
@@ -65,15 +68,19 @@ async function chooseClock(page, side, totalMinutes) {
 }
 
 async function selectDay(page, day) {
-  await page.locator('#fecha').click();
+  const dateField = page.locator('#fecha');
+  await dateField.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
+  await dateField.click();
   const buttonName = dayLabel(day);
   // Aena usa un selector de rango, pero un único clic sobre el mismo día ya
   // fija inicio y fin y cierra el calendario. El segundo clic anterior esperaba
   // un botón que ya no estaba en el DOM y agotaba el tiempo de GitHub Actions.
-  await page.getByRole('button', { name: buttonName, exact: true }).first().click();
+  const dayButton = page.getByRole('button', { name: buttonName, exact: true }).first();
+  await dayButton.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
+  await dayButton.click();
   const [year, month, dayOfMonth] = day.split('-');
   const expected = `${dayOfMonth}/${month}/${year} - ${dayOfMonth}/${month}/${year}`;
-  await page.waitForFunction(value => document.querySelector('#fecha')?.value === value, expected, { timeout: 5000 });
+  await page.waitForFunction(value => document.querySelector('#fecha')?.value === value, expected, { timeout: DATE_TIMEOUT });
 }
 
 async function preparePage(browser, day) {
@@ -86,6 +93,7 @@ async function preparePage(browser, day) {
     await acceptCookies.click();
   }
   const arrivals = page.getByRole('textbox', { name: 'Llegadas en la red Aena:' });
+  await arrivals.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
   await arrivals.fill('Sevilla');
   await page.waitForTimeout(700);
   await selectDay(page, day);
@@ -100,14 +108,21 @@ async function setTimeRange(page, start, end = null) {
 }
 
 async function executeSearch(page) {
-  await page.getByRole('button', { name: 'Buscar' }).click();
+  const searchButton = page.getByRole('button', { name: 'Buscar', exact: true });
+  await searchButton.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
+  await page.waitForFunction(() => {
+    const button = [...document.querySelectorAll('button')]
+      .find(element => element.textContent?.trim() === 'Buscar');
+    return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
+  }, null, { timeout: FORM_TIMEOUT });
+  await searchButton.click({ timeout: FORM_TIMEOUT });
   await page.waitForTimeout(900);
   await page.waitForFunction(() => {
     const body = document.body.innerText || '';
     return /vuelos con las caracter.sticas buscadas/i.test(body)
       || /no se han encontrado/i.test(body)
       || document.querySelectorAll('.resultados .listado > .fila').length > 0;
-  }, null, { timeout: 30000 }).catch(() => null);
+  }, null, { timeout: RESULT_TIMEOUT }).catch(() => null);
   await page.waitForTimeout(350);
 }
 
