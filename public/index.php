@@ -136,14 +136,12 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
               <g transform="translate(612 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
               <g transform="translate(702 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
             </g>
-            <text class="scene-label" x="24" y="31">CIELO · MÁS CERCANO AL CENTRO</text>
             <text class="scene-label" x="24" y="177">ENTRADA OESTE · RWY 09</text><text class="scene-label" x="976" y="177" text-anchor="end">RWY 27 · ENTRADA ESTE</text>
             <text class="scene-label" x="500" y="267" text-anchor="middle">PLATAFORMA · 6 PASARELAS (FINGERS)</text>
             <text class="scene-note" x="500" y="323" text-anchor="middle">PUERTA ≠ PUESTO ≠ FINGER · SOLO SE VINCULAN CON DATO PUBLICADO</text>
           </svg>
           <svg class="scene-trails" id="sceneTrails" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
           <div class="scene-aircraft-layer" id="sceneAircraft"></div>
-          <div class="scene-baggage-queue" id="sceneBaggageQueue" aria-label="Equipajes con cinta asignada pendientes de entrega"></div>
           <div class="scene-source"><span></span> Aena + ADS‑B <b id="sceneMovementCount">0</b></div>
           <div class="scene-legend"><span><i class="live"></i>GPS real</span><span><i class="planned"></i>previsto</span><span><i class="flow"></i>flujo a cinta</span></div>
           <section class="scene-belts" aria-label="Cintas de equipajes de derecha a izquierda">

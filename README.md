@@ -280,6 +280,15 @@ Aena solo la mantiene asignada. El recuadro inferior queda marcado como
 estado pasa a entrega de equipaje, la maleta desaparece de la espera y el vuelo
 ocupa el recuadro de la cinta. Ningún marcador invade los botones.
 
+La corrección 1.11.2 amplía la escena a 800 px y aplica la secuencia operativa
+completa: el marcador continúa siendo un avión mientras está previsto, en ruta
+o aproximando; al confirmarse el aterrizaje se transforma en una maleta y se
+desplaza progresivamente hasta quedar encima de su cinta; al comenzar la
+entrega, desaparece de la espera y ocupa el botón. Por cada cinta solo se
+muestran el vuelo actual y, si existe, el siguiente aterrizado en espera. Las
+entregas con más de 45 minutos dejan de contaminar la vista aunque una fuente
+mantenga temporalmente un estado antiguo.
+
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
 posición, aeronave y propuestas secundarias con la lectura anterior guardada en

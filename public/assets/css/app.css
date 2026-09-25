@@ -72,7 +72,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .aircraft-silhouette { display:block; width:130px; height:68px; }
 .scene-clock { flex:0 0 auto; padding:.27rem .48rem; border:1px solid var(--border); border-radius:7px; color:#78efbc; background:#091625; font:800 .78rem/1.2 ui-monospace,SFMono-Regular,Menlo,monospace; }
 .airport-scene { position:relative; height:286px; overflow:hidden; border-bottom:1px solid var(--border); background:#081522; isolation:isolate; }
-.airport-scene-large { height:680px; }
+.airport-scene-large { height:800px; }
 .airport-scene > svg { display:block; width:100%; }
 .scene-aerodrome { height:calc(100% - 170px); }
 .scene-approach-line { fill:none; stroke:#74c7ff; stroke-width:2; stroke-dasharray:8 10; opacity:.58; animation:scene-dash 4s linear infinite; }
@@ -98,16 +98,12 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .scene-plane-side-right .scene-plane-data { order:-1; text-align:right; }
 .scene-plane-data strong,.scene-plane-data em,.scene-plane-data small { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }.scene-plane-data strong { color:#8fd3ff; font-size:.72rem; }.scene-plane-data em { max-width:145px; color:#fff; font-size:.77rem; font-style:normal; font-weight:850; }.scene-plane-data small { max-width:145px; color:var(--muted); font-size:.59rem; }
 .scene-plane-approach .scene-plane-icon { border-color:var(--orange); background:#503a16; box-shadow:0 0 0 6px rgba(255,181,71,.18); }
-.scene-plane-ground .scene-plane-icon { border-color:#b4c4d3; background:#263747; animation:none; }
+.scene-plane-ground .scene-plane-icon { border-color:var(--green); background:#123c30; box-shadow:0 0 0 5px rgba(47,211,138,.16); transform:none; animation:none; }
 .scene-plane-baggage .scene-plane-icon { border-color:var(--green); background:#123c30; box-shadow:0 0 0 5px rgba(47,211,138,.16); transform:none; animation:none; }
 .scene-plane-waiting { opacity:.72; }.scene-plane-waiting .scene-plane-icon { filter:grayscale(.55); animation:none; }
 .scene-plane-planned:not(.scene-plane-ground):not(.scene-plane-baggage) .scene-plane-icon { border-color:var(--orange); background:#4b3515; box-shadow:0 0 0 5px rgba(255,181,71,.13); }
 .scene-plane-entering { opacity:0; }.scene-plane-leaving { opacity:0; pointer-events:none; }
 .scene-plane-canary .scene-plane-data { border-color:#87662c; background:rgba(48,39,25,.94); }.scene-plane-canary .scene-plane-data strong { color:#ffd47d; }
-.scene-baggage-queue { position:absolute; left:0; right:0; bottom:170px; height:105px; z-index:8; pointer-events:none; }
-.scene-baggage-waiting { position:absolute; display:grid; grid-template-columns:24px minmax(0,1fr); grid-template-areas:"icon origin" "icon flight"; align-items:center; width:min(145px,12.2vw); min-width:88px; padding:.26rem .34rem; border:1px solid #4e7d68; border-radius:9px; background:rgba(10,38,31,.96); color:#eafff7; text-align:left; transform:translateX(-50%); box-shadow:0 7px 18px rgba(0,0,0,.32); pointer-events:auto; }
-.scene-baggage-waiting > span { grid-area:icon; font-size:1rem; }.scene-baggage-waiting strong { grid-area:origin; overflow:hidden; font-size:.67rem; line-height:1.1; text-overflow:ellipsis; white-space:nowrap; }.scene-baggage-waiting small { grid-area:flight; color:#8cebc1; font-size:.54rem; white-space:nowrap; }
-.scene-baggage-waiting.canary { border-color:var(--orange); background:rgba(54,39,18,.97); }.scene-baggage-waiting.canary small { color:#ffd47d; }
 .scene-source { position:absolute; right:.55rem; top:.55rem; display:flex; align-items:center; gap:.35rem; padding:.25rem .45rem; border:1px solid #2e5068; border-radius:999px; background:rgba(7,17,31,.82); color:var(--muted); font-size:.62rem; z-index:9; }
 .scene-source span { width:7px; height:7px; border-radius:50%; background:var(--green); box-shadow:0 0 0 3px rgba(47,211,138,.15); }.scene-source b { color:var(--text); }
 .scene-legend { position:absolute; left:.55rem; top:.55rem; z-index:9; display:flex; flex-wrap:wrap; gap:.45rem; padding:.26rem .45rem; border:1px solid #2e5068; border-radius:999px; background:rgba(7,17,31,.86); color:#a8bfd1; font-size:.59rem; font-weight:750; }
@@ -218,8 +214,8 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   .flights-table td:nth-child(4){font-size:1.05rem}.flights-table td:nth-child(6)::before{content:"ETA/Real: ";color:var(--muted)}
   .flights-table td:nth-child(7)::before{content:"Cinta: ";color:var(--muted)}.flights-table td:nth-child(8)::before{content:"Sala: ";color:var(--muted)}
   .flights-table td:nth-child(9){display:none}
-  .canary-card{flex-basis:190px}.upcoming-strip{grid-auto-columns:minmax(175px,82vw)}#flightMap{height:240px}.airport-scene-large{height:620px}.airport-flow{max-height:280px}.flow-flight{flex-basis:170px}
-  .scene-plane{max-width:145px}.scene-plane-icon{width:25px;height:25px;flex-basis:25px;font-size:.82rem}.scene-plane-data{padding:.18rem .28rem}.scene-plane-data em{max-width:88px;font-size:.66rem}.scene-plane-data small{max-width:88px;font-size:.52rem}.scene-source{right:.45rem;top:.45rem}.scene-legend{left:.45rem;top:.45rem;max-width:210px;border-radius:9px}.scene-baggage-waiting{width:92px;min-width:92px;padding:.22rem .25rem}.scene-baggage-waiting strong{font-size:.58rem}.scene-baggage-waiting small{font-size:.49rem}.scene-belt-origin{font-size:.72rem}.scene-belts-grid{grid-template-columns:repeat(8,minmax(88px,1fr))}.belt-change-card{flex-basis:225px}
+  .canary-card{flex-basis:190px}.upcoming-strip{grid-auto-columns:minmax(175px,82vw)}#flightMap{height:240px}.airport-scene-large{height:720px}.airport-flow{max-height:280px}.flow-flight{flex-basis:170px}
+  .scene-plane{max-width:145px}.scene-plane-icon{width:25px;height:25px;flex-basis:25px;font-size:.82rem}.scene-plane-data{padding:.18rem .28rem}.scene-plane-data em{max-width:88px;font-size:.66rem}.scene-plane-data small{max-width:88px;font-size:.52rem}.scene-source{right:.45rem;top:.45rem}.scene-legend{left:.45rem;top:.45rem;max-width:210px;border-radius:9px}.scene-belt-origin{font-size:.72rem}.scene-belts-grid{grid-template-columns:repeat(8,minmax(88px,1fr))}.belt-change-card{flex-basis:225px}
   .airport-flow-wide{grid-template-columns:repeat(5,minmax(165px,1fr));max-height:none}.scene-belts{padding-left:.4rem;padding-right:.4rem}
   .telemetry-values{grid-template-columns:1fr}.telemetry-visual{flex-direction:column;gap:.1rem}
 }

@@ -24,7 +24,6 @@
     upcomingStrip: document.querySelector('#upcomingStrip'),
     mapStatus: document.querySelector('#mapStatus'), airportFlow: document.querySelector('#airportFlow'),
     airportScene: document.querySelector('#airportScene'), sceneAircraft: document.querySelector('#sceneAircraft'),
-    sceneBaggageQueue: document.querySelector('#sceneBaggageQueue'),
     sceneTrails: document.querySelector('#sceneTrails'), sceneClock: document.querySelector('#sceneClock'),
     sceneMovementCount: document.querySelector('#sceneMovementCount'), sceneBelts: document.querySelector('#sceneBelts'),
     beltChangesSection: document.querySelector('#beltChangesSection'), beltChangesStrip: document.querySelector('#beltChangesStrip'),
@@ -316,7 +315,7 @@
   }
 
   function bindFlightOpeners() {
-    document.querySelectorAll('.flight-row, .canary-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-baggage-waiting, .scene-belt.has-flight, .belt-change-card').forEach(item => {
+    document.querySelectorAll('.flight-row, .canary-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-belt.has-flight, .belt-change-card').forEach(item => {
       if (item.dataset.flightOpenerBound === '1') return;
       item.dataset.flightOpenerBound = '1';
       item.addEventListener('click', () => openDetail(item.dataset.flightId));
@@ -458,11 +457,33 @@
     return 'waiting';
   }
 
+  function oneFlightPerBelt(flights, newestFirst = false) {
+    const ordered = [...flights].sort((a,b) => {
+      const first = parseDate(effectiveArrival(a))?.getTime() || 0;
+      const second = parseDate(effectiveArrival(b))?.getTime() || 0;
+      return newestFirst ? second-first : first-second;
+    });
+    const seen = new Set();
+    return ordered.filter(f => {
+      const belt = Number(f.belt);
+      if (!Number.isInteger(belt) || belt < 1 || belt > 8 || seen.has(belt)) return false;
+      seen.add(belt);
+      return true;
+    });
+  }
+
+  function currentBeltFlights(flights) {
+    return oneFlightPerBelt(flights.filter(f => f.source === 'aena' && f.belt && flowStage(f) === 'baggage'),true);
+  }
+
+  function waitingBaggageFlights(flights) {
+    return oneFlightPerBelt(flights.filter(f => f.source === 'aena' && f.belt && flowStage(f) === 'ground'));
+  }
+
   function renderAirportFlow() {
     const now = madridNow();
     const windowFlights = state.flights.filter(f => {
       const baggage = String(f.baggage_state || '').toLowerCase();
-      if (baggage.includes('entrega')) return true;
       const minute = minuteOfDay(effectiveArrival(f));
       if (els.date.value !== now.date) return !baggage.includes('final');
       return minute !== null && minute >= now.minutes - 45 && minute <= now.minutes + 150 && !baggage.includes('final');
@@ -474,7 +495,7 @@
       if (aDistance !== null || bDistance !== null) return (aDistance ?? 99999) - (bDistance ?? 99999);
       return (minuteOfDay(effectiveArrival(a)) ?? 99999) - (minuteOfDay(effectiveArrival(b)) ?? 99999);
     }).slice(0,10);
-    const surface = windowFlights.filter(f => ['ground','baggage'].includes(flowStage(f))).slice(0,8);
+    const surface = [...currentBeltFlights(windowFlights),...waitingBaggageFlights(windowFlights)];
     const waiting = windowFlights.filter(f => flowStage(f) === 'waiting').slice(0,Math.max(0,10-airborne.length));
     const active = [...new Map([...airborne,...surface,...waiting].map(f => [Number(f.id),f])).values()];
     active.forEach(f => { f._sceneRank = airborne.findIndex(item => Number(item.id) === Number(f.id)) + 1 || null; });
@@ -551,7 +572,7 @@
 
   function scenePosition(stage, index, flight) {
     const gps = telemetryIsFresh(flight) ? projectTelemetry(flight.latitude, flight.longitude) : null;
-    if (gps && ['enroute','approach','ground'].includes(stage)) return {...gps,gps:true};
+    if (gps && ['enroute','approach'].includes(stage)) return {...gps,gps:true};
     const side = approachSide(flight);
     if (stage === 'approach') {
       return side === 'right'
@@ -563,7 +584,12 @@
       if (side === 'left') return {left:4 + (index % 4) * 6, top:8 + (index % 4) * 6, gps:false};
       return {left:34 + (index % 5) * 8, top:8 + Math.floor(index / 5) * 7, gps:false};
     }
-    if (stage === 'ground') return {left:29 + (index % 6) * 9, top:53 + (index % 2) * 7, gps:false};
+    if (stage === 'ground') {
+      const belt = Number(flight.belt);
+      return Number.isInteger(belt) && belt >= 1 && belt <= 8
+        ? {left:(8-belt+.5)*12.5,top:69,gps:false,flow:true}
+        : {left:50 + (index % 3) * 5,top:63,gps:false,flow:true};
+    }
     if (stage === 'baggage') return {left:29 + (index % 6) * 9,top:58 + (index % 2) * 7,gps:false};
     return {left:32 + (index % 5) * 9, top:7 + Math.floor(index / 5) * 7, gps:false};
   }
@@ -584,7 +610,7 @@
       if (points.length < 2) return '';
       return `<polyline class="scene-gps-trail ${Number(f.is_canary)===1?'canary':''}" points="${points.map(point=>`${point.left},${point.top}`).join(' ')}"/>`;
     }).join('');
-    const baggageLinks = active.filter(f => f.source === 'aena' && f.belt && flowStage(f) === 'ground').map(f => {
+    const baggageLinks = waitingBaggageFlights(active).map(f => {
       const beltNumber = Number(f.belt);
       if (!Number.isInteger(beltNumber) || beltNumber < 1 || beltNumber > 8) return '';
       const beltX = (8 - beltNumber + .5) * 12.5;
@@ -598,9 +624,14 @@
     if (!els.sceneAircraft) return;
     const counters = {waiting:0,enroute:0,approach:0,ground:0,baggage:0};
     const stageLabels = {waiting:'previsto',enroute:'en ruta',approach:'aterrizando',ground:'en tierra',baggage:'equipaje'};
-    const activeIds = new Set(active.map(f => Number(f.id)));
+    const sceneFlights = [
+      ...active.filter(f => ['waiting','enroute','approach'].includes(flowStage(f))),
+      ...waitingBaggageFlights(active)
+    ];
+    const activeById = new Map(active.map(f => [Number(f.id),f]));
+    const activeIds = new Set(sceneFlights.map(f => Number(f.id)));
     const nextPositions = new Map();
-    active.forEach(f => {
+    sceneFlights.forEach(f => {
       const stage = flowStage(f);
       const position = scenePosition(stage, counters[stage]++, f);
       const id = Number(f.id);
@@ -642,8 +673,8 @@
       node.dataset.targetTop = position.top;
       node.style.setProperty('--scene-heading', `${sceneHeading(stage,f)}deg`);
       node.title = `${f.physical_flight} · ${f.origin_name} · ${stageLabels[stage]} · ${destination}`;
-      node.innerHTML = `<span class="scene-plane-icon" aria-hidden="true">✈</span>
-        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}${f._sceneRank?` · #${f._sceneRank}`:''}</strong><em>${esc(f.origin_name)}</em><small>${stage==='ground'?positionText:stage==='baggage'?`equipaje en ${destination}`:detail}</small></span>`;
+      node.innerHTML = `<span class="scene-plane-icon" aria-hidden="true">${stage==='ground'?'🧳':'✈'}</span>
+        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}${f._sceneRank?` · #${f._sceneRank}`:''}</strong><em>${esc(f.origin_name)}</em><small>${stage==='ground'?`desembarcando → ${destination}`:detail}</small></span>`;
       requestAnimationFrame(() => {
         node.classList.remove('scene-plane-entering');
         node.style.left = `${position.left}%`;
@@ -653,6 +684,16 @@
     els.sceneAircraft.querySelectorAll('.scene-plane').forEach(node => {
       const id = Number(node.dataset.flightId);
       if (activeIds.has(id) || state.sceneRemovalTimers.has(id)) return;
+      const flight = activeById.get(id);
+      if (flight && flowStage(flight) === 'baggage') {
+        node.classList.add('scene-plane-leaving');
+        const timers = {fade:null,remove:setTimeout(() => {
+          node.remove();
+          state.sceneRemovalTimers.delete(id);
+        },1200)};
+        state.sceneRemovalTimers.set(id,timers);
+        return;
+      }
       const timers = {fade:null,remove:null};
       timers.fade = setTimeout(() => {
         node.classList.add('scene-plane-leaving');
@@ -666,39 +707,23 @@
     state.scenePositions = nextPositions;
     els.sceneMovementCount.textContent = active.length;
     renderSceneTrails(active);
-    renderSceneBaggageQueue(active);
     renderSceneBelts(active);
-  }
-
-  function renderSceneBaggageQueue(active) {
-    if (!els.sceneBaggageQueue) return;
-    const assigned = active.filter(f => f.source === 'aena' && f.belt && flowStage(f) !== 'baggage');
-    const slotsByBelt = new Map();
-    els.sceneBaggageQueue.innerHTML = assigned.map(f => {
-      const belt = Number(f.belt);
-      if (!Number.isInteger(belt) || belt < 1 || belt > 8) return '';
-      const slot = slotsByBelt.get(belt) || 0;
-      slotsByBelt.set(belt,slot+1);
-      const beltX = (8-belt+.5)*12.5;
-      return `<button type="button" class="scene-baggage-waiting ${Number(f.is_canary)===1?'canary':''}" data-flight-id="${Number(f.id)}"
-        style="left:${beltX}%;bottom:${6+slot*34}px" title="${esc(f.origin_name)} · cinta ${belt} asignada · entrega pendiente">
-        <span aria-hidden="true">🧳</span><strong>${esc(f.origin_name)}</strong><small>${esc(f.physical_flight)} · espera C${belt}</small>
-      </button>`;
-    }).join('');
   }
 
   function renderSceneBelts(active) {
     if (!els.sceneBelts) return;
+    const currentByBelt = new Map(currentBeltFlights(active).map(f => [Number(f.belt),f]));
+    const waitingByBelt = new Map(waitingBaggageFlights(active).map(f => [Number(f.belt),f]));
     els.sceneBelts.innerHTML = [8,7,6,5,4,3,2,1].map(number => {
-      const flights = active.filter(f => f.source === 'aena' && String(f.belt) === String(number) && flowStage(f) === 'baggage');
-      const queued = active.filter(f => f.source === 'aena' && String(f.belt) === String(number) && flowStage(f) !== 'baggage');
+      const current = currentByBelt.get(number) || null;
+      const queued = waitingByBelt.get(number) || null;
       const danger = number >= 7 ? 'danger' : '';
-      return `<button type="button" class="scene-belt ${danger} ${flights.length?'has-flight':queued.length?'reserved':''}" ${flights.length?`data-flight-id="${Number(flights[0].id)}"`:''} title="${flights.length?esc(flights.map(f=>`${f.physical_flight} ${f.origin_name}`).join(' · ')):queued.length?`Cinta ${number}: ${queued.length} vuelo${queued.length===1?'':'s'} asignado${queued.length===1?'':'s'}, entrega pendiente`:`Cinta ${number} sin vuelo activo`}">
-        <span>${number}</span>${flights.length
-          ? `<strong class="scene-belt-origin">${esc(flights[0].origin_name)}</strong><small>${esc(flights[0].physical_flight)} · ${time(effectiveArrival(flights[0]))}</small><em>μ ${leadText(flights[0].belt_lead_flight_average_minutes)}</em>`
-          : queued.length
-            ? `<strong class="scene-belt-origin free">ESPERA ARRIBA</strong><small>${queued.length} asignado${queued.length===1?'':'s'} · sin entrega</small>`
-            : '<strong class="scene-belt-origin free">LIBRE</strong><small>sin vuelo activo</small>'}${flights.length>1?`<b>+${flights.length-1}</b>`:''}
+      return `<button type="button" class="scene-belt ${danger} ${current?'has-flight':queued?'reserved':''}" ${current?`data-flight-id="${Number(current.id)}"`:''} title="${current?esc(`${current.physical_flight} ${current.origin_name}`):queued?`Cinta ${number}: ${queued.physical_flight} esperando entrega`:`Cinta ${number} sin vuelo activo`}">
+        <span>${number}</span>${current
+          ? `<strong class="scene-belt-origin">${esc(current.origin_name)}</strong><small>${esc(current.physical_flight)} · ${time(effectiveArrival(current))}</small><em>entrega activa</em>`
+          : queued
+            ? `<strong class="scene-belt-origin free">ESPERA ARRIBA</strong><small>${esc(queued.physical_flight)} · desembarcando</small>`
+            : '<strong class="scene-belt-origin free">LIBRE</strong><small>sin vuelo activo</small>'}
       </button>`;
     }).join('');
   }
