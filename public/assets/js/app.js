@@ -2,9 +2,13 @@
   'use strict';
 
   const SVQ = {lat: 37.4179, lon: -5.8931};
+  const RWY = {
+    west:{lat:37.41788,lon:-5.912075,label:'09'},
+    east:{lat:37.418008,lon:-5.874097,label:'27'}
+  };
   const state = {
     flights: [], loading: false, autoScrolledDate: null, pastExtra: 0, futureExtra: 0,
-    scenePositions: new Map(), alertDate: null,
+    scenePositions: new Map(), sceneRemovalTimers: new Map(), alertDate: null,
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false
   };
   const els = {
@@ -312,6 +316,8 @@
 
   function bindFlightOpeners() {
     document.querySelectorAll('.flight-row, .canary-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-belt.has-flight, .belt-change-card').forEach(item => {
+      if (item.dataset.flightOpenerBound === '1') return;
+      item.dataset.flightOpenerBound = '1';
       item.addEventListener('click', () => openDetail(item.dataset.flightId));
       item.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -453,14 +459,24 @@
 
   function renderAirportFlow() {
     const now = madridNow();
-    let active = state.flights.filter(f => {
+    const windowFlights = state.flights.filter(f => {
       const baggage = String(f.baggage_state || '').toLowerCase();
       if (baggage.includes('entrega')) return true;
       const minute = minuteOfDay(effectiveArrival(f));
       if (els.date.value !== now.date) return !baggage.includes('final');
       return minute !== null && minute >= now.minutes - 45 && minute <= now.minutes + 150 && !baggage.includes('final');
     });
-    active = active.slice(0, 18);
+    const airborne = windowFlights.filter(f => ['enroute','approach'].includes(flowStage(f))).sort((a,b) => {
+      const freshness = Number(telemetryIsFresh(b)) - Number(telemetryIsFresh(a));
+      if (freshness !== 0) return freshness;
+      const aDistance = distanceToSvq(a), bDistance = distanceToSvq(b);
+      if (aDistance !== null || bDistance !== null) return (aDistance ?? 99999) - (bDistance ?? 99999);
+      return (minuteOfDay(effectiveArrival(a)) ?? 99999) - (minuteOfDay(effectiveArrival(b)) ?? 99999);
+    }).slice(0,10);
+    const surface = windowFlights.filter(f => ['ground','baggage'].includes(flowStage(f))).slice(0,8);
+    const waiting = windowFlights.filter(f => flowStage(f) === 'waiting').slice(0,Math.max(0,10-airborne.length));
+    const active = [...new Map([...airborne,...surface,...waiting].map(f => [Number(f.id),f])).values()];
+    active.forEach(f => { f._sceneRank = airborne.findIndex(item => Number(item.id) === Number(f.id)) + 1 || null; });
     renderAirportScene(active);
     const stages = [
       ['waiting','Esperando / prevista'], ['enroute','En ruta'], ['approach','Aterrizando'],
@@ -498,31 +514,62 @@
     return 'unknown';
   }
 
+  function telemetryIsFresh(flight, maximumMinutes = 15) {
+    const age = telemetryAgeMinutes(flight);
+    return isFiniteNumber(flight.latitude) && isFiniteNumber(flight.longitude) && age !== null && age <= maximumMinutes;
+  }
+
+  function distanceToPoint(latitude, longitude) {
+    if (!isFiniteNumber(latitude) || !isFiniteNumber(longitude)) return null;
+    const toRad = degrees => degrees * Math.PI / 180;
+    const lat1 = toRad(SVQ.lat), lat2 = toRad(Number(latitude));
+    const dLat = lat2 - lat1, dLon = toRad(Number(longitude) - SVQ.lon);
+    const a = Math.sin(dLat/2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon/2) ** 2;
+    return 6371 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+  }
+
   function projectTelemetry(latitude, longitude) {
     if (!isFiniteNumber(latitude) || !isFiniteNumber(longitude)) return null;
+    const lat = Number(latitude), lon = Number(longitude);
+    const distance = distanceToPoint(lat,lon);
+    if (distance !== null && distance <= 6) {
+      const runwaySpan = RWY.east.lon - RWY.west.lon;
+      return {
+        left:clamp(5 + ((lon - RWY.west.lon) / runwaySpan) * 90, 3, 97),
+        top:clamp(36 + (RWY.west.lat - lat) * 6000, 33, 68)
+      };
+    }
+    const side = lon < SVQ.lon ? 'left' : 'right';
+    const ratio = clamp((distance ?? 280) / 280,0,1);
+    const nearThreshold = 1 - ratio;
     return {
-      left:clamp(50 + (Number(longitude) - SVQ.lon) * 25, 5, 95),
-      top:clamp(33 - (Number(latitude) - SVQ.lat) * 18, 8, 58)
+      left:side === 'left' ? 4 + nearThreshold * 9 : 96 - nearThreshold * 9,
+      top:clamp(8 + nearThreshold * 25,7,33)
     };
   }
 
   function scenePosition(stage, index, flight) {
-    const gps = projectTelemetry(flight.latitude, flight.longitude);
-    if (gps && (stage === 'enroute' || stage === 'approach')) return {...gps, gps:true};
+    const gps = telemetryIsFresh(flight) ? projectTelemetry(flight.latitude, flight.longitude) : null;
+    if (gps && ['enroute','approach','ground'].includes(stage)) return {...gps,gps:true};
     const side = approachSide(flight);
     if (stage === 'approach') {
       return side === 'right'
-        ? {left:72 - (index % 3) * 7, top:34 + (index % 2) * 6, gps:false}
-        : {left:28 + (index % 3) * 7, top:34 + (index % 2) * 6, gps:false};
+        ? {left:88 - (index % 3) * 4, top:28 + (index % 2) * 4, gps:false}
+        : {left:12 + (index % 3) * 4, top:28 + (index % 2) * 4, gps:false};
     }
     if (stage === 'enroute') {
-      if (side === 'right') return {left:92 - (index % 3) * 7, top:12 + (index % 3) * 10, gps:false};
-      if (side === 'left') return {left:8 + (index % 3) * 7, top:12 + (index % 3) * 10, gps:false};
-      return {left:42 + (index % 4) * 6, top:10 + Math.floor(index / 4) * 8, gps:false};
+      if (side === 'right') return {left:96 - (index % 4) * 6, top:8 + (index % 4) * 6, gps:false};
+      if (side === 'left') return {left:4 + (index % 4) * 6, top:8 + (index % 4) * 6, gps:false};
+      return {left:34 + (index % 5) * 8, top:8 + Math.floor(index / 5) * 7, gps:false};
     }
-    if (stage === 'ground') return {left:66 + (index % 4) * 5, top:55 + (index % 2) * 7, gps:false};
-    if (stage === 'baggage') return {left:77 + (index % 4) * 4, top:59 + (index % 2) * 6, gps:false};
-    return {left:40 + (index % 5) * 5, top:10 + Math.floor(index / 5) * 7, gps:false};
+    if (stage === 'ground') return {left:29 + (index % 6) * 9, top:53 + (index % 2) * 7, gps:false};
+    if (stage === 'baggage') {
+      const belt = Number(flight.belt);
+      return Number.isInteger(belt) && belt >= 1 && belt <= 8
+        ? {left:(8-belt+.5)*12.5,top:82,gps:false,flow:true}
+        : {left:50 + (index % 4) * 5,top:69,gps:false,flow:true};
+    }
+    return {left:32 + (index % 5) * 9, top:7 + Math.floor(index / 5) * 7, gps:false};
   }
 
   function sceneHeading(stage, flight) {
@@ -545,7 +592,8 @@
       const beltNumber = Number(f.belt);
       if (!Number.isInteger(beltNumber) || beltNumber < 1 || beltNumber > 8) return '';
       const beltX = (8 - beltNumber + .5) * 12.5;
-      return `<path class="scene-baggage-link" d="M78 60 Q${(78+beltX)/2} 72 ${beltX} 87"/>`;
+      const start = state.scenePositions.get(Number(f.id)) || {left:50,top:62};
+      return `<path class="scene-baggage-link" d="M${start.left} ${Math.min(start.top,68)} Q${(start.left+beltX)/2} 73 ${beltX} 83"/>`;
     }).join('');
     els.sceneTrails.innerHTML = gpsTrails + baggageLinks;
   }
@@ -554,25 +602,71 @@
     if (!els.sceneAircraft) return;
     const counters = {waiting:0,enroute:0,approach:0,ground:0,baggage:0};
     const stageLabels = {waiting:'previsto',enroute:'en ruta',approach:'aterrizando',ground:'en tierra',baggage:'equipaje'};
+    const activeIds = new Set(active.map(f => Number(f.id)));
     const nextPositions = new Map();
-    els.sceneAircraft.innerHTML = active.map(f => {
+    active.forEach(f => {
       const stage = flowStage(f);
       const position = scenePosition(stage, counters[stage]++, f);
-      const previous = state.scenePositions.get(Number(f.id)) || position;
-      nextPositions.set(Number(f.id), position);
+      const id = Number(f.id);
+      nextPositions.set(id, position);
       const destination = f.belt ? beltPosition(f) : 'cinta pendiente';
       const canary = Number(f.is_canary) === 1;
-      return `<button type="button" class="scene-plane scene-plane-${stage} ${canary?'scene-plane-canary':''}" data-flight-id="${Number(f.id)}"
-        data-target-left="${position.left}" data-target-top="${position.top}" style="left:${previous.left}%;top:${previous.top}%;--scene-heading:${sceneHeading(stage,f)}deg"
-        title="${esc(f.physical_flight)} · ${esc(f.origin_name)} · ${esc(stageLabels[stage])} · ${destination}">
-        <span class="scene-plane-icon" aria-hidden="true">✈</span>
-        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}</strong><em>${esc(f.origin_name)}</em><small>${position.gps?'GPS ADS‑B':approachSide(f)==='unknown'?'sin dirección ADS‑B':'rumbo ADS‑B'} · ${time(effectiveArrival(f))} · ${destination}</small></span>
-      </button>`;
-    }).join('');
-    requestAnimationFrame(() => els.sceneAircraft.querySelectorAll('.scene-plane').forEach(node => {
-      node.style.left = `${node.dataset.targetLeft}%`;
-      node.style.top = `${node.dataset.targetTop}%`;
-    }));
+      let node = els.sceneAircraft.querySelector(`.scene-plane[data-flight-id="${id}"]`);
+      let isNew = false;
+      if (!node) {
+        isNew = true;
+        node = document.createElement('button');
+        node.type = 'button';
+        node.className = 'scene-plane';
+        node.dataset.flightId = id;
+        const entry = position.flow ? {left:50,top:66} : position;
+        node.style.left = `${entry.left}%`;
+        node.style.top = `${entry.top}%`;
+        node.addEventListener('click', () => openDetail(id));
+        els.sceneAircraft.appendChild(node);
+      }
+      const removalTimer = state.sceneRemovalTimers.get(id);
+      if (removalTimer) {
+        clearTimeout(removalTimer.fade);
+        clearTimeout(removalTimer.remove);
+        node.classList.remove('scene-plane-leaving');
+        state.sceneRemovalTimers.delete(id);
+      }
+      const side = position.gps ? approachSide(f) : 'unknown';
+      const distance = distanceToSvq(f);
+      const rank = f._sceneRank ? `#${f._sceneRank} · ` : '';
+      const direction = side === 'left' ? 'entrada oeste/09' : side === 'right' ? 'entrada este/27' : 'dirección pendiente';
+      const positionText = f.stand ? `posición ${esc(f.stand)}` : f.gate ? `puerta ${esc(f.gate)} · puesto sin verificar` : 'posición pendiente';
+      const detail = position.gps
+        ? `${rank}${distance!==null?`${Math.round(distance)} km · `:''}${direction}`
+        : `${rank}sin GPS · ${direction}`;
+      node.className = `scene-plane scene-plane-${stage} scene-plane-side-${side} ${canary?'scene-plane-canary':''} ${position.gps?'scene-plane-live':'scene-plane-planned'}`;
+      if (isNew) node.classList.add('scene-plane-entering');
+      node.dataset.targetLeft = position.left;
+      node.dataset.targetTop = position.top;
+      node.style.setProperty('--scene-heading', `${sceneHeading(stage,f)}deg`);
+      node.title = `${f.physical_flight} · ${f.origin_name} · ${stageLabels[stage]} · ${destination}`;
+      node.innerHTML = `<span class="scene-plane-icon" aria-hidden="true">${stage==='baggage'?'🧳':'✈'}</span>
+        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}${f._sceneRank?` · #${f._sceneRank}`:''}</strong><em>${esc(f.origin_name)}</em><small>${stage==='ground'?positionText:stage==='baggage'?`flujo → ${destination}`:detail}</small></span>`;
+      requestAnimationFrame(() => {
+        node.classList.remove('scene-plane-entering');
+        node.style.left = `${position.left}%`;
+        node.style.top = `${position.top}%`;
+      });
+    });
+    els.sceneAircraft.querySelectorAll('.scene-plane').forEach(node => {
+      const id = Number(node.dataset.flightId);
+      if (activeIds.has(id) || state.sceneRemovalTimers.has(id)) return;
+      const timers = {fade:null,remove:null};
+      timers.fade = setTimeout(() => {
+        node.classList.add('scene-plane-leaving');
+        timers.remove = setTimeout(() => {
+          node.remove();
+          state.sceneRemovalTimers.delete(id);
+        },12000);
+      },20000);
+      state.sceneRemovalTimers.set(id,timers);
+    });
     state.scenePositions = nextPositions;
     els.sceneMovementCount.textContent = active.length;
     renderSceneTrails(active);

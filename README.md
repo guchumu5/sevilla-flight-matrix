@@ -254,6 +254,25 @@ además el perfil agregado del aeropuerto de origen. La propensión a 7/8 sigue
 la matriz: menos de cinco observaciones es histórico insuficiente, más del 50 %
 es caliente confirmado y desde el 70 % es caliente fuerte.
 
+La versión 1.11 rehace la infografía de movimiento en cuatro niveles: cielo,
+pista 09/27, plataforma con las seis pasarelas telescópicas documentadas por
+Aena y las ocho cintas. Los vuelos en el cielo se limitan a los diez más
+próximos y se ordenan por distancia ADS-B; cuando no existe telemetría reciente
+se muestran como previstos y no se inventa su lado de entrada. Las coordenadas,
+rumbo, altura y distancia sitúan el marcador y determinan si la aproximación se
+produce por el oeste (09) o por el este (27). Los nodos se conservan entre
+capturas y se desplazan mediante transición continua, con un margen de 20
+segundos antes de ocultar una lectura ausente para evitar parpadeos.
+
+Al llegar a tierra, la escena diferencia puerta, puesto de estacionamiento y
+pasarela: una puerta publicada no se convierte automáticamente en un finger.
+El tramo verde hacia las cintas cambia el icono a equipaje y representa el
+flujo del vuelo/pasajeros, nunca el rodaje físico de la aeronave dentro del
+terminal. Las referencias físicas proceden del [AIP oficial de
+ENAIRE](https://aip.enaire.es/AIP/contenido_AIP/AD/AD2/LEZL/LE_AD_2_LEZL_es.html)
+y de la información de [Aena sobre las seis pasarelas de
+Sevilla](https://www.aena.es/es/prensa/el-aeropuerto-de-sevilla-adjudica-por-mas-de-cinco-millones-la-instalacion---de-seis-pasarelas-de-embarque-de-ultima-generacion.html%26p%3D1575078740846).
+
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
 posición, aeronave y propuestas secundarias con la lectura anterior guardada en

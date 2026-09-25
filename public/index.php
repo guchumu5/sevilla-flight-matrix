@@ -109,27 +109,44 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
       <time class="scene-clock" id="sceneClock">--:--</time>
     </header>
     <div class="airport-scene airport-scene-large" id="airportScene" aria-label="Infografía dinámica del flujo de llegadas">
-          <svg viewBox="0 0 900 360" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <svg class="scene-aerodrome" viewBox="0 0 1000 430" preserveAspectRatio="none" aria-hidden="true">
             <defs>
               <linearGradient id="sceneSky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#102f4a"/><stop offset="1" stop-color="#081522"/></linearGradient>
-              <pattern id="runwayMarks" width="70" height="36" patternUnits="userSpaceOnUse"><rect x="27" y="15" width="28" height="6" rx="2" fill="#eaf3fa" opacity=".88"/></pattern>
+              <linearGradient id="sceneApron" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#172634"/><stop offset="1" stop-color="#0b1723"/></linearGradient>
+              <pattern id="runwayMarks" width="90" height="46" patternUnits="userSpaceOnUse"><rect x="32" y="20" width="34" height="6" rx="2" fill="#eaf3fa" opacity=".88"/></pattern>
             </defs>
-            <rect width="900" height="360" fill="url(#sceneSky)"/>
-            <path class="scene-coast" d="M0 305 C130 250 225 332 355 282 S615 270 900 238 V360 H0Z"/>
-            <path class="scene-approach-line" d="M18 76 C145 78 205 120 295 178"/>
-            <path class="scene-approach-line scene-approach-right" d="M882 76 C755 78 690 120 602 178"/>
-            <path class="scene-taxiway" d="M560 181 C650 183 650 250 722 257"/>
-            <rect class="scene-runway" x="280" y="158" width="330" height="42" rx="5"/>
-            <rect x="290" y="161" width="310" height="36" fill="url(#runwayMarks)"/>
-            <g class="runway-lights"><circle cx="280" cy="154" r="3"/><circle cx="330" cy="154" r="3"/><circle cx="380" cy="154" r="3"/><circle cx="430" cy="154" r="3"/><circle cx="480" cy="154" r="3"/><circle cx="530" cy="154" r="3"/><circle cx="580" cy="154" r="3"/><circle cx="610" cy="154" r="3"/></g>
-            <g class="scene-terminal"><path d="M675 218h198v73H675z"/><path d="M700 198h38v26h-38zM755 198h38v26h-38zM810 198h38v26h-38z"/><text x="774" y="259">TERMINAL · PLANTA 0</text></g>
-            <text class="scene-label" x="24" y="42">COLA OESTE</text><text class="scene-label" x="196" y="112">APROXIMACIÓN</text><text class="scene-label" x="416" y="146">PISTA</text><text class="scene-label" x="610" y="213">TIERRA</text><text class="scene-label" x="785" y="42">COLA ESTE</text>
+            <rect width="1000" height="190" fill="url(#sceneSky)"/>
+            <rect y="190" width="1000" height="240" fill="url(#sceneApron)"/>
+            <path class="scene-approach-line" d="M12 125 C165 125 225 160 305 212"/>
+            <path class="scene-approach-line scene-approach-right" d="M988 125 C835 125 775 160 695 212"/>
+            <rect class="scene-runway" x="54" y="190" width="892" height="54" rx="5"/>
+            <rect x="68" y="194" width="864" height="46" fill="url(#runwayMarks)"/>
+            <text class="runway-number" x="78" y="226">09</text><text class="runway-number" x="922" y="226" text-anchor="end">27</text>
+            <g class="runway-lights"><circle cx="54" cy="185" r="3"/><circle cx="160" cy="185" r="3"/><circle cx="270" cy="185" r="3"/><circle cx="380" cy="185" r="3"/><circle cx="500" cy="185" r="3"/><circle cx="620" cy="185" r="3"/><circle cx="730" cy="185" r="3"/><circle cx="840" cy="185" r="3"/><circle cx="946" cy="185" r="3"/></g>
+            <path class="scene-taxiway" d="M500 244 V278 M280 244 Q280 278 345 282 M720 244 Q720 278 655 282"/>
+            <g class="scene-terminal">
+              <path d="M205 354h590v68H205z"/>
+              <text x="500" y="402">TERMINAL · PASAJEROS</text>
+            </g>
+            <g class="scene-fingers">
+              <g transform="translate(252 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(342 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(432 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(522 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(612 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+              <g transform="translate(702 0)"><rect x="0" y="332" width="54" height="23"/><path d="M27 332v-49h56v19H42v30z"/><circle cx="87" cy="292" r="7"/></g>
+            </g>
+            <text class="scene-label" x="24" y="31">CIELO · MÁS CERCANO AL CENTRO</text>
+            <text class="scene-label" x="24" y="177">ENTRADA OESTE · RWY 09</text><text class="scene-label" x="976" y="177" text-anchor="end">RWY 27 · ENTRADA ESTE</text>
+            <text class="scene-label" x="500" y="267" text-anchor="middle">PLATAFORMA · 6 PASARELAS (FINGERS)</text>
+            <text class="scene-note" x="500" y="323" text-anchor="middle">PUERTA ≠ PUESTO ≠ FINGER · SOLO SE VINCULAN CON DATO PUBLICADO</text>
           </svg>
           <svg class="scene-trails" id="sceneTrails" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"></svg>
           <div class="scene-aircraft-layer" id="sceneAircraft"></div>
           <div class="scene-source"><span></span> Aena + ADS‑B <b id="sceneMovementCount">0</b></div>
+          <div class="scene-legend"><span><i class="live"></i>GPS real</span><span><i class="planned"></i>previsto</span><span><i class="flow"></i>flujo a cinta</span></div>
           <section class="scene-belts" aria-label="Cintas de equipajes de derecha a izquierda">
-            <header><span>← SALA B · CINTA 8</span><strong>RECOGIDA DE EQUIPAJES</strong><span>CINTA 1 · SALA A →</span></header>
+            <header><span>← SALA B · CINTA 8</span><strong>8 CINTAS · FLUJO DEL VUELO, NO RODAJE DEL AVIÓN</strong><span>CINTA 1 · SALA A →</span></header>
             <div class="scene-belts-grid" id="sceneBelts"></div>
           </section>
     </div>
