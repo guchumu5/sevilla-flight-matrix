@@ -318,6 +318,14 @@ cuadrícula de cinco columnas y dos filas, las aproximaciones se apilan en
 vertical por cada cabecera y las maletas de cintas contiguas alternan su altura.
 Esto evita que las fichas se pisen tanto en escritorio como en móvil apaisado.
 
+La corrección 1.11.7 compacta las observaciones idénticas de Aena, AirLabs,
+OpenSky y cualquier otra fuente por separado: la primera lectura permanece
+visible y las repeticiones se resumen como `+1`, `+2`, etc. La cola operativa
+superior y el cielo muestran los cinco vuelos siguientes y se reponen en cada
+refresco cuando uno aterriza. Los vuelos finalizados salen de la escena y su
+cinta vuelve a libre. También se amplía el corredor situado bajo la terminal
+para separar mejor las maletas de las posiciones de plataforma.
+
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
 posición, aeronave y propuestas secundarias con la lectura anterior guardada en

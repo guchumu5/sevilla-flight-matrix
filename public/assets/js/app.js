@@ -99,17 +99,24 @@
 
   const timelineKey = item => [item.source,item.status,item.eta,item.actual_departure,item.actual_arrival,item.hall,item.belt,item.gate,item.stand,item.baggage_state]
     .map(value => value ?? '').join('|');
-  const compactHistory = history => history.reduce((groups, item) => {
-    const previous = groups[groups.length - 1];
-    const key = timelineKey(item);
-    if (item.source === 'opensky' && previous?.source === 'opensky' && previous._timelineKey === key) {
-      previous.repeat_count += 1;
-      previous.last_observed_at = item.observed_at;
-      return groups;
-    }
-    groups.push({...item, repeat_count:1, last_observed_at:item.observed_at, _timelineKey:key});
+  const compactHistory = history => {
+    const groups = [];
+    const lastGroupBySource = new Map();
+    history.forEach(item => {
+      const source = String(item.source || 'unknown').toLowerCase();
+      const key = timelineKey(item);
+      const previousIndex = lastGroupBySource.get(source);
+      const previous = previousIndex === undefined ? null : groups[previousIndex];
+      if (previous && previous._timelineKey === key) {
+        previous.repeat_count += 1;
+        previous.last_observed_at = item.observed_at;
+        return;
+      }
+      groups.push({...item, repeat_count:1, last_observed_at:item.observed_at, _timelineKey:key});
+      lastGroupBySource.set(source, groups.length - 1);
+    });
     return groups;
-  }, []);
+  };
   const timelinePeriod = item => item.repeat_count > 1
     ? `${dateTime(item.observed_at)}–${item.observed_at?.slice(0,10)===item.last_observed_at?.slice(0,10)?time(item.last_observed_at):dateTime(item.last_observed_at)}`
     : dateTime(item.observed_at);
@@ -117,6 +124,7 @@
     const value = `${flight.status || ''} ${flight.baggage_state || ''}`.toLowerCase();
     return /vuelo|route|airborne|aproxim|landed|tierra|entrega|delivery/.test(value) && !/final|cancel/.test(value);
   };
+  const flightIsFinished = flight => /final|cancel/.test(`${flight.status || ''} ${flight.baggage_state || ''}`.toLowerCase());
   const beltAverageMarkup = flight => `<span class="belt-average" title="Media calculada con primeras publicaciones oficiales Aena de días anteriores">
     μ vuelo ${leadText(flight.belt_lead_flight_average_minutes)} · n=${Number(flight.belt_lead_flight_samples || 0)}<br>
     μ origen ${leadText(flight.belt_lead_origin_average_minutes)} · n=${Number(flight.belt_lead_origin_samples || 0)}
@@ -417,11 +425,10 @@
     const now = madridNow();
     const isToday = els.date.value === now.date;
     const flights = state.flights.filter(f => {
-      const status = `${f.status || ''} ${f.baggage_state || ''}`.toLowerCase();
-      if (status.includes('final') || status.includes('cancel')) return false;
+      if (flightIsFinished(f) || !['waiting','enroute','approach'].includes(flowStage(f))) return false;
       const minute = minuteOfDay(effectiveArrival(f));
       return !isToday || minute === null || minute >= now.minutes - 10;
-    }).slice(0, 10);
+    }).sort((a,b) => (parseDate(effectiveArrival(a))?.getTime() || 0) - (parseDate(effectiveArrival(b))?.getTime() || 0)).slice(0, 5);
     if (!flights.length) {
       els.upcomingStrip.innerHTML = '<div class="upcoming-empty">No quedan llegadas activas para esta fecha.</div>';
       return;
@@ -561,10 +568,9 @@
   function renderAirportFlow() {
     const now = madridNow();
     const windowFlights = state.flights.filter(f => {
-      const baggage = String(f.baggage_state || '').toLowerCase();
       const minute = minuteOfDay(effectiveArrival(f));
-      if (els.date.value !== now.date) return !baggage.includes('final');
-      return minute !== null && minute >= now.minutes - 45 && minute <= now.minutes + 150 && !baggage.includes('final');
+      if (els.date.value !== now.date) return !flightIsFinished(f);
+      return minute !== null && minute >= now.minutes - 45 && minute <= now.minutes + 150 && !flightIsFinished(f);
     });
     const airborne = windowFlights.filter(f => ['enroute','approach'].includes(flowStage(f))).sort((a,b) => {
       const freshness = Number(telemetryIsFresh(b)) - Number(telemetryIsFresh(a));
@@ -572,11 +578,13 @@
       const aDistance = distanceToSvq(a), bDistance = distanceToSvq(b);
       if (aDistance !== null || bDistance !== null) return (aDistance ?? 99999) - (bDistance ?? 99999);
       return (minuteOfDay(effectiveArrival(a)) ?? 99999) - (minuteOfDay(effectiveArrival(b)) ?? 99999);
-    }).slice(0,10);
+    });
     const surface = [...currentBeltFlights(windowFlights),...waitingBaggageFlights(windowFlights)];
-    const waiting = windowFlights.filter(f => flowStage(f) === 'waiting').slice(0,Math.max(0,10-airborne.length));
-    const active = [...new Map([...airborne,...surface,...waiting].map(f => [Number(f.id),f])).values()];
-    active.forEach(f => { f._sceneRank = airborne.findIndex(item => Number(item.id) === Number(f.id)) + 1 || null; });
+    const waiting = windowFlights.filter(f => flowStage(f) === 'waiting')
+      .sort((a,b) => (parseDate(effectiveArrival(a))?.getTime() || 0) - (parseDate(effectiveArrival(b))?.getTime() || 0));
+    const skyQueue = [...airborne,...waiting].slice(0,5);
+    const active = [...new Map([...skyQueue,...surface].map(f => [Number(f.id),f])).values()];
+    active.forEach(f => { f._sceneRank = skyQueue.findIndex(item => Number(item.id) === Number(f.id)) + 1 || null; });
     renderAirportScene(active);
     const stages = [
       ['waiting','Esperando / prevista'], ['enroute','En ruta'], ['approach','Aterrizando'],
@@ -716,6 +724,7 @@
       ...surfaceWaiting
     ];
     const activeById = new Map(active.map(f => [Number(f.id),f]));
+    const boardById = new Map(state.flights.map(f => [Number(f.id),f]));
     const activeIds = new Set(sceneFlights.map(f => Number(f.id)));
     const nextPositions = new Map();
     sceneFlights.forEach(f => {
@@ -772,6 +781,16 @@
       const id = Number(node.dataset.flightId);
       if (activeIds.has(id) || state.sceneRemovalTimers.has(id)) return;
       const flight = activeById.get(id);
+      const boardFlight = boardById.get(id);
+      if (boardFlight && flightIsFinished(boardFlight)) {
+        node.classList.add('scene-plane-leaving');
+        const timers = {fade:null,remove:setTimeout(() => {
+          node.remove();
+          state.sceneRemovalTimers.delete(id);
+        },1200)};
+        state.sceneRemovalTimers.set(id,timers);
+        return;
+      }
       if (flight && flowStage(flight) === 'baggage') {
         node.classList.add('scene-plane-leaving');
         const timers = {fade:null,remove:setTimeout(() => {
@@ -985,7 +1004,7 @@
             ? `<span class="badge text-bg-warning ms-2">provisional · Aena mantiene ${officialPosition}</span>`
             : '<span class="badge text-bg-secondary ms-2">secundario</span>';
         const repeats = item.repeat_count > 1
-          ? `<span class="badge text-bg-info ms-2">${item.repeat_count} lecturas agrupadas</span>`
+          ? `<span class="badge text-bg-info ms-2" title="${item.repeat_count} lecturas iguales agrupadas">+${item.repeat_count - 1}</span>`
           : '';
         return `<article class="timeline-item ${isAena?'aena':''}">
           <div class="d-flex justify-content-between gap-2"><strong>${esc((item.source||'').toUpperCase())}${authority}${repeats}</strong><time class="meta text-end">${timelinePeriod(item)}</time></div>
