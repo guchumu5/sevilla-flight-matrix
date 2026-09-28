@@ -326,13 +326,15 @@ refresco cuando uno aterriza. Los vuelos finalizados salen de la escena y su
 cinta vuelve a libre. También se amplía el corredor situado bajo la terminal
 para separar mejor las maletas de las posiciones de plataforma.
 
-La corrección 1.11.8 hace resistente la carga semanal al selector de rango de
-fechas de Aena. Admite tanto el cierre de fecha con un clic como el segundo clic
-que Aena exige para determinados días futuros, registra en el log cada fecha y
-reintenta únicamente el día que ha fallado, hasta tres veces, sin repetir desde
-cero los días ya leídos dentro de la misma ejecución. Los cambios del propio
-recolector disparan también una prueba semanal completa en `main`, además de la
-ejecución diaria y del botón manual de GitHub Actions.
+La corrección 1.11.9 adapta la carga semanal al comportamiento real del
+calendario de Infovuelos: un día futuro se expresa como un intervalo desde hoy
+hasta la fecha elegida, mientras que el modo en directo cierra hoy con un
+segundo clic. El recolector lee una sola vez el intervalo completo, obtiene la
+fecha real de cada vuelo desde los separadores diarios de Aena y evita duplicar
+o atribuir al día equivocado las filas futuras. El intervalo se reintenta hasta
+tres veces ante un fallo transitorio. Los cambios del propio recolector disparan
+también una prueba semanal completa en `main`, además de la ejecución diaria y
+del botón manual de GitHub Actions.
 
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,

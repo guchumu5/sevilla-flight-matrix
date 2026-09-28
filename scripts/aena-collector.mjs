@@ -72,8 +72,10 @@ async function selectDay(page, day) {
   await dateField.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
   await dateField.click();
   const buttonName = dayLabel(day);
+  const rangeStart = localDay(0);
+  const [startYear, startMonth, startDay] = rangeStart.split('-');
   const [year, month, dayOfMonth] = day.split('-');
-  const expected = `${dayOfMonth}/${month}/${year} - ${dayOfMonth}/${month}/${year}`;
+  const expected = `${startDay}/${startMonth}/${startYear} - ${dayOfMonth}/${month}/${year}`;
 
   const clickDay = async () => {
     const dayButton = page.getByRole('button', { name: buttonName, exact: true }).first();
@@ -81,26 +83,24 @@ async function selectDay(page, day) {
     await dayButton.click();
   };
 
-  // El componente de Aena se comporta de dos formas: para el día inicialmente
-  // seleccionado puede cerrar el rango con un clic; para fechas futuras suele
-  // conservar el primer clic como inicio y pedir otro para fijar el final.
+  // Infovuelos no permite elegir de forma aislada un día futuro. El calendario
+  // conserva el día actual como inicio y el clic fija el final del intervalo.
+  // Los separadores de fecha del resultado permiten atribuir cada fila a su día.
   await clickDay();
-  await page.waitForTimeout(450);
-  let selected = await dateField.inputValue().catch(() => '');
-  if (selected !== expected) {
-    const sameDayVisible = await page.getByRole('button', { name: buttonName, exact: true }).first()
-      .isVisible().catch(() => false);
-    if (!sameDayVisible) await dateField.click();
+  if (day === rangeStart) {
+    // El primer clic deja el final abierto ("hasta(opc)"); el segundo cierra
+    // el intervalo del modo en directo en el mismo día.
+    await dateField.click();
     await clickDay();
   }
 
   try {
     await page.waitForFunction(value => document.querySelector('#fecha')?.value === value, expected, { timeout: DATE_TIMEOUT });
   } catch (error) {
-    selected = await dateField.inputValue().catch(() => 'valor no disponible');
+    const selected = await dateField.inputValue().catch(() => 'valor no disponible');
     throw new Error(`Aena no confirmó la fecha ${day}; el campo mostró "${selected}".`, { cause: error });
   }
-  console.log(`[aena] Fecha seleccionada: ${day}`);
+  console.log(`[aena] Intervalo seleccionado: ${rangeStart} → ${day}`);
 }
 
 async function preparePage(browser, day) {
@@ -152,7 +152,19 @@ async function readResult(page, day) {
     const totalMatch = bodyText.match(/(\d+)\s+vuelos con las caracter.sticas buscadas/i);
     const total = totalMatch ? Number(totalMatch[1]) : 0;
     const updatedMatch = bodyText.match(/Actualizado a las\s+(\d{2}:\d{2})/i);
-    const rows = [...document.querySelectorAll('.resultados .listado > .fila')].map(node => {
+    const parseDisplayedDay = value => {
+      const match = String(value || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      return match ? `${match[3]}-${match[2]}-${match[1]}` : null;
+    };
+    const rows = [];
+    let displayedDay = null;
+    const children = [...document.querySelectorAll('.resultados .listado > *')];
+    for (const node of children) {
+      if (node.matches('.day.separador')) {
+        displayedDay = parseDisplayedDay(node.textContent);
+        continue;
+      }
+      if (!node.matches('.fila')) continue;
       const text = selector => (node.querySelector(selector)?.textContent || '').replace(/\s+/g, ' ').trim();
       const times = [...node.querySelectorAll('.hora span')]
         .map(element => (element.textContent || '').trim())
@@ -166,8 +178,8 @@ async function readResult(page, day) {
       const beltValue = text('.puertaembarque span');
       const code = text('.vuelo').toUpperCase();
       const airline = text('.comp p') || node.querySelector('.comp img')?.getAttribute('alt') || null;
-      return {
-        day,
+      const row = {
+        day: displayedDay || day,
         code,
         airline,
         scheduled,
@@ -178,7 +190,8 @@ async function readResult(page, day) {
         belt: beltValue && beltValue !== '-' ? beltValue : null,
         status: status || null,
       };
-    }).filter(row => row.code && row.scheduled && row.origin_iata);
+      if (row.code && row.scheduled && row.origin_iata) rows.push(row);
+    }
     return { total, truncated: total > maxVisible, updatedLabel: updatedMatch?.[1] || null, rows };
   }, { day, maxVisible: MAX_VISIBLE_ROWS });
 }
@@ -234,11 +247,11 @@ async function closeCollectorPages(browser) {
   await Promise.all(contexts.map(context => context.close().catch(() => null)));
 }
 
-async function collectDayWithRetry(browser, day, sink, labels, maximumAttempts = 3) {
+async function collectRangeWithRetry(browser, day, sink, labels, maximumAttempts = 3) {
   for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
     const dayRows = [];
     const dayLabels = new Set();
-    console.log(`[aena] Procesando ${day} · intento ${attempt}/${maximumAttempts}`);
+    console.log(`[aena] Procesando intervalo hasta ${day} · intento ${attempt}/${maximumAttempts}`);
     try {
       const page = await preparePage(browser, day);
       for (let start = 0; start < 22 * 60; start += 120) {
@@ -248,13 +261,14 @@ async function collectDayWithRetry(browser, day, sink, labels, maximumAttempts =
       await collectTail(browser, day, 22 * 60, dayRows, dayLabels);
       sink.push(...dayRows);
       dayLabels.forEach(label => labels.add(label));
-      console.log(`[aena] ${day} completado · ${dayRows.length} filas leídas.`);
+      const capturedDays = [...new Set(dayRows.map(row => row.day))].sort();
+      console.log(`[aena] Intervalo hasta ${day} completado · ${dayRows.length} filas · días ${capturedDays.join(', ')}.`);
       return;
     } catch (error) {
       await closeCollectorPages(browser);
-      console.warn(`[aena] ${day} falló en el intento ${attempt}: ${error.message}`);
+      console.warn(`[aena] El intervalo hasta ${day} falló en el intento ${attempt}: ${error.message}`);
       if (attempt === maximumAttempts) {
-        throw new Error(`No se pudo completar ${day} tras ${maximumAttempts} intentos.`, { cause: error });
+        throw new Error(`No se pudo completar el intervalo hasta ${day} tras ${maximumAttempts} intentos.`, { cause: error });
       }
       await new Promise(resolve => setTimeout(resolve, 15_000 * attempt));
     }
@@ -338,9 +352,9 @@ try {
   const days = Array.from({ length: MODE === 'week' ? 7 : 1 }, (_, index) => localDay(index));
   const rows = [];
   const updatedLabels = new Set();
-  for (const day of days) {
-    await collectDayWithRetry(browser, day, rows, updatedLabels);
-  }
+  // Aena expresa las fechas futuras como un único intervalo que empieza hoy.
+  // Una sola captura hasta el último día evita repetir y reasignar filas.
+  await collectRangeWithRetry(browser, days[days.length - 1], rows, updatedLabels);
 
   const now = localNow();
   const nowDate = new Date();
@@ -348,7 +362,8 @@ try {
   const fromParts = madridParts(fromDate);
   const windowFrom = `${fromParts.year}-${fromParts.month}-${fromParts.day} ${fromParts.hour}:${fromParts.minute}:00`;
   const windowTo = `${days[days.length - 1]} 23:59:59`;
-  const flights = groupPhysicalFlights(rows, windowFrom);
+  const requestedDays = new Set(days);
+  const flights = groupPhysicalFlights(rows.filter(row => requestedDays.has(row.day)), windowFrom);
   if (!flights.length) throw new Error('La captura Aena no produjo vuelos físicos en la ventana viva.');
 
   const response = await postCapture({
