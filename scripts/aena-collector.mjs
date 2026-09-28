@@ -324,7 +324,7 @@ function groupPhysicalFlights(rows, windowFrom) {
     if (row.airline && !group.airlines.includes(row.airline)) group.airlines.push(row.airline);
   }
 
-  return [...groups.values()].map(group => {
+  const flights = [...groups.values()].map(group => {
     const physical = group.codes[0];
     const status = group.status || null;
     const arrived = /finalizado|entrega\s*equip|aterriz|llegad/i.test(status || '');
@@ -358,7 +358,24 @@ function groupPhysicalFlights(rows, windowFrom) {
         displayed_effective_time: group.effective,
       },
     };
-  }).sort((a, b) => a.scheduled_arrival.localeCompare(b.scheduled_arrival));
+  });
+
+  // Aena puede programar el mismo número de vuelo, ruta y fecha más de una vez
+  // (por ejemplo RYR2200 VCE-SVQ a las 00:55 y a las 12:50). Solo en esas
+  // colisiones se añade la hora a source_key; las claves normales permanecen
+  // estables y compatibles con el histórico ya guardado.
+  const keyCounts = new Map();
+  for (const flight of flights) {
+    keyCounts.set(flight.source_key, (keyCounts.get(flight.source_key) || 0) + 1);
+  }
+  for (const flight of flights) {
+    if ((keyCounts.get(flight.source_key) || 0) < 2) continue;
+    const scheduledTime = flight.scheduled_arrival.slice(11, 16);
+    flight.source_key = `${flight.source_key}|${scheduledTime.replace(':', '')}`;
+    flight.raw_data.source_key_disambiguated_by = 'scheduled_time';
+  }
+
+  return flights.sort((a, b) => a.scheduled_arrival.localeCompare(b.scheduled_arrival));
 }
 
 async function postCapture(payload) {
