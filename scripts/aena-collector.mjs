@@ -72,15 +72,35 @@ async function selectDay(page, day) {
   await dateField.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
   await dateField.click();
   const buttonName = dayLabel(day);
-  // Aena usa un selector de rango, pero un único clic sobre el mismo día ya
-  // fija inicio y fin y cierra el calendario. El segundo clic anterior esperaba
-  // un botón que ya no estaba en el DOM y agotaba el tiempo de GitHub Actions.
-  const dayButton = page.getByRole('button', { name: buttonName, exact: true }).first();
-  await dayButton.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
-  await dayButton.click();
   const [year, month, dayOfMonth] = day.split('-');
   const expected = `${dayOfMonth}/${month}/${year} - ${dayOfMonth}/${month}/${year}`;
-  await page.waitForFunction(value => document.querySelector('#fecha')?.value === value, expected, { timeout: DATE_TIMEOUT });
+
+  const clickDay = async () => {
+    const dayButton = page.getByRole('button', { name: buttonName, exact: true }).first();
+    await dayButton.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
+    await dayButton.click();
+  };
+
+  // El componente de Aena se comporta de dos formas: para el día inicialmente
+  // seleccionado puede cerrar el rango con un clic; para fechas futuras suele
+  // conservar el primer clic como inicio y pedir otro para fijar el final.
+  await clickDay();
+  await page.waitForTimeout(450);
+  let selected = await dateField.inputValue().catch(() => '');
+  if (selected !== expected) {
+    const sameDayVisible = await page.getByRole('button', { name: buttonName, exact: true }).first()
+      .isVisible().catch(() => false);
+    if (!sameDayVisible) await dateField.click();
+    await clickDay();
+  }
+
+  try {
+    await page.waitForFunction(value => document.querySelector('#fecha')?.value === value, expected, { timeout: DATE_TIMEOUT });
+  } catch (error) {
+    selected = await dateField.inputValue().catch(() => 'valor no disponible');
+    throw new Error(`Aena no confirmó la fecha ${day}; el campo mostró "${selected}".`, { cause: error });
+  }
+  console.log(`[aena] Fecha seleccionada: ${day}`);
 }
 
 async function preparePage(browser, day) {
@@ -209,6 +229,38 @@ async function collectTail(browser, day, start, sink, labels) {
   await page.close();
 }
 
+async function closeCollectorPages(browser) {
+  const contexts = browser.contexts();
+  await Promise.all(contexts.map(context => context.close().catch(() => null)));
+}
+
+async function collectDayWithRetry(browser, day, sink, labels, maximumAttempts = 3) {
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    const dayRows = [];
+    const dayLabels = new Set();
+    console.log(`[aena] Procesando ${day} · intento ${attempt}/${maximumAttempts}`);
+    try {
+      const page = await preparePage(browser, day);
+      for (let start = 0; start < 22 * 60; start += 120) {
+        await collectBounded(page, day, start, start + 120, dayRows, dayLabels);
+      }
+      await page.close();
+      await collectTail(browser, day, 22 * 60, dayRows, dayLabels);
+      sink.push(...dayRows);
+      dayLabels.forEach(label => labels.add(label));
+      console.log(`[aena] ${day} completado · ${dayRows.length} filas leídas.`);
+      return;
+    } catch (error) {
+      await closeCollectorPages(browser);
+      console.warn(`[aena] ${day} falló en el intento ${attempt}: ${error.message}`);
+      if (attempt === maximumAttempts) {
+        throw new Error(`No se pudo completar ${day} tras ${maximumAttempts} intentos.`, { cause: error });
+      }
+      await new Promise(resolve => setTimeout(resolve, 15_000 * attempt));
+    }
+  }
+}
+
 function groupPhysicalFlights(rows, windowFrom) {
   const minimum = windowFrom.slice(0, 16);
   const groups = new Map();
@@ -287,12 +339,7 @@ try {
   const rows = [];
   const updatedLabels = new Set();
   for (const day of days) {
-    const page = await preparePage(browser, day);
-    for (let start = 0; start < 22 * 60; start += 120) {
-      await collectBounded(page, day, start, start + 120, rows, updatedLabels);
-    }
-    await page.close();
-    await collectTail(browser, day, 22 * 60, rows, updatedLabels);
+    await collectDayWithRetry(browser, day, rows, updatedLabels);
   }
 
   const now = localNow();
