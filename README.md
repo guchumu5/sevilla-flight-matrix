@@ -336,7 +336,11 @@ tres veces ante un fallo transitorio. Los cambios del propio recolector disparan
 también una prueba semanal completa en `main`, además de la ejecución diaria y
 del botón manual de GitHub Actions. La versión 1.11.10 acota además cada clic al
 panel del mes exacto para que los días repetidos del mes vecino no intercepten
-la selección cuando la semana cruza de septiembre a octubre.
+la selección cuando la semana cruza de septiembre a octubre. La versión 1.11.11
+consulta el intervalo cronológico completo y usa la paginación oficial **Ver
+más** hasta que el número de filas cargadas coincide exactamente con el total
+publicado por Aena; así no interpreta de forma errónea las horas como franjas
+independientes de cada día ni pierde vuelos en una semana con cientos de filas.
 
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,

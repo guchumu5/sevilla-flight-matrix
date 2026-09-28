@@ -199,6 +199,36 @@ async function readResult(page, day) {
   }, { day, maxVisible: MAX_VISIBLE_ROWS });
 }
 
+async function expandAllResults(page, day) {
+  let result = await readResult(page, day);
+  let loaded = result.rows.length;
+  let pageNumber = 1;
+  const maximumPages = Math.ceil(Math.max(result.total, 1) / MAX_VISIBLE_ROWS) + 2;
+
+  while (loaded < result.total) {
+    if (pageNumber >= maximumPages) {
+      throw new Error(`Aena anunció ${result.total} filas pero la paginación se detuvo en ${loaded}.`);
+    }
+    const more = page.getByText('Ver más', { exact: true }).first();
+    await more.waitFor({ state: 'visible', timeout: RESULT_TIMEOUT });
+    await more.click({ timeout: RESULT_TIMEOUT });
+    await page.waitForFunction(previous => (
+      document.querySelectorAll('.resultados .listado > .fila').length > previous
+    ), loaded, { timeout: RESULT_TIMEOUT });
+    result = await readResult(page, day);
+    loaded = result.rows.length;
+    pageNumber += 1;
+    if (pageNumber % 10 === 0 || loaded >= result.total) {
+      console.log(`[aena] Paginación: ${loaded}/${result.total} filas cargadas.`);
+    }
+  }
+
+  if (loaded !== result.total) {
+    throw new Error(`Aena anunció ${result.total} filas pero se leyeron ${loaded}.`);
+  }
+  return result;
+}
+
 async function queryWindow(page, day, start, end = null) {
   await setTimeRange(page, start, end);
   await executeSearch(page);
@@ -257,11 +287,13 @@ async function collectRangeWithRetry(browser, day, sink, labels, maximumAttempts
     console.log(`[aena] Procesando intervalo hasta ${day} · intento ${attempt}/${maximumAttempts}`);
     try {
       const page = await preparePage(browser, day);
-      for (let start = 0; start < 22 * 60; start += 120) {
-        await collectBounded(page, day, start, start + 120, dayRows, dayLabels);
-      }
+      // La hora de Aena se aplica al intervalo cronológico completo, no a cada
+      // día. Se consulta el rango entero y se pagina con el control oficial.
+      await executeSearch(page);
+      const result = await expandAllResults(page, day);
+      dayRows.push(...result.rows);
+      if (result.updatedLabel) dayLabels.add(result.updatedLabel);
       await page.close();
-      await collectTail(browser, day, 22 * 60, dayRows, dayLabels);
       sink.push(...dayRows);
       dayLabels.forEach(label => labels.add(label));
       const capturedDays = [...new Set(dayRows.map(row => row.day))].sort();
