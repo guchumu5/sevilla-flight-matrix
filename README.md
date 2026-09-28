@@ -330,7 +330,9 @@ La corrección 1.11.8 hace resistente la carga semanal al selector de rango de
 fechas de Aena. Admite tanto el cierre de fecha con un clic como el segundo clic
 que Aena exige para determinados días futuros, registra en el log cada fecha y
 reintenta únicamente el día que ha fallado, hasta tres veces, sin repetir desde
-cero los días ya leídos dentro de la misma ejecución.
+cero los días ya leídos dentro de la misma ejecución. Los cambios del propio
+recolector disparan también una prueba semanal completa en `main`, además de la
+ejecución diaria y del botón manual de GitHub Actions.
 
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,

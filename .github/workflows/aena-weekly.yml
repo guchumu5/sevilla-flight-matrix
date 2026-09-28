@@ -1,6 +1,11 @@
 name: Aena programación semanal
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/aena-collector.mjs'
+      - '.github/workflows/aena-weekly.yml'
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
