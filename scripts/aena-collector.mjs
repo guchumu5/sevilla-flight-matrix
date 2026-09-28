@@ -78,7 +78,10 @@ async function selectDay(page, day) {
   const expected = `${startDay}/${startMonth}/${startYear} - ${dayOfMonth}/${month}/${year}`;
 
   const clickDay = async () => {
-    const dayButton = page.getByRole('button', { name: buttonName, exact: true }).first();
+    // El calendario muestra al final de cada panel varios días del mes vecino.
+    // Se limita la búsqueda al panel real del mes para no pulsar ese duplicado.
+    const monthPanel = page.locator(`[aria-label="month  ${year}-${month}"]`);
+    const dayButton = monthPanel.getByRole('button', { name: buttonName, exact: true });
     await dayButton.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
     await dayButton.click();
   };

@@ -334,7 +334,9 @@ fecha real de cada vuelo desde los separadores diarios de Aena y evita duplicar
 o atribuir al día equivocado las filas futuras. El intervalo se reintenta hasta
 tres veces ante un fallo transitorio. Los cambios del propio recolector disparan
 también una prueba semanal completa en `main`, además de la ejecución diaria y
-del botón manual de GitHub Actions.
+del botón manual de GitHub Actions. La versión 1.11.10 acota además cada clic al
+panel del mes exacto para que los días repetidos del mes vecino no intercepten
+la selección cuando la semana cruza de septiembre a octubre.
 
 Los vuelos canarios tienen avisos emergentes prioritarios. Cada actualización
 del tablero compara cinta/sala, horario, ETA, estado, llegada, equipaje, puerta,
