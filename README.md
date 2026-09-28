@@ -146,9 +146,12 @@ Antes del primer uso aplica desde **Actualizar MySQL** el paquete
 `20260924_003_fetch_runs`. El cerebro muestra estos intentos por separado de
 las sincronizaciones que sí produjeron una captura válida.
 
-AirLabs se consulta mediante el tablero agrupado de llegadas a SVQ: una única
-petición devuelve hasta 50 movimientos y la aplicación los concilia localmente
-por ruta, fecha, vuelo físico y códigos compartidos. El `.env` admite
+AirLabs se consulta mediante dos lotes de hasta 50 registros: `/schedules`
+aporta horario, estado y equipaje secundario, mientras `/flights` aporta la
+identidad y telemetría disponible de los vuelos que están realmente en ruta.
+La aplicación los concilia localmente por ruta, fecha, vuelo físico y códigos
+compartidos. Si el plan o la cuota no permiten `/flights`, el lote de horarios
+continúa funcionando y deja el diagnóstico correspondiente. El `.env` admite
 `AIRLABS_API_KEY_1`, `AIRLABS_API_KEY_2` y `AIRLABS_API_KEY_3`; también
 mantiene `AIRLABS_API_KEY` por compatibilidad. Las claves se usan por turnos y,
 si una responde con límite o credencial caducada, se prueba la siguiente sin
@@ -188,7 +191,9 @@ del repositorio, pero es una herramienta manual de importación y no necesita
 cron.
 
 OpenSky se consulta solamente para vuelos próximos con matrícula/ICAO24
-conocido. Todas las matrículas se envían en una única petición y la respuesta
+conocido. AirLabs `/flights` completa esos identificadores cuando están
+publicados y su posición en vivo actúa como respaldo hasta recibir una lectura
+OpenSky. Todas las matrículas se envían en una única petición y la respuesta
 incluye la cuota restante cuando OpenSky publica esa cabecera. AirLabs es una
 fuente secundaria y se recomienda ejecutarlo una vez por hora para conservar
 cuota. Las observaciones introducidas como Aena tienen prevalencia en sala,
@@ -212,12 +217,13 @@ Canarias: no desaparecen al aplicar filtros en la tabla principal. Al abrir el
 día actual, el navegador baja una sola vez hasta la primera llegada vigente;
 el botón **Ir a ahora** repite el salto cuando sea necesario.
 
-El mapa utiliza Leaflet y cartografía OpenStreetMap. Las aeronaves solo aparecen
-cuando OpenSky ha guardado una posición ADS-B para un ICAO24 conocido. Al pulsar
-un avión se muestran tipo, matrícula, altura, velocidad, rumbo, antigüedad de la
-señal y destino de equipaje. Una señal de más de diez minutos se representa
-atenuada. La silueta es una representación del tipo, no una fotografía de la
-matrícula.
+El mapa utiliza Leaflet y cartografía OpenStreetMap. Las aeronaves aparecen
+cuando OpenSky o AirLabs en vivo han guardado una posición para el vuelo; la
+ficha identifica expresamente cuál de las dos fuentes entregó la última señal.
+Al pulsar un avión se muestran tipo, matrícula, altura, velocidad, rumbo,
+antigüedad de la señal y destino de equipaje. Una señal de más de diez minutos
+se representa atenuada. La silueta es una representación del tipo, no una
+fotografía de la matrícula.
 
 La infografía **Flujo del aeropuerto** clasifica automáticamente los vuelos de
 la ventana activa en prevista, en ruta, aterrizando, en tierra y en cintas. La
@@ -240,14 +246,14 @@ solo cuando el usuario lo necesita.
 
 La versión 1.9 convierte la escena en un panel operativo centrado en cintas. El
 nombre del origen aparece en grande dentro de cada cinta; las posiciones y las
-trazas solo avanzan cuando OpenSky aporta nuevas coordenadas ADS-B. Cuando no
+trazas solo avanzan cuando una fuente telemétrica aporta nuevas coordenadas. Cuando no
 existe señal, el vuelo se conserva como previsto sin simular una posición. Las
 líneas verdes terminal–cinta representan el recorrido conceptual del equipaje,
 no el rodaje del avión.
 
-El listado principal se reduce a cinco vuelos anteriores, hasta cinco activos
-en una ventana de ±60 minutos y cinco posteriores, con carga incremental de
-cinco en cinco. Cada vuelo muestra la media histórica de antelación de la
+Desde la versión 1.12 el listado principal queda plegado por defecto y contiene
+el día completo. Los vuelos anteriores se muestran atenuados en gris y los que
+siguen activos conservan todo el contraste. Cada vuelo muestra la media histórica de antelación de la
 primera cinta oficial para el mismo número de vuelo y para el mismo origen,
 junto con sus tamaños de muestra. Un panel independiente reúne los cambios de
 cinta oficiales; la ficha explica el cambio publicado y separa expresamente el
@@ -365,6 +371,14 @@ recomendada es: siete días completos una vez al día, hoy y mañana cada 30
 minutos y la ventana operativa próxima cada 2-5 minutos. Los datos vivos deben
 entrar directamente en MySQL desde el servidor; GitHub conserva el código y las
 migraciones, no se usa como almacén de capturas diarias.
+
+La versión 1.12.0 abre el radar a la telemetría AirLabs como respaldo y usa la
+matrícula/ICAO24 obtenida allí para alimentar las consultas posteriores a
+OpenSky. El listado principal pasa a ser un panel plegado de día completo:
+contiene todos los vuelos que devuelve el tablero y atenúa en gris los que ya
+han quedado atrás, manteniendo resaltados los movimientos todavía activos. Las
+antelaciones de cinta conservan el valor exacto en minutos y, desde 60 minutos,
+añaden su equivalencia en horas (`840 min · 14 h`).
 
 ## Seguridad
 

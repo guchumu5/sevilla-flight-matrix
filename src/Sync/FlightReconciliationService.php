@@ -18,6 +18,9 @@ final class FlightReconciliationService
         'status', 'eta', 'actual_departure', 'actual_arrival', 'hall', 'belt',
         'gate', 'stand', 'baggage_state', 'occupancy_level',
     ];
+    private const TELEMETRY_FIELDS = [
+        'latitude', 'longitude', 'altitude_m', 'ground_speed_ms', 'track_deg', 'vertical_rate_ms',
+    ];
     private const CORE_FIELDS = [
         'scheduled_arrival', 'scheduled_departure', 'origin_name', 'aircraft_registration',
         'aircraft_icao24', 'aircraft_type', 'capacity', 'traffic_class', 'border_control', 'is_canary',
@@ -191,6 +194,12 @@ final class FlightReconciliationService
             'stand' => $this->nullableUpper($record['stand'] ?? null),
             'baggage_state' => $baggage,
             'occupancy_level' => $occupancy,
+            'latitude' => $this->nullableNumber($record['latitude'] ?? null, -90, 90),
+            'longitude' => $this->nullableNumber($record['longitude'] ?? null, -180, 180),
+            'altitude_m' => $this->nullableNumber($record['altitude_m'] ?? null, -1000, 30000),
+            'ground_speed_ms' => $this->nullableNumber($record['ground_speed_ms'] ?? null, 0, 500),
+            'track_deg' => $this->nullableNumber($record['track_deg'] ?? null, 0, 360),
+            'vertical_rate_ms' => $this->nullableNumber($record['vertical_rate_ms'] ?? null, -200, 200),
             'reason_code' => $this->safeToken($record['reason_code'] ?? null),
             'reason_detail' => $this->nullableString($record['reason_detail'] ?? null),
             'confidence' => $confidence,
@@ -466,9 +475,11 @@ final class FlightReconciliationService
     {
         $stmt = $this->pdo->prepare(
             'INSERT INTO observations (flight_id,source,observed_at,status,eta,actual_departure,actual_arrival,
-             hall,belt,gate,stand,baggage_state,occupancy_level,raw_data)
+             hall,belt,gate,stand,baggage_state,latitude,longitude,altitude_m,ground_speed_ms,track_deg,
+             vertical_rate_ms,occupancy_level,raw_data)
              VALUES (:flight_id,:source,:observed_at,:status,:eta,:actual_departure,:actual_arrival,
-             :hall,:belt,:gate,:stand,:baggage_state,:occupancy_level,:raw_data)'
+             :hall,:belt,:gate,:stand,:baggage_state,:latitude,:longitude,:altitude_m,:ground_speed_ms,:track_deg,
+             :vertical_rate_ms,:occupancy_level,:raw_data)'
         );
         $stmt->execute([
             'flight_id' => $flightId,
@@ -483,6 +494,12 @@ final class FlightReconciliationService
             'gate' => $record['gate'],
             'stand' => $record['stand'],
             'baggage_state' => $record['baggage_state'],
+            'latitude' => $record['latitude'],
+            'longitude' => $record['longitude'],
+            'altitude_m' => $record['altitude_m'],
+            'ground_speed_ms' => $record['ground_speed_ms'],
+            'track_deg' => $record['track_deg'],
+            'vertical_rate_ms' => $record['vertical_rate_ms'],
             'occupancy_level' => $record['occupancy_level'],
             'raw_data' => $this->canonicalJson($record['raw_data']),
         ]);
@@ -552,7 +569,11 @@ final class FlightReconciliationService
     /** @param array<string,mixed> $record @return array<string,mixed> */
     private function snapshot(array $record): array
     {
-        return array_intersect_key($record, array_flip(array_merge(self::CORE_FIELDS, self::OPERATIONAL_FIELDS)));
+        return array_intersect_key($record, array_flip(array_merge(
+            self::CORE_FIELDS,
+            self::OPERATIONAL_FIELDS,
+            self::TELEMETRY_FIELDS
+        )));
     }
 
     /** @param array<string,mixed> $context */
@@ -675,6 +696,14 @@ final class FlightReconciliationService
     {
         $value = $this->nullableString($value);
         return $value !== null && in_array($value, $allowed, true) ? $value : null;
+    }
+
+    private function nullableNumber(mixed $value, float $minimum, float $maximum): ?float
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) return null;
+        $number = (float)$value;
+        if (!is_finite($number) || $number < $minimum || $number > $maximum) return null;
+        return $number;
     }
 
     private function safeToken(mixed $value): ?string

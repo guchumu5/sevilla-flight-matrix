@@ -160,6 +160,9 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .flights-table td { padding:.9rem; border-color:rgba(35,56,82,.72); }
 .flight-row { cursor:pointer; }
 .flight-row { scroll-margin-top:76px; }
+.flight-row.past-flight { opacity:.46; filter:grayscale(.86); background:rgba(100,116,132,.055); }
+.flight-row.past-flight:hover,.flight-row.past-flight:focus { opacity:.78; filter:grayscale(.35); }
+.flight-row.past-flight.current-flight { opacity:.66; }
 .flight-row.current-flight { background:linear-gradient(90deg,rgba(82,168,255,.16),transparent 68%); outline:1px solid rgba(82,168,255,.25); outline-offset:-1px; }
 .flight-row.canary { background:linear-gradient(90deg,rgba(255,181,71,.13),transparent 55%); }
 .flight-row.canary.current-flight { background:linear-gradient(90deg,rgba(255,181,71,.18),rgba(82,168,255,.13),transparent 72%); }

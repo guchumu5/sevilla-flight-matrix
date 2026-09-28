@@ -7,7 +7,7 @@
     east:{lat:37.418008,lon:-5.874097,label:'27'}
   };
   const state = {
-    flights: [], loading: false, autoScrolledDate: null, pastExtra: 0, futureExtra: 0,
+    flights: [], loading: false, autoScrolledDate: null,
     scenePositions: new Map(), sceneRemovalTimers: new Map(), alertDate: null,
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null
@@ -32,6 +32,7 @@
     beltChangesSection: document.querySelector('#beltChangesSection'), beltChangesStrip: document.querySelector('#beltChangesStrip'),
     beltChangesCount: document.querySelector('#beltChangesCount'),
     radarToggleLabel: document.querySelector('#radarToggleLabel'), radarCollapse: document.querySelector('#radarCollapse'),
+    arrivalsToggleLabel: document.querySelector('#arrivalsToggleLabel'), arrivalsCollapse: document.querySelector('#arrivalsCollapse'),
     metricFlights: document.querySelector('#metricFlights'), metricOrange: document.querySelector('#metricOrange'),
     metricRed: document.querySelector('#metricRed'), metricHall: document.querySelector('#metricHall'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
@@ -53,7 +54,7 @@
     const hours = Math.floor(absolute / 60);
     const remainder = absolute % 60;
     if (!hours) return `${sign}${remainder} min`;
-    return `${sign}${hours} h${remainder ? ` ${remainder} min` : ''}`;
+    return `${sign}${absolute} min · ${sign}${hours} h${remainder ? ` ${remainder} min` : ''}`;
   };
   const effectiveArrival = f => f.actual_arrival || f.eta || f.effective_arrival || f.scheduled_arrival;
   const minuteOfDay = value => {
@@ -71,6 +72,7 @@
     const observed = parseDate(f.telemetry_observed_at);
     return observed ? Math.max(0, Math.round((Date.now() - observed.getTime()) / 60000)) : null;
   };
+  const telemetrySource = f => String(f.telemetry_source || 'opensky').toLowerCase() === 'airlabs' ? 'AirLabs' : 'OpenSky';
   const isFiniteNumber = value => value !== null && value !== '' && Number.isFinite(Number(value));
   const speedKmh = f => isFiniteNumber(f.ground_speed_ms) ? Math.round(Number(f.ground_speed_ms) * 3.6) : null;
   const speedKt = f => isFiniteNumber(f.ground_speed_ms) ? Math.round(Number(f.ground_speed_ms) * 1.94384) : null;
@@ -323,33 +325,30 @@
       && (!query || `${f.origin_name} ${f.origin_iata} ${f.physical_flight} ${f.codes}`.toLowerCase().includes(query)));
   }
 
-  function windowedGroups(flights) {
+  function dayGroups(flights) {
     const now = madridNow();
-    if (els.date.value !== now.date) {
-      return {previous:[], current:flights.slice(0, 5), next:flights.slice(5, 10), totalPrevious:0, totalNext:Math.max(0, flights.length - 5)};
-    }
-    const withMinute = flights.map(f => ({flight:f, minute:minuteOfDay(effectiveArrival(f))})).filter(item => item.minute !== null);
-    const current = withMinute
-      .filter(item => Math.abs(item.minute - now.minutes) <= 60)
-      .sort((a,b) => Number(statusIsActive(b.flight)) - Number(statusIsActive(a.flight))
-        || Math.abs(a.minute-now.minutes) - Math.abs(b.minute-now.minutes))
-      .slice(0,5).sort((a,b)=>a.minute-b.minute).map(item=>item.flight);
-    const selected = new Set(current.map(f => Number(f.id)));
-    const previousAll = withMinute.filter(item => item.minute < now.minutes && !selected.has(Number(item.flight.id)));
-    const nextAll = withMinute.filter(item => item.minute >= now.minutes && !selected.has(Number(item.flight.id)));
-    return {
-      previous: previousAll.slice(-(5 + state.pastExtra)).map(item=>item.flight),
-      current,
-      next: nextAll.slice(0, 5 + state.futureExtra).map(item=>item.flight),
-      totalPrevious: previousAll.length,
-      totalNext: nextAll.length
+    const ordered = [...flights].sort((a,b) => (parseDate(effectiveArrival(a))?.getTime() || 0) - (parseDate(effectiveArrival(b))?.getTime() || 0));
+    const isPast = flight => {
+      if (els.date.value < now.date) return true;
+      if (els.date.value > now.date) return false;
+      const minute = minuteOfDay(effectiveArrival(flight));
+      if (minute === null || minute >= now.minutes) return false;
+      if (!flightIsFinished(flight) && ['enroute','approach','ground','baggage'].includes(flowStage(flight))) return false;
+      return true;
     };
+    const past = ordered.filter(isPast);
+    const remaining = ordered.filter(flight => !isPast(flight));
+    const current = remaining.filter(flight => {
+      const minute = minuteOfDay(effectiveArrival(flight));
+      return minute !== null && Math.abs(minute - now.minutes) <= 60;
+    });
+    return {past, remaining, current};
   }
 
-  function flightRowMarkup(f, currentIds) {
+  function flightRowMarkup(f, currentIds, pastIds) {
     const beltClass = !f.belt ? 'standby' : (['7','8'].includes(String(f.belt)) ? 'red' : '');
     const interval = [f.previous_same_belt_minutes, f.next_same_belt_minutes].filter(v => v !== null).sort((a,b)=>a-b)[0];
-    return `<tr class="flight-row ${Number(f.is_canary)===1?'canary':''} ${currentIds.has(Number(f.id))?'current-flight':''}" data-flight-id="${Number(f.id)}" data-effective-minute="${minuteOfDay(effectiveArrival(f)) ?? ''}" tabindex="0">
+    return `<tr class="flight-row ${Number(f.is_canary)===1?'canary':''} ${currentIds.has(Number(f.id))?'current-flight':''} ${pastIds.has(Number(f.id))?'past-flight':''}" data-flight-id="${Number(f.id)}" data-effective-minute="${minuteOfDay(effectiveArrival(f)) ?? ''}" tabindex="0">
       <td><span class="indicator" title="${esc(pressureText(f.pressure))}">${esc(f.indicator)}</span></td>
       <td><span class="time-primary">${time(f.scheduled_arrival)}</span></td>
       <td><span class="belt ${beltClass}">${esc(f.belt_label)}</span>${secondaryBeltMarkup(f)}${beltAverageMarkup(f)}</td>
@@ -362,26 +361,25 @@
     </tr>`;
   }
 
-  function groupHeader(label, count, moreType = '', hiddenCount = 0) {
-    const button = moreType && hiddenCount > 0
-      ? `<button type="button" class="btn btn-sm btn-outline-light" data-more-flights="${moreType}">Ver 5 más (${hiddenCount})</button>` : '';
-    return `<tr class="flight-group-row"><td colspan="9"><span>${label}</span><b>${count}</b>${button}</td></tr>`;
+  function groupHeader(label, count) {
+    return `<tr class="flight-group-row"><td colspan="9"><span>${label}</span><b>${count}</b></td></tr>`;
   }
 
   function render() {
     const flights = filtered();
-    const groups = windowedGroups(flights);
+    const groups = dayGroups(flights);
     const currentIds = new Set(groups.current.map(f => Number(f.id)));
-    const previousHidden = Math.max(0, groups.totalPrevious - groups.previous.length);
-    const nextHidden = Math.max(0, groups.totalNext - groups.next.length);
+    const pastIds = new Set(groups.past.map(f => Number(f.id)));
     els.body.innerHTML = [
-      groupHeader('Anteriores', groups.previous.length, 'past', previousHidden),
-      ...groups.previous.map(f => flightRowMarkup(f,currentIds)),
-      groupHeader('Ahora · ±60 min', groups.current.length),
-      ...groups.current.map(f => flightRowMarkup(f,currentIds)),
-      groupHeader('Posteriores', groups.next.length, 'future', nextHidden),
-      ...groups.next.map(f => flightRowMarkup(f,currentIds))
+      groupHeader('Ya pasados', groups.past.length),
+      ...groups.past.map(f => flightRowMarkup(f,currentIds,pastIds)),
+      groupHeader('Activos y próximos', groups.remaining.length),
+      ...groups.remaining.map(f => flightRowMarkup(f,currentIds,pastIds))
     ].join('');
+    if (els.arrivalsToggleLabel) {
+      const visibility = els.arrivalsCollapse?.classList.contains('show') ? 'visible' : 'plegado';
+      els.arrivalsToggleLabel.textContent = `${flights.length} vuelos · ${groups.past.length} pasados · ${visibility}`;
+    }
     els.table.classList.toggle('d-none', flights.length === 0);
     els.empty.classList.toggle('d-none', flights.length !== 0);
     metrics(flights);
@@ -494,13 +492,13 @@
         <dt>Velocidad</dt><dd>${speedKt(f) !== null ? `${speedKt(f)} kt · ${speedKmh(f)} km/h` : 'sin dato'}</dd>
         <dt>Rumbo</dt><dd>${isFiniteNumber(f.track_deg) ? `${Math.round(Number(f.track_deg))}°` : 'sin dato'}</dd>
         <dt>Destino</dt><dd>${beltPosition(f)}</dd></dl>
-        <small>OpenSky · ${age === null ? 'hora desconocida' : age === 0 ? 'ahora' : `hace ${age} min`}${stale?' · señal antigua':''}</small>
+        <small>${telemetrySource(f)} · ${age === null ? 'hora desconocida' : age === 0 ? 'ahora' : `hace ${age} min`}${stale?' · señal antigua':''}</small>
         <button type="button" class="btn btn-sm btn-success w-100 mt-2" data-open-flight="${Number(f.id)}">Ver ficha completa</button>
       </div>`, {maxWidth:300});
       bounds.push([lat, lon]);
     });
     els.mapStatus.textContent = tracked.length
-      ? `${tracked.length} aeronave${tracked.length===1?'':'s'} con posición · OpenSky es telemetría secundaria`
+      ? `${tracked.length} aeronave${tracked.length===1?'':'s'} con posición · OpenSky/AirLabs son telemetría secundaria`
       : 'Sin posiciones ADS‑B disponibles para los vuelos cargados.';
     if (els.radarToggleLabel) {
       const radarState = els.radarCollapse?.classList.contains('show') ? 'visible' : 'plegado';
@@ -901,6 +899,7 @@
     const now = madridNow();
     if (state.autoScrolledDate === els.date.value || els.date.value !== now.date) return;
     if (els.search.value || els.hall.value || els.canary.checked || els.secondary.checked) return;
+    if (els.arrivalsCollapse && !els.arrivalsCollapse.classList.contains('show')) return;
     state.autoScrolledDate = els.date.value;
     requestAnimationFrame(() => scrollToCurrent(false));
   }
@@ -923,7 +922,7 @@
         <div><small>Rumbo</small><strong>${isFiniteNumber(flight.track_deg)?`${Math.round(Number(flight.track_deg))}°`:'—'}</strong></div>
         <div><small>Posición ADS‑B</small><strong>${Number(flight.latitude).toFixed(3)}, ${Number(flight.longitude).toFixed(3)}</strong></div>
       </div>
-      <small class="telemetry-note">OpenSky · ${dateTime(flight.telemetry_observed_at)}. La silueta representa el tipo; no es una fotografía de la matrícula.</small>
+      <small class="telemetry-note">${telemetrySource(flight)} · ${dateTime(flight.telemetry_observed_at)}. La silueta representa el tipo; no es una fotografía de la matrícula.</small>
     </section>`;
   }
 
@@ -1045,26 +1044,24 @@
   document.addEventListener('click', event => {
     const button = event.target.closest('[data-open-flight]');
     if (button) openDetail(button.dataset.openFlight);
-    const more = event.target.closest('[data-more-flights]');
-    if (more) {
-      if (more.dataset.moreFlights === 'past') state.pastExtra += 5;
-      if (more.dataset.moreFlights === 'future') state.futureExtra += 5;
-      render();
-    }
   });
   [els.hall,els.canary,els.secondary].forEach(el => el.addEventListener('change', () => {
-    state.pastExtra = 0; state.futureExtra = 0; render();
+    render();
   }));
-  els.search.addEventListener('input', () => { state.pastExtra = 0; state.futureExtra = 0; render(); });
+  els.search.addEventListener('input', render);
   els.date.addEventListener('change', () => {
     state.autoScrolledDate = null;
     state.mapHasFitted = false;
-    state.pastExtra = 0;
-    state.futureExtra = 0;
     loadBoard(true);
   });
   els.refresh.addEventListener('click', () => loadBoard(true));
-  els.now.addEventListener('click', () => scrollToCurrent(true));
+  els.now.addEventListener('click', () => {
+    if (els.arrivalsCollapse && !els.arrivalsCollapse.classList.contains('show')) {
+      bootstrap.Collapse.getOrCreateInstance(els.arrivalsCollapse).show();
+      return;
+    }
+    scrollToCurrent(true);
+  });
   els.fitMap.addEventListener('click', fitTrackedAircraft);
   if (els.enableNotifications) els.enableNotifications.addEventListener('click', async () => {
     if (!window.isSecureContext || !('Notification' in window)) return;
@@ -1083,6 +1080,14 @@
   });
   if (els.radarCollapse) els.radarCollapse.addEventListener('hidden.bs.collapse', () => {
     if (els.radarToggleLabel) els.radarToggleLabel.textContent = els.radarToggleLabel.textContent.replace('visible','plegado');
+  });
+  if (els.arrivalsCollapse) els.arrivalsCollapse.addEventListener('shown.bs.collapse', () => {
+    if (els.arrivalsToggleLabel) els.arrivalsToggleLabel.textContent = els.arrivalsToggleLabel.textContent.replace('plegado','visible');
+    state.autoScrolledDate = null;
+    requestAnimationFrame(() => maybeScrollToNow());
+  });
+  if (els.arrivalsCollapse) els.arrivalsCollapse.addEventListener('hidden.bs.collapse', () => {
+    if (els.arrivalsToggleLabel) els.arrivalsToggleLabel.textContent = els.arrivalsToggleLabel.textContent.replace('visible','plegado');
   });
 
   updateNotificationButton();

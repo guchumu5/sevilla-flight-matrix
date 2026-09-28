@@ -50,6 +50,36 @@ final class AirLabsClient
         return $result;
     }
 
+    /**
+     * Vuelos que AirLabs está siguiendo en tiempo real hacia el aeropuerto.
+     * A diferencia de /schedules, /flights puede aportar matrícula, ICAO24 y posición.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function liveArrivals(string $airportCode = 'SVQ', int $limit = 50): array
+    {
+        $airportCode = strtoupper(trim($airportCode));
+        if (!preg_match('/^[A-Z]{3}$/', $airportCode)) {
+            throw new RuntimeException('Código de aeropuerto AirLabs no válido: ' . $airportCode);
+        }
+
+        $data = $this->request('flights', [
+            'arr_iata' => $airportCode,
+            'limit' => max(1, min(50, $limit)),
+        ]);
+        $rows = $data['response'] ?? [];
+        if (!is_array($rows)) return [];
+
+        $slot = (int)($data['_matrix_key_slot'] ?? 0);
+        $result = [];
+        foreach ($rows as $row) {
+            if (!is_array($row)) continue;
+            $row['_airlabs_key_slot'] = $slot;
+            $result[] = $row;
+        }
+        return $result;
+    }
+
     public function flight(string $flightCode): ?array
     {
         $flightCode = strtoupper(preg_replace('/\s+/', '', trim($flightCode)) ?? '');

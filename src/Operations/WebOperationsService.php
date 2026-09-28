@@ -118,8 +118,16 @@ final class WebOperationsService
 
         $client = new AirLabsClient($keys, PROJECT_ROOT . '/storage/cache/airlabs-key-slot.txt');
         $scheduleRows = $client->arrivals('SVQ', 50);
+        $liveRows = [];
+        $liveError = null;
+        try {
+            $liveRows = $client->liveArrivals('SVQ', 50);
+        } catch (Throwable $error) {
+            // Los horarios siguen siendo aprovechables si el plan o la cuota no permiten /flights.
+            $liveError = 'AirLabs en vivo: ' . $error->getMessage();
+        }
         $records = [];
-        $errors = [];
+        $errors = $liveError ? [$liveError] : [];
         $matchedRows = [];
         foreach ($flights as $flight) {
             try {
@@ -129,9 +137,14 @@ final class WebOperationsService
                     array_merge([(string)$flight['physical_flight']], $codeshares)
                 ))));
 
-                $data = $this->matchAirLabsSchedule($flight, $candidateCodes, $scheduleRows);
-                if (!$data) {
+                $scheduleData = $this->matchAirLabsSchedule($flight, $candidateCodes, $scheduleRows);
+                $liveData = $this->matchAirLabsLive($flight, $candidateCodes, $liveRows);
+                if (!$scheduleData && !$liveData) {
                     continue;
+                }
+                $data = $scheduleData ?? [];
+                foreach (($liveData ?? []) as $field => $value) {
+                    if ($value !== null && $value !== '') $data[$field] = $value;
                 }
                 $lookupCode = (string)($data['_matched_flight_code'] ?? $flight['physical_flight']);
                 $rowKey = implode('|', [
@@ -171,8 +184,13 @@ final class WebOperationsService
                     'occupancy_level' => 'no_verificable',
                     'confidence' => 'provisional',
                     'reason_code' => 'secondary_provider_update',
-                    'reason_detail' => 'AirLabs actualizó la información secundaria mediante una consulta agrupada de llegadas; no constituye una causa operativa publicada por Aena.',
-                    'raw_data' => $data + ['_matched_flight_code' => $lookupCode, '_transport' => 'airport_schedule_batch'],
+                    'reason_detail' => 'AirLabs actualizó información secundaria de horario o telemetría; no constituye una causa operativa publicada por Aena.',
+                    'raw_data' => [
+                        'schedule' => $scheduleData,
+                        'live' => $liveData,
+                        '_matched_flight_code' => $lookupCode,
+                        '_transport' => 'airport_schedule_and_live_batches',
+                    ],
                 ];
                 foreach ([
                     'aircraft_registration' => $data['reg_number'] ?? null,
@@ -180,6 +198,20 @@ final class WebOperationsService
                     'aircraft_type' => $data['aircraft_icao'] ?? null,
                 ] as $field => $value) {
                     if ($this->nullable($value) !== null) $record[$field] = $this->nullable($value);
+                }
+                if ($liveData) {
+                    $latitude = $this->numeric($liveData['lat'] ?? null);
+                    $longitude = $this->numeric($liveData['lng'] ?? null);
+                    $altitude = $this->numeric($liveData['alt'] ?? null);
+                    $speedKmh = $this->numeric($liveData['speed'] ?? null);
+                    $track = $this->numeric($liveData['dir'] ?? null);
+                    if ($latitude !== null && $longitude !== null) {
+                        $record['latitude'] = $latitude;
+                        $record['longitude'] = $longitude;
+                    }
+                    if ($altitude !== null) $record['altitude_m'] = $altitude;
+                    if ($speedKmh !== null) $record['ground_speed_ms'] = $speedKmh / 3.6;
+                    if ($track !== null) $record['track_deg'] = $track;
                 }
                 $records[] = $record;
             } catch (Throwable $error) {
@@ -195,9 +227,10 @@ final class WebOperationsService
                 'observed_at' => date('Y-m-d H:i:s'),
                 'complete' => false,
                 'metadata' => [
-                    'transport' => 'airport_schedule_batch',
-                    'upstream_requests' => 1,
+                    'transport' => 'airport_schedule_and_live_batches',
+                    'upstream_requests' => 2,
                     'schedule_rows' => count($scheduleRows),
+                    'live_rows' => count($liveRows),
                     'candidate_flights' => count($flights),
                     'configured_keys' => count($keys),
                 ],
@@ -209,10 +242,11 @@ final class WebOperationsService
             'useful' => $records !== [],
             'action' => 'airlabs',
             'message' => $records !== []
-                ? sprintf('AirLabs hizo 1 consulta agrupada, recibió %d llegadas y concilió %d vuelos.', count($scheduleRows), count($records))
-                : sprintf('AirLabs hizo 1 consulta agrupada y recibió %d llegadas, sin coincidencias válidas.', count($scheduleRows)),
-            'requested' => 1,
+                ? sprintf('AirLabs hizo 2 consultas agrupadas, recibió %d horarios y %d vuelos en vivo, y concilió %d vuelos.', count($scheduleRows), count($liveRows), count($records))
+                : sprintf('AirLabs hizo 2 consultas agrupadas y recibió %d horarios y %d vuelos en vivo, sin coincidencias válidas.', count($scheduleRows), count($liveRows)),
+            'requested' => 2,
             'schedule_rows' => count($scheduleRows),
+            'live_rows' => count($liveRows),
             'candidate_flights' => count($flights),
             'configured_keys' => count($keys),
             'received' => count($records),
@@ -261,6 +295,38 @@ final class WebOperationsService
             $bestDistance = $distance;
             $best = $row;
             $best['_matched_flight_code'] = $matches[0];
+        }
+        return $best;
+    }
+
+    /**
+     * @param array<string,mixed> $flight
+     * @param list<string> $candidateCodes
+     * @param list<array<string,mixed>> $rows
+     * @return array<string,mixed>|null
+     */
+    private function matchAirLabsLive(array $flight, array $candidateCodes, array $rows): ?array
+    {
+        $candidateCodes = array_map(static fn(string $code): string => str_replace(' ', '', strtoupper($code)), $candidateCodes);
+        $best = null;
+        $bestUpdated = -1;
+        foreach ($rows as $row) {
+            $destination = strtoupper(trim((string)($row['arr_iata'] ?? '')));
+            $origin = strtoupper(trim((string)($row['dep_iata'] ?? '')));
+            if ($destination !== 'SVQ' || ($origin !== '' && $origin !== strtoupper((string)$flight['origin_iata']))) continue;
+
+            $rowCodes = array_values(array_unique(array_filter(array_map(
+                static fn(mixed $value): string => str_replace(' ', '', strtoupper(trim((string)$value))),
+                [$row['flight_icao'] ?? null, $row['flight_iata'] ?? null]
+            ))));
+            $matches = array_values(array_intersect($candidateCodes, $rowCodes));
+            if ($matches === []) continue;
+
+            $updated = (int)($row['updated'] ?? 0);
+            if ($best !== null && $updated < $bestUpdated) continue;
+            $best = $row;
+            $best['_matched_flight_code'] = $matches[0];
+            $bestUpdated = $updated;
         }
         return $best;
     }
@@ -474,6 +540,13 @@ final class WebOperationsService
     {
         $value = trim((string)($value ?? ''));
         return $value === '' ? null : $value;
+    }
+
+    private function numeric(mixed $value): ?float
+    {
+        if ($value === null || $value === '' || !is_numeric($value)) return null;
+        $number = (float)$value;
+        return is_finite($number) ? $number : null;
     }
 
     private function providerDate(mixed $value): ?string

@@ -174,29 +174,34 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
     </div>
   </section>
 
-  <section class="panel overflow-hidden" id="arrivalsPanel">
-    <header class="panel-header d-flex flex-wrap align-items-center justify-content-between gap-2">
-      <div>
-        <h1 class="h5 mb-1">Llegadas físicas · ventana 5 + 5 + 5</h1>
-        <p class="mb-0 text-secondary" id="lastUpdated">Esperando datos…</p>
-      </div>
-      <div class="legend d-flex flex-wrap gap-2" aria-label="Leyenda">
-        <span>🟢 estable</span><span>🟠 revisión</span><span>🔵 en vuelo</span><span>🔴 7/8</span><span>🟡 propuesta secundaria</span>
-      </div>
-    </header>
+  <section class="panel overflow-hidden radar-collapsed-panel" id="arrivalsPanel">
+    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#arrivalsCollapse" aria-expanded="false" aria-controls="arrivalsCollapse">
+      <span><strong>Todos los vuelos del día</strong><small id="arrivalsToggleLabel">plegado · cargando vuelos</small></span><b aria-hidden="true">⌄</b>
+    </button>
+    <div class="collapse" id="arrivalsCollapse">
+      <header class="panel-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div>
+          <h1 class="h5 mb-1">Llegadas físicas · día completo</h1>
+          <p class="mb-0 text-secondary" id="lastUpdated">Esperando datos…</p>
+        </div>
+        <div class="legend d-flex flex-wrap gap-2" aria-label="Leyenda">
+          <span>🟢 estable</span><span>🟠 revisión</span><span>🔵 en vuelo</span><span>🔴 7/8</span><span>🟡 propuesta secundaria</span>
+        </div>
+      </header>
 
-    <div id="errorAlert" class="alert alert-danger m-3 d-none" role="alert"></div>
-    <div id="loadingState" class="loading-state"><div class="spinner-border text-success" role="status"></div><span>Actualizando tablero…</span></div>
-    <div id="emptyState" class="empty-state d-none"><strong>No hay vuelos para estos filtros.</strong><span>Prueba otra fecha o elimina algún filtro.</span></div>
+      <div id="errorAlert" class="alert alert-danger m-3 d-none" role="alert"></div>
+      <div id="loadingState" class="loading-state"><div class="spinner-border text-success" role="status"></div><span>Actualizando tablero…</span></div>
+      <div id="emptyState" class="empty-state d-none"><strong>No hay vuelos para estos filtros.</strong><span>Prueba otra fecha o elimina algún filtro.</span></div>
 
-    <div class="table-responsive d-none" id="tableWrap">
-      <table class="table table-hover align-middle mb-0 flights-table">
-        <thead><tr>
-          <th>Estado</th><th>Hora</th><th>Cinta</th><th>Origen</th><th>Vuelo físico</th>
-          <th>ETA/Real</th><th>Intervalo</th><th>Afluencia sala</th><th>Fuente</th>
-        </tr></thead>
-        <tbody id="flightsBody"></tbody>
-      </table>
+      <div class="table-responsive d-none" id="tableWrap">
+        <table class="table table-hover align-middle mb-0 flights-table">
+          <thead><tr>
+            <th>Estado</th><th>Hora</th><th>Cinta</th><th>Origen</th><th>Vuelo físico</th>
+            <th>ETA/Real</th><th>Intervalo</th><th>Afluencia sala</th><th>Fuente</th>
+          </tr></thead>
+          <tbody id="flightsBody"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 </main>

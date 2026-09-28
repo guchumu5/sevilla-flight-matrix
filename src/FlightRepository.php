@@ -30,14 +30,15 @@ SELECT
     COALESCE(latest_aena.stand, latest_other.stand) AS stand,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.baggage_state ELSE latest_other.baggage_state END AS baggage_state,
     COALESCE(latest_aena.occupancy_level, latest_other.occupancy_level, 'no_verificable') AS occupancy_level,
-    latest_opensky.observed_at AS telemetry_observed_at,
-    latest_opensky.status AS telemetry_status,
-    latest_opensky.latitude,
-    latest_opensky.longitude,
-    latest_opensky.altitude_m,
-    latest_opensky.ground_speed_ms,
-    latest_opensky.track_deg,
-    latest_opensky.vertical_rate_ms,
+    latest_telemetry.source AS telemetry_source,
+    latest_telemetry.observed_at AS telemetry_observed_at,
+    latest_telemetry.status AS telemetry_status,
+    latest_telemetry.latitude,
+    latest_telemetry.longitude,
+    latest_telemetry.altitude_m,
+    latest_telemetry.ground_speed_ms,
+    latest_telemetry.track_deg,
+    latest_telemetry.vertical_rate_ms,
     latest_secondary_belt.source AS secondary_belt_source,
     latest_secondary_belt.observed_at AS secondary_belt_at,
     latest_secondary_belt.hall AS secondary_hall,
@@ -77,10 +78,11 @@ LEFT JOIN observations latest_other ON latest_other.id = (
     ORDER BY o.observed_at DESC, o.id DESC
     LIMIT 1
 )
-LEFT JOIN observations latest_opensky ON latest_opensky.id = (
+LEFT JOIN observations latest_telemetry ON latest_telemetry.id = (
     SELECT o.id FROM observations o
-    WHERE o.flight_id = f.id AND o.source = 'opensky'
-    ORDER BY o.observed_at DESC, o.id DESC
+    WHERE o.flight_id = f.id AND o.source IN ('opensky','airlabs')
+      AND o.latitude IS NOT NULL AND o.longitude IS NOT NULL
+    ORDER BY o.observed_at DESC, CASE WHEN o.source='opensky' THEN 0 ELSE 1 END, o.id DESC
     LIMIT 1
 )
 LEFT JOIN observations latest_secondary_belt ON latest_secondary_belt.id = (
@@ -284,9 +286,9 @@ SQL;
         $ids = array_map('intval', array_column($rows, 'id'));
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $stmt = $this->pdo->prepare(
-            "SELECT flight_id,observed_at,latitude,longitude,altitude_m,ground_speed_ms,track_deg
+            "SELECT flight_id,source,observed_at,latitude,longitude,altitude_m,ground_speed_ms,track_deg
              FROM observations
-             WHERE flight_id IN ($placeholders) AND source='opensky'
+             WHERE flight_id IN ($placeholders) AND source IN ('opensky','airlabs')
              AND latitude IS NOT NULL AND longitude IS NOT NULL
              AND observed_at>=DATE_SUB(NOW(),INTERVAL 6 HOUR)
              ORDER BY flight_id,observed_at,id"
