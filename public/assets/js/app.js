@@ -125,6 +125,13 @@
     return /vuelo|route|airborne|aproxim|landed|tierra|entrega|delivery/.test(value) && !/final|cancel/.test(value);
   };
   const flightIsFinished = flight => /final|cancel/.test(`${flight.status || ''} ${flight.baggage_state || ''}`.toLowerCase());
+  const baggageDeliveryIsActive = flight => {
+    const baggage = String(flight.baggage_state || '').trim().toLowerCase();
+    if (['entrega','delivery','en_entrega','in_delivery'].includes(baggage)) return true;
+    const status = String(flight.status || '').trim().toLowerCase();
+    if (/pendiente|final|cancel/.test(status)) return false;
+    return /(?:entrega|recogida)(?:\s+de)?\s+(?:equip|malet)|baggage\s+delivery/.test(status);
+  };
   const beltAverageMarkup = flight => `<span class="belt-average" title="Media calculada con primeras publicaciones oficiales Aena de días anteriores">
     μ vuelo ${leadText(flight.belt_lead_flight_average_minutes)} · n=${Number(flight.belt_lead_flight_samples || 0)}<br>
     μ origen ${leadText(flight.belt_lead_origin_average_minutes)} · n=${Number(flight.belt_lead_origin_samples || 0)}
@@ -515,9 +522,11 @@
   }
 
   function flowStage(f) {
-    const baggage = String(f.baggage_state || '').toLowerCase();
     const status = `${f.status || ''} ${f.telemetry_status || ''}`.toLowerCase();
-    if (baggage.includes('entrega') || baggage.includes('delivery')) return 'baggage';
+    if (flightIsFinished(f)) return 'finished';
+    // Aena manda el estado operativo y el estado de equipaje por separado.
+    // Cualquiera de los dos puede anunciar primero el inicio de la entrega.
+    if (baggageDeliveryIsActive(f)) return 'baggage';
     if (f.actual_arrival || status.includes('landed') || status.includes('tierra')) return 'ground';
     if (isFiniteNumber(f.latitude) && isFiniteNumber(f.longitude)) {
       const distance = distanceToSvq(f);
@@ -835,11 +844,11 @@
       const mobileNext = current && queued
         ? queued
         : next;
-      return `<button type="button" class="scene-belt ${danger} ${current?'has-flight':queued?'reserved':''}" ${selected?`data-flight-id="${Number(selected.id)}"`:''} title="${current?esc(`${current.physical_flight} ${current.origin_name}`):queued?`Cinta ${number}: ${queued.physical_flight} con entrega pendiente`:`Cinta ${number} sin vuelo activo`}">
+      return `<button type="button" class="scene-belt ${danger} ${current?'has-flight':queued?'reserved':''}" ${selected?`data-flight-id="${Number(selected.id)}"`:''} title="${current?esc(`Cinta ${number}: ${current.physical_flight} recogiendo maletas`):queued?`Cinta ${number}: ${queued.physical_flight} asignado, entrega pendiente`:`Cinta ${number} sin vuelo activo`}">
         <span>${number}</span>${current
-          ? `<strong class="scene-belt-origin">${esc(current.origin_name)}</strong><small>${esc(current.physical_flight)} · ${time(effectiveArrival(current))}</small><em>entrega activa</em>`
+          ? `<strong class="scene-belt-origin">${esc(current.origin_name)}</strong><small>${esc(current.physical_flight)} · ${time(effectiveArrival(current))}</small><em><i aria-hidden="true">🧳</i> RECOGIENDO MALETAS</em>`
           : queued
-            ? `<strong class="scene-belt-origin free">ESPERA ARRIBA</strong><small>${esc(queued.physical_flight)} · entrega pendiente</small>`
+            ? `<strong class="scene-belt-origin free">ASIGNADA · EN ESPERA</strong><small>${esc(queued.physical_flight)} · aún no entrega</small>`
             : '<strong class="scene-belt-origin free">LIBRE</strong><small>sin vuelo activo</small>'}
         ${mobileNext ? `<span class="scene-belt-next"><i>🧳 SIGUIENTE</i><b>${esc(mobileNext.origin_name)}</b><small>${esc(mobileNext.physical_flight)} · entrega pendiente</small></span>` : ''}
       </button>`;

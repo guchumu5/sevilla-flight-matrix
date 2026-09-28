@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check:aena": "node --check scripts/aena-collector.mjs"
+    "check:aena": "node --check scripts/aena-collector.mjs",
+    "test:aena-status": "node scripts/aena-status.test.mjs"
   },
   "dependencies": {
     "playwright": "^1.52.0"

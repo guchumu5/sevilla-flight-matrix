@@ -148,7 +148,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
           <div class="scene-legend"><span><i class="live"></i>GPS real</span><span><i class="planned"></i>previsto</span><span><i class="flow"></i>flujo a cinta</span></div>
           <section class="scene-belts" aria-label="Cintas de equipajes de derecha a izquierda">
             <header><span>← SALA B · CINTA 8</span><strong>8 CINTAS · FLUJO DEL VUELO, NO RODAJE DEL AVIÓN</strong><span>CINTA 1 · SALA A →</span></header>
-            <div class="scene-belts-grid" id="sceneBelts"></div>
+            <div class="scene-belts-grid" id="sceneBelts" aria-live="polite"></div>
           </section>
     </div>
     <section class="belt-changes-section d-none" id="beltChangesSection" aria-labelledby="beltChangesTitle">

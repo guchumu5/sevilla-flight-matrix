@@ -341,6 +341,11 @@ consulta el intervalo cronológico completo y usa la paginación oficial **Ver
 más** hasta que el número de filas cargadas coincide exactamente con el total
 publicado por Aena; así no interpreta de forma errónea las horas como franjas
 independientes de cada día ni pierde vuelos en una semana con cientos de filas.
+La versión 1.11.13 corrige la transición visual de equipajes: reconoce tanto
+`Entrega equipaje` como `Entrega de equipajes`, coloca el vuelo dentro de su
+cinta mientras la recogida está activa y lo retira cuando Aena lo finaliza. La
+asignación previa permanece arriba como pendiente y no ocupa la cinta.
+
 La versión 1.11.12 conserva la clave histórica habitual y añade la hora
 programada únicamente cuando Aena publica dos operaciones con el mismo número,
 origen y fecha, evitando que vuelos legítimos como los dos RYR2200 del 29 de

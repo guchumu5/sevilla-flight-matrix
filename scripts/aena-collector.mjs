@@ -1,4 +1,5 @@
 import { chromium } from 'playwright';
+import { baggageStateFromAenaStatus, statusIndicatesArrival } from './aena-status.mjs';
 
 const AENA_URL = 'https://www.aena.es/es/infovuelos.html';
 const INGEST_URL = process.env.MATRIX_INGEST_URL || 'https://ojito.top/public/api/aena-board.php';
@@ -327,10 +328,10 @@ function groupPhysicalFlights(rows, windowFrom) {
   const flights = [...groups.values()].map(group => {
     const physical = group.codes[0];
     const status = group.status || null;
-    const arrived = /finalizado|entrega\s*equip|aterriz|llegad/i.test(status || '');
-    const baggageState = /entrega\s*equip/i.test(status || '')
-      ? 'entrega'
-      : (/finalizado/i.test(status || '') ? 'finalizado' : 'pendiente');
+    // Aena ha mostrado ambas variantes: "Entrega equipaje" y
+    // "Entrega de equipajes". La segunda debe activar igualmente la cinta.
+    const arrived = statusIndicatesArrival(status);
+    const baggageState = baggageStateFromAenaStatus(status);
     const scheduledArrival = mysqlDateTime(group.day, group.scheduled);
     const effectiveArrival = mysqlDateTime(group.day, group.effective);
     return {

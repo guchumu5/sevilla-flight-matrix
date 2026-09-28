@@ -117,7 +117,8 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .scene-belt > span { display:grid; place-items:center; width:31px; height:31px; margin:0 auto .15rem; border:2px solid #4d718d; border-radius:50%; color:#bcd4e6; font-size:.95rem; font-weight:900; }.scene-belt small { display:block; min-height:1.7em; color:var(--muted); font-size:.58rem; line-height:1.1; text-align:center; }.scene-belt b { position:absolute; right:.3rem; top:.3rem; color:var(--orange); font-size:.6rem; }
 .scene-belt-origin { display:-webkit-box; min-height:2.45em; overflow:hidden; color:#f4fbff; font-size:.84rem; line-height:1.16; text-align:center; text-overflow:ellipsis; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
 .scene-belt-origin.free { color:#6f8598; font-size:.7rem; letter-spacing:.06em; }
-.scene-belt em { display:block; margin-top:.18rem; color:#78efbc; font-size:.56rem; font-style:normal; font-weight:700; text-align:center; }
+.scene-belt em { display:flex; align-items:center; justify-content:center; gap:.24rem; margin-top:.28rem; padding:.25rem .2rem; border:1px solid rgba(47,211,138,.34); border-radius:999px; background:rgba(47,211,138,.1); color:#78efbc; font-size:.56rem; font-style:normal; font-weight:850; letter-spacing:.025em; text-align:center; }
+.scene-belt em i { font-size:.8rem; font-style:normal; animation:scene-baggage-pulse 1.5s ease-in-out infinite; }
 .scene-belt-next { display:none; }
 .scene-belt.has-flight { border-color:var(--green); background:#102f2a; cursor:pointer; box-shadow:inset 0 0 20px rgba(47,211,138,.08); }.scene-belt.has-flight > span { border-color:var(--green); color:#78efbc; }.scene-belt.has-flight small { color:#d8fff0; font-weight:800; }
 .scene-belt.reserved { border-color:#577461; background:#10231f; }.scene-belt.reserved > span { border-color:#6c9b7c; color:#9bdab2; }.scene-belt.reserved .scene-belt-origin { color:#8fc8a4; font-size:.61rem; letter-spacing:.04em; }
@@ -125,6 +126,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 @keyframes scene-dash { to { stroke-dashoffset:-36; } }
 @keyframes runway-light { from { opacity:.28; } to { opacity:1; } }
 @keyframes scene-pulse { 50% { box-shadow:0 0 0 9px rgba(82,168,255,.04); } }
+@keyframes scene-baggage-pulse { 50% { transform:translateY(-2px); filter:brightness(1.2); } }
 .airport-flow { max-height:184px; overflow:auto; padding:.55rem .7rem .7rem; }
 .airport-flow-wide { display:grid; grid-template-columns:repeat(5,minmax(180px,1fr)); gap:.55rem; max-height:none; overflow-x:auto; }
 .airport-flow-wide .flow-lane { min-width:180px; margin-bottom:0; }
