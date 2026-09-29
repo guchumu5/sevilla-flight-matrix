@@ -313,9 +313,32 @@
     return Uint8Array.from([...raw].map(char => char.charCodeAt(0)));
   };
 
+  function pushCapabilityError() {
+    const appleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const installed = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    if (!window.isSecureContext) {
+      return 'La página no está en un contexto seguro. Ábrela directamente con https://ojito.top/public/ (no desde una vista previa ni un navegador interno).';
+    }
+    if (appleMobile && !installed) {
+      return 'En iPhone/iPad los avisos solo funcionan desde la app instalada: abre esta página en Safari → Compartir → Añadir a pantalla de inicio; después abre Matriz SVQ desde su icono y pulsa de nuevo «Vigilar este vuelo».';
+    }
+    if (!('Notification' in window)) {
+      return 'Este navegador no ofrece notificaciones web. Abre la página en Safari, Chrome, Edge o Firefox actualizado.';
+    }
+    if (!('serviceWorker' in navigator)) {
+      return 'Este navegador o modo privado no permite el trabajador necesario para los avisos. Prueba una ventana normal del navegador.';
+    }
+    if (!('PushManager' in window)) {
+      return 'Este navegador no admite Web Push. Si estás dentro de WhatsApp, Gmail u otra app, abre el enlace en Chrome/Edge/Firefox.';
+    }
+    return '';
+  }
+
   async function enablePushNotifications() {
-    if (!window.isSecureContext || !('serviceWorker' in navigator) || !('PushManager' in window)) {
-      throw new Error('Este navegador necesita HTTPS y soporte Web Push.');
+    const capabilityError = pushCapabilityError();
+    if (capabilityError) throw new Error(capabilityError);
+    if (Notification.permission === 'denied') {
+      throw new Error('Los avisos están bloqueados para ojito.top. Actívalos en los ajustes del navegador o del sitio y vuelve a intentarlo.');
     }
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') throw new Error('No se concedió permiso para mostrar avisos.');
