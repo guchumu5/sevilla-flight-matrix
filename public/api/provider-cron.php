@@ -34,10 +34,10 @@ try {
         'weather' => ['provider' => 'aviationweather', 'minimum_gap' => 8, 'limit' => 10],
     ];
     if (!isset($settings[$action])) Response::json(['error' => 'Proceso no permitido.'], 422);
-    $stmt = $pdo->prepare('SELECT MAX(started_at) FROM fetch_runs WHERE provider=:provider');
+    $stmt = $pdo->prepare('SELECT GREATEST(0,TIMESTAMPDIFF(MINUTE,MAX(started_at),NOW())) FROM fetch_runs WHERE provider=:provider');
     $stmt->execute(['provider' => $settings[$action]['provider']]);
-    $last = $stmt->fetchColumn();
-    $age = $last ? (int)floor((time() - strtotime((string)$last)) / 60) : null;
+    $storedAge = $stmt->fetchColumn();
+    $age = $storedAge === false || $storedAge === null ? null : (int)$storedAge;
     if ($age !== null && $age < $settings[$action]['minimum_gap']) {
         Response::json(['ok' => true, 'skipped' => true, 'message' => "{$action} ya se ejecutó hace {$age} min."]);
     }
