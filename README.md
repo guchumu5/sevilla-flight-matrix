@@ -184,8 +184,8 @@ página permanezca abierta o en segundo plano. No repite eventos ya vistos.
 
 La actualización `20260929_005_push_watch` añade avisos Web Push reales. Tras
 aplicarla desde **Actualizar MySQL**, el botón **Activar avisos** registra el
-móvil y mantiene activados por defecto todos los cambios materiales de vuelos
-canarios. En la ficha de cualquier vuelo se puede pulsar **Vigilar este vuelo**.
+móvil, pero no añade vuelos automáticamente. En la ficha de cada vuelo debe
+pulsarse expresamente **Vigilar este vuelo**; solo esos vuelos generan avisos.
 La vigilancia móvil solo interrumpe en cinco hitos: **despega**, **asignación
 oficial de cinta**, **cambio oficial de cinta**, **aterriza** y **equipaje en la
 cinta**. El resto de cambios continúa guardado en el cerebro sin generar ruido.
