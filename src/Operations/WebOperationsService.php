@@ -121,13 +121,17 @@ final class WebOperationsService
                         SUM(started_at >= CURRENT_DATE()) AS attempts_today,
                         SUM(started_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')) AS attempts_month,
                         MAX(CASE WHEN ok=1 THEN finished_at END) AS last_success_at,
-                        MAX(CASE WHEN ok=0 THEN finished_at END) AS last_failure_at
+                        MAX(CASE WHEN ok=0 THEN finished_at END) AS last_failure_at,
+                        UNIX_TIMESTAMP(MAX(CASE WHEN ok=1 THEN finished_at END)) AS last_success_ts,
+                        UNIX_TIMESTAMP(MAX(CASE WHEN ok=0 THEN finished_at END)) AS last_failure_ts
                  FROM fetch_runs GROUP BY provider"
             )->fetchAll();
             foreach ($rows as $row) $stats[(string)$row['provider']] = $row;
 
             $latestRows = $this->pdo->query(
-                'SELECT f.provider,f.started_at,f.finished_at,f.ok,f.records_count,f.error_message
+                'SELECT f.provider,f.started_at,f.finished_at,f.ok,f.records_count,f.error_message,
+                        UNIX_TIMESTAMP(COALESCE(f.finished_at,f.started_at)) AS last_attempt_ts,
+                        GREATEST(0,TIMESTAMPDIFF(MINUTE,COALESCE(f.finished_at,f.started_at),NOW())) AS last_age_minutes
                  FROM fetch_runs f
                  INNER JOIN (SELECT provider,MAX(id) AS id FROM fetch_runs GROUP BY provider) latest ON latest.id=f.id'
             )->fetchAll();
@@ -135,6 +139,8 @@ final class WebOperationsService
                 $provider = (string)$row['provider'];
                 $stats[$provider] = array_merge($stats[$provider] ?? [], [
                     'last_attempt_at' => $row['finished_at'] ?: $row['started_at'],
+                    'last_attempt_ts' => (int)$row['last_attempt_ts'],
+                    'last_age_minutes' => (int)$row['last_age_minutes'],
                     'last_ok' => (int)$row['ok'],
                     'last_records' => (int)$row['records_count'],
                     'last_error' => $row['error_message'],
@@ -149,11 +155,15 @@ final class WebOperationsService
                         SUM(started_at >= CURRENT_DATE()) AS attempts_today,
                         SUM(started_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')) AS attempts_month,
                         MAX(CASE WHEN status IN ('success','partial') THEN finished_at END) AS last_success_at,
-                        MAX(CASE WHEN status='failed' THEN finished_at END) AS last_failure_at
+                        MAX(CASE WHEN status='failed' THEN finished_at END) AS last_failure_at,
+                        UNIX_TIMESTAMP(MAX(CASE WHEN status IN ('success','partial') THEN finished_at END)) AS last_success_ts,
+                        UNIX_TIMESTAMP(MAX(CASE WHEN status='failed' THEN finished_at END)) AS last_failure_ts
                  FROM sync_runs WHERE provider='aena'"
             )->fetch() ?: [];
             $rows = $this->pdo->query(
-                "SELECT started_at,finished_at,status,records_received,error_message,metadata
+                "SELECT started_at,finished_at,status,records_received,error_message,metadata,
+                        UNIX_TIMESTAMP(COALESCE(finished_at,started_at)) AS attempt_ts,
+                        GREATEST(0,TIMESTAMPDIFF(MINUTE,COALESCE(finished_at,started_at),NOW())) AS age_minutes
                  FROM sync_runs WHERE provider='aena' ORDER BY id DESC LIMIT 200"
             )->fetchAll();
             foreach ($rows as $row) {
@@ -162,7 +172,9 @@ final class WebOperationsService
                 $mode = str_contains($collector, 'week') ? 'week' : 'live';
                 if ($aenaModes[$mode] !== null) continue;
                 $aenaModes[$mode] = [
-                    'at' => $row['finished_at'] ?: $row['started_at'],
+                    'at' => $this->localDate((int)$row['attempt_ts']),
+                    'at_ts' => (int)$row['attempt_ts'],
+                    'age_minutes' => (int)$row['age_minutes'],
                     'status' => $row['status'],
                     'records' => (int)$row['records_received'],
                     'error' => $row['error_message'],
@@ -177,6 +189,8 @@ final class WebOperationsService
                 $live = $aenaModes['live'];
                 $stats['aena'] = array_merge($aggregate, [
                     'last_attempt_at' => $live['at'],
+                    'last_attempt_ts' => $live['at_ts'],
+                    'last_age_minutes' => $live['age_minutes'],
                     'last_ok' => in_array($live['status'], ['success', 'partial'], true) ? 1 : 0,
                     'last_records' => $live['records'],
                     'last_error' => $live['error'],
@@ -191,8 +205,8 @@ final class WebOperationsService
         foreach ($definitions as $provider => $definition) {
             $row = $stats[$provider] ?? [];
             $lastAttemptAt = $row['last_attempt_at'] ?? null;
-            $lastTimestamp = $lastAttemptAt ? strtotime((string)$lastAttemptAt) : false;
-            $ageMinutes = $lastTimestamp ? max(0, (int)floor(($now - $lastTimestamp) / 60)) : null;
+            $lastTimestamp = !empty($row['last_attempt_ts']) ? (int)$row['last_attempt_ts'] : false;
+            $ageMinutes = isset($row['last_age_minutes']) ? max(0, (int)$row['last_age_minutes']) : null;
             $latestOk = isset($row['last_ok']) ? (int)$row['last_ok'] === 1 : null;
             $lastError = trim((string)($row['last_error'] ?? ''));
             $rateLimited = preg_match('/(?:429|limit|quota|cuota|en pausa|reintentar)/i', $lastError) === 1;
@@ -234,9 +248,9 @@ final class WebOperationsService
                 'label' => $definition['label'],
                 'configured' => (bool)$definition['configured'],
                 'status' => $status,
-                'last_attempt_at' => $lastAttemptAt,
-                'last_success_at' => $row['last_success_at'] ?? null,
-                'last_failure_at' => $row['last_failure_at'] ?? null,
+                'last_attempt_at' => $lastTimestamp ? $this->localDate($lastTimestamp) : $lastAttemptAt,
+                'last_success_at' => $this->localDate(isset($row['last_success_ts']) ? (int)$row['last_success_ts'] : null),
+                'last_failure_at' => $this->localDate(isset($row['last_failure_ts']) ? (int)$row['last_failure_ts'] : null),
                 'last_records' => (int)($row['last_records'] ?? 0),
                 'last_error' => $lastError !== '' ? $lastError : null,
                 'age_minutes' => $ageMinutes,
@@ -253,6 +267,11 @@ final class WebOperationsService
         }
 
         return $result;
+    }
+
+    private function localDate(?int $timestamp): ?string
+    {
+        return $timestamp && $timestamp > 0 ? date('Y-m-d H:i:s', $timestamp) : null;
     }
 
     private function envMinutes(string $name, int $default): int
