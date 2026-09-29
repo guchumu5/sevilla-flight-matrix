@@ -38,15 +38,15 @@ final class WebPushService
         $stmt = $this->pdo->prepare(
             'INSERT INTO push_subscriptions
              (device_token,endpoint,endpoint_hash,p256dh,auth_secret,watch_canary_all,active,user_agent)
-             VALUES (:token,:endpoint,:hash,:p256dh,:auth,1,1,:agent)
-             ON DUPLICATE KEY UPDATE endpoint=VALUES(endpoint),p256dh=VALUES(p256dh),auth_secret=VALUES(auth_secret),active=1,user_agent=VALUES(user_agent),last_error=NULL'
+             VALUES (:token,:endpoint,:hash,:p256dh,:auth,0,1,:agent)
+             ON DUPLICATE KEY UPDATE endpoint=VALUES(endpoint),p256dh=VALUES(p256dh),auth_secret=VALUES(auth_secret),watch_canary_all=0,active=1,user_agent=VALUES(user_agent),last_error=NULL'
         );
         $stmt->execute([
             'token' => $token, 'endpoint' => $endpoint, 'hash' => $hash,
             'p256dh' => substr($p256dh, 0, 180), 'auth' => substr($auth, 0, 100),
             'agent' => substr($userAgent, 0, 300),
         ]);
-        return ['device_token' => $token, 'watch_canary_all' => true];
+        return ['device_token' => $token, 'watch_canary_all' => false];
     }
 
     public function setWatch(string $deviceToken, int $flightId, bool $enabled): void
@@ -116,6 +116,13 @@ final class WebPushService
              WHERE o.pushed_at IS NULL AND o.attempts<4 AND e.event_type NOT IN ({$watched})"
         );
         $this->pdo->exec(
+            "UPDATE push_outbox o
+             JOIN flight_events e ON e.id=o.flight_event_id
+             LEFT JOIN flight_watches w ON w.subscription_id=o.subscription_id AND w.flight_id=e.flight_id AND w.enabled=1
+             SET o.attempts=4,o.last_error='Descartado: el vuelo no está vigilado'
+             WHERE o.pushed_at IS NULL AND o.attempts<4 AND w.id IS NULL"
+        );
+        $this->pdo->exec(
             "INSERT IGNORE INTO push_outbox (subscription_id,flight_event_id,title,body,target_url)
              SELECT s.id,e.id,
                     CONCAT(IF(f.is_canary=1,'Canarias · ',''),f.origin_name,' · ',f.physical_flight),
@@ -138,7 +145,7 @@ final class WebPushService
              JOIN flights f ON f.id=e.flight_id
              LEFT JOIN flight_watches w ON w.subscription_id=s.id AND w.flight_id=f.id AND w.enabled=1
              WHERE s.active=1
-               AND (w.id IS NOT NULL OR (s.watch_canary_all=1 AND f.is_canary=1))
+               AND w.id IS NOT NULL
                AND (e.event_type IN ('departure_recorded','arrival_recorded') OR e.source='aena')"
         );
 
