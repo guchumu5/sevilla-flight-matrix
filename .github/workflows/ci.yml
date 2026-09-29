@@ -81,3 +81,13 @@ jobs:
           php -r 'require "src/bootstrap.php"; $rows=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-24"); $f=$rows[0]??[]; if (($f["source"]??null)!=="aena" || ($f["hall"]??null)!=="A" || ($f["belt"]??null)!=="2" || (int)($f["belt_changes"]??-1)!==1 || ($f["first_belt"]??null)!=="1" || ($f["secondary_belt"]??null)!=="3" || ($f["secondary_belt_state"]??null)!=="candidate" || ($f["telemetry_source"]??null)!=="airlabs" || abs((float)($f["latitude"]??0)-34.8501)>0.00001) { fwrite(STDERR, json_encode($f, JSON_PRETTY_PRINT)); exit(1); }'
           php bin/sync-json.php --file=database/examples/sync_flights.aena-stable-after-secondary.example.json
           php -r 'require "src/bootstrap.php"; $rows=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-24"); $f=$rows[0]??[]; if (($f["secondary_belt_state"]??null)!=="not_confirmed" || ($f["belt"]??null)!=="2") { fwrite(STDERR, json_encode($f, JSON_PRETTY_PRINT)); exit(1); }'
+
+      - name: Comprobar predicción previa y medición del acierto
+        run: |
+          php bin/sync-json.php --file=database/examples/prediction_history.example.json
+          php bin/sync-json.php --file=database/examples/prediction_pending.example.json
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT predicted_belt FROM predictions p JOIN flights f ON f.id=p.flight_id WHERE f.flight_date="2026-09-25" AND f.physical_flight="VLG3049" LIMIT 1')" = "1"
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT official_assignment_seen FROM predictions p JOIN flights f ON f.id=p.flight_id WHERE f.flight_date="2026-09-25" AND f.physical_flight="VLG3049" LIMIT 1')" = "0"
+          php bin/sync-json.php --file=database/examples/prediction_confirmed.example.json
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT official_assignment_seen FROM predictions p JOIN flights f ON f.id=p.flight_id WHERE f.flight_date="2026-09-25" AND f.physical_flight="VLG3049" LIMIT 1')" = "1"
+          php -r 'require "src/bootstrap.php"; $summary=(new SevillaMatrix\PredictionEngine(SevillaMatrix\Database::connection()))->summary("2026-09-25"); if (($summary["evaluated"]??0)<1 || ($summary["correct"]??0)<1) { fwrite(STDERR, json_encode($summary, JSON_PRETTY_PRINT)); exit(1); }'

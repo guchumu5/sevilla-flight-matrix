@@ -7,6 +7,7 @@ use DateTimeImmutable;
 use InvalidArgumentException;
 use PDO;
 use RuntimeException;
+use SevillaMatrix\PredictionEngine;
 use Throwable;
 
 final class FlightReconciliationService
@@ -265,6 +266,7 @@ final class FlightReconciliationService
                 'La fuente publicó el vuelo como cancelado.', $record['confidence'], $record, $record['observed_at'], $counts);
         }
         $this->saveSourceState($flightId, $provider, $record['source_key'], $record['observed_at'], $payloadHash, $snapshot, $visibility);
+        (new PredictionEngine($this->pdo))->refreshForFlight($flightId, $record['observed_at']);
     }
 
     /** @param array<string,mixed> $flight @param array<string,mixed> $record @param array<string,int> $counts */

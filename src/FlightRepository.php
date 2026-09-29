@@ -64,7 +64,16 @@ SELECT
              THEN first_aena_belt.observed_at ELSE first_other_belt.observed_at
         END,
         f.scheduled_arrival
-    ) AS first_belt_lead_minutes
+    ) AS first_belt_lead_minutes,
+    latest_prediction.predicted_at,
+    latest_prediction.predicted_hall,
+    latest_prediction.predicted_belt,
+    latest_prediction.score AS prediction_score,
+    latest_prediction.confidence AS prediction_confidence,
+    latest_prediction.features AS prediction_features,
+    CASE WHEN latest_prediction.id IS NULL OR latest_aena.belt IS NULL THEN NULL
+         WHEN CAST(latest_prediction.predicted_belt AS CHAR)=CAST(latest_aena.belt AS CHAR) THEN 1
+         ELSE 0 END AS prediction_correct
 FROM flights f
 LEFT JOIN observations latest_aena ON latest_aena.id = (
     SELECT o.id FROM observations o
@@ -123,6 +132,12 @@ LEFT JOIN (
     FROM flight_events
     GROUP BY flight_id
 ) changes ON changes.flight_id = f.id
+LEFT JOIN predictions latest_prediction ON latest_prediction.id = (
+    SELECT p.id FROM predictions p
+    WHERE p.flight_id=f.id
+    ORDER BY p.predicted_at,p.id
+    LIMIT 1
+)
 WHERE f.flight_date = :date
 ORDER BY effective_arrival, f.physical_flight
 SQL;
@@ -130,10 +145,24 @@ SQL;
         $stmt->execute(['date' => $date]);
         $rows = (new MatrixEngine())->decorate($stmt->fetchAll());
         if (!$rows) return [];
+        foreach ($rows as &$row) {
+            if (is_string($row['prediction_features'] ?? null)) {
+                $decoded = json_decode($row['prediction_features'], true);
+                $row['prediction_features'] = is_array($decoded) ? $decoded : null;
+            }
+            $row['prediction_correct'] = $row['prediction_correct'] === null
+                ? null : (int)$row['prediction_correct'];
+        }
+        unset($row);
         $this->attachBeltAverages($rows, $date);
         $this->attachBeltEvents($rows);
         $this->attachTelemetryTrails($rows);
         return $rows;
+    }
+
+    public function predictionSummary(?string $beforeDate = null): array
+    {
+        return (new PredictionEngine($this->pdo))->summary($beforeDate);
     }
 
     /** @param array<int,array<string,mixed>> $rows */

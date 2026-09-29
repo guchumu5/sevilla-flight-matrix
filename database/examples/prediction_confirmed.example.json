@@ -1,0 +1,21 @@
+{
+  "context": {
+    "provider": "aena",
+    "mode": "delta",
+    "observed_at": "2026-09-25 07:30:00"
+  },
+  "flights": [
+    {
+      "source_key": "2026-09-25|VLG3049|LPA|SVQ",
+      "flight_date": "2026-09-25",
+      "physical_flight": "VLG3049",
+      "origin_iata": "LPA",
+      "origin_name": "Gran Canaria",
+      "scheduled_arrival": "2026-09-25 10:00:00",
+      "status": "En vuelo",
+      "hall": "A",
+      "belt": "1",
+      "is_canary": true
+    }
+  ]
+}

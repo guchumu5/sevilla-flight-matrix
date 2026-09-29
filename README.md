@@ -388,6 +388,14 @@ consumo mensual se presenta como recuento o estimación local y nunca como cuota
 oficial cuando el proveedor no comunica el saldo. Los errores `429`, límites y
 cuotas quedan destacados para separar una fuente vacía de una fuente bloqueada.
 
+La versión 1.14.0 activa el **cerebro predictivo medible**. Cuando una operación
+todavía no tiene cinta oficial, conserva una única predicción previa basada en
+el histórico del mismo vuelo, el origen y, si existe, la propuesta secundaria.
+La predicción nunca sustituye a Aena: queda rotulada como modelo histórico y se
+contrasta después con la cinta oficial. El tablero muestra su confianza, el
+resultado de cada caso y el porcentaje acumulado de acierto general y de
+Canarias. De este modo se mide el modelo sin reescribir predicciones a posteriori.
+
 ## Seguridad
 
 - El directorio público del dominio debe ser `public/`, nunca la raíz del proyecto.

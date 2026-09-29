@@ -78,6 +78,15 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
     <div class="col-6 col-xl-3"><article class="metric-card metric-blue"><span>Afluencia máxima</span><strong id="metricHall">—</strong><small>plazas teóricas ±30 min</small></article></div>
   </section>
 
+  <section class="prediction-summary panel mb-3 d-none" id="predictionSummary" aria-live="polite">
+    <div><span class="prediction-orb">◎</span><div><strong>Cerebro predictivo</strong><small>Predicción guardada antes de la cinta oficial; Aena prevalece siempre.</small></div></div>
+    <div class="prediction-summary-values">
+      <span><small>Acierto general</small><strong id="predictionAccuracy">—</strong></span>
+      <span><small>Canarias</small><strong id="predictionCanaryAccuracy">—</strong></span>
+      <span><small>Evaluadas</small><strong id="predictionEvaluated">0</strong></span>
+    </div>
+  </section>
+
   <section class="panel canary-watch-panel mb-3" aria-labelledby="canaryWatchTitle">
     <header class="panel-header d-flex align-items-center justify-content-between gap-2">
       <div>

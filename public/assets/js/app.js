@@ -35,6 +35,8 @@
     arrivalsToggleLabel: document.querySelector('#arrivalsToggleLabel'), arrivalsCollapse: document.querySelector('#arrivalsCollapse'),
     metricFlights: document.querySelector('#metricFlights'), metricOrange: document.querySelector('#metricOrange'),
     metricRed: document.querySelector('#metricRed'), metricHall: document.querySelector('#metricHall'),
+    predictionSummary: document.querySelector('#predictionSummary'), predictionAccuracy: document.querySelector('#predictionAccuracy'),
+    predictionCanaryAccuracy: document.querySelector('#predictionCanaryAccuracy'), predictionEvaluated: document.querySelector('#predictionEvaluated'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
   };
 
@@ -138,6 +140,16 @@
     μ vuelo ${leadText(flight.belt_lead_flight_average_minutes)} · n=${Number(flight.belt_lead_flight_samples || 0)}<br>
     μ origen ${leadText(flight.belt_lead_origin_average_minutes)} · n=${Number(flight.belt_lead_origin_samples || 0)}
   </span>`;
+  const predictionMarkup = flight => {
+    if (!flight.predicted_belt) return '';
+    const evaluated = flight.prediction_correct === null || flight.prediction_correct === undefined
+      ? 'pendiente de Aena'
+      : Number(flight.prediction_correct) === 1 ? 'acertó' : `no coincidió con ${beltPosition(flight)}`;
+    const danger = ['7','8'].includes(String(flight.predicted_belt));
+    return `<span class="prediction-belt ${danger?'prediction-red':''}" title="Modelo histórico · ${esc(evaluated)}">
+      ◎ predicción ${esc(flight.predicted_hall || '?')}/${esc(flight.predicted_belt)} · ${Number(flight.prediction_score || 0)}% · ${esc(flight.prediction_confidence || 'baja')}
+    </span>`;
+  };
   const canarySnapshotKey = flight => `${flight.flight_date || els.date.value}|${flight.physical_flight}|${flight.origin_iata}`;
   const alertValue = value => value === null || value === undefined || value === '' ? 'pendiente' : String(value);
 
@@ -149,7 +161,8 @@
       baggage_state:flight.baggage_state, gate:flight.gate, stand:flight.stand,
       aircraft_registration:flight.aircraft_registration, aircraft_type:flight.aircraft_type,
       secondary_position:flight.secondary_belt ? `${flight.secondary_hall || '?'}/${flight.secondary_belt}` : null,
-      secondary_belt_state:flight.secondary_belt_state
+      secondary_belt_state:flight.secondary_belt_state,
+      predicted_position:flight.predicted_belt ? `${flight.predicted_hall || '?'}/${flight.predicted_belt}` : null
     };
   }
 
@@ -265,6 +278,7 @@
         ['baggage_state','Equipaje'], ['gate','Puerta'], ['stand','Posición'],
         ['aircraft_registration','Matrícula'], ['aircraft_type','Aeronave'],
         ['secondary_position','Propuesta secundaria'], ['secondary_belt_state','Estado de propuesta']
+        ,['predicted_position','Predicción histórica']
       ];
       fields.forEach(([field,label]) => {
         if (alertValue(before[field]) !== alertValue(snapshot[field])) {
@@ -300,6 +314,7 @@
       const incoming = payload.flights || [];
       processCanaryAlerts(incoming, els.date.value);
       state.flights = incoming;
+      renderPredictionSummary(payload.prediction_summary || null);
       els.updated.textContent = `Actualizado ${time(payload.generated_at)} · ${payload.authority_note}`;
       els.connection.className = 'badge text-bg-success';
       els.connection.textContent = 'En directo';
@@ -315,6 +330,16 @@
       els.refresh.disabled = false;
       setLoading(false);
     }
+  }
+
+  function renderPredictionSummary(summary) {
+    if (!els.predictionSummary) return;
+    const evaluated = Number(summary?.evaluated || 0);
+    const canaryEvaluated = Number(summary?.canary_evaluated || 0);
+    els.predictionSummary.classList.toggle('d-none', evaluated === 0 && !state.flights.some(f => f.predicted_belt));
+    els.predictionAccuracy.textContent = evaluated ? `${Number(summary.accuracy_percentage || 0).toLocaleString('es-ES')}%` : 'Sin muestra';
+    els.predictionCanaryAccuracy.textContent = canaryEvaluated ? `${Number(summary.canary_accuracy_percentage || 0).toLocaleString('es-ES')}%` : 'Sin muestra';
+    els.predictionEvaluated.textContent = evaluated.toLocaleString('es-ES');
   }
 
   function filtered() {
@@ -351,7 +376,7 @@
     return `<tr class="flight-row ${Number(f.is_canary)===1?'canary':''} ${currentIds.has(Number(f.id))?'current-flight':''} ${pastIds.has(Number(f.id))?'past-flight':''}" data-flight-id="${Number(f.id)}" data-effective-minute="${minuteOfDay(effectiveArrival(f)) ?? ''}" tabindex="0">
       <td><span class="indicator" title="${esc(pressureText(f.pressure))}">${esc(f.indicator)}</span></td>
       <td><span class="time-primary">${time(f.scheduled_arrival)}</span></td>
-      <td><span class="belt ${beltClass}">${esc(f.belt_label)}</span>${secondaryBeltMarkup(f)}${beltAverageMarkup(f)}</td>
+      <td><span class="belt ${beltClass}">${esc(f.belt_label)}</span>${secondaryBeltMarkup(f)}${predictionMarkup(f)}${beltAverageMarkup(f)}</td>
       <td><span class="origin-name">${esc(f.origin_name)}</span><span class="origin-code d-block">${esc(f.origin_iata)} · ${esc(f.traffic_class)}</span></td>
       <td><strong>${esc(f.physical_flight)}</strong><span class="meta d-block">${esc(f.codes || '')}</span></td>
       <td><strong>${time(effectiveArrival(f))}</strong><span class="meta d-block">${signed(f.deviation_minutes)}</span></td>
@@ -975,6 +1000,10 @@
         <div class="detail-stat"><small>Media del mismo vuelo</small><strong>${leadText(flight.belt_lead_flight_average_minutes)}</strong><span class="meta">${Number(flight.belt_lead_flight_samples || 0)} observaciones oficiales</span></div>
         <div class="detail-stat"><small>Media del origen ${esc(flight.origin_iata || '')}</small><strong>${leadText(flight.belt_lead_origin_average_minutes)}</strong><span class="meta">${Number(flight.belt_lead_origin_samples || 0)} observaciones oficiales</span></div>
       </div>
+      ${flight.predicted_belt ? `<aside class="prediction-detail ${['7','8'].includes(String(flight.predicted_belt))?'prediction-detail-red':''}">
+        <div><strong>Predicción previa ${esc(flight.predicted_hall || '?')}/${esc(flight.predicted_belt)}</strong><span>${Number(flight.prediction_score || 0)}% · confianza ${esc(flight.prediction_confidence || 'baja')}</span></div>
+        <p>${flight.prediction_correct === null || flight.prediction_correct === undefined ? 'Pendiente de contrastar con Aena.' : Number(flight.prediction_correct)===1 ? '✓ Coincidió con la cinta oficial.' : `No coincidió; Aena publicó ${beltPosition(flight)}.`}</p>
+      </aside>` : ''}
       ${beltDistributionMarkup(flight.belt_distribution_flight, `Mismo vuelo ${flight.physical_flight}`, flight.belt)}
       ${Number(flight.is_canary)===1 ? beltDistributionMarkup(flight.belt_distribution_origin, `Origen canario ${flight.origin_name}`, flight.belt) : ''}
       <div class="belt-event-list">${eventMarkup}</div>

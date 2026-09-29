@@ -10,13 +10,14 @@ try {
     $date = $_GET['date'] ?? date('Y-m-d');
     $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $date);
     if (!$parsed || $parsed->format('Y-m-d') !== $date) Response::json(['error' => 'Fecha no válida.'], 422);
-    $flights = (new FlightRepository(Database::connection()))->board($date);
+    $repository = new FlightRepository(Database::connection());
+    $flights = $repository->board($date);
     Response::json([
         'generated_at' => date('Y-m-d H:i:s'),
         'authority_note' => 'Aena prevalece para estado, sala y cinta',
+        'prediction_summary' => $repository->predictionSummary($date),
         'flights' => $flights,
     ]);
 } catch (Throwable $error) {
     Response::json(['error' => $error->getMessage()], 500);
 }
-
