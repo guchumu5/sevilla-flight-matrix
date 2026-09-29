@@ -187,17 +187,6 @@
     updateCanaryAlertCounter();
   }
 
-  function notifyCanaryAlert(alert) {
-    if (!window.isSecureContext || !('Notification' in window) || Notification.permission !== 'granted') return null;
-    try {
-      const notification = new Notification(`${alert.flight.origin_name} · ${alert.flight.physical_flight}`, {
-        body:alert.changes.join('\n'), tag:`canary-${alert.key}`, renotify:true
-      });
-      notification.onclick = () => { window.focus(); openDetail(alert.flight.id); notification.close(); };
-      return notification;
-    } catch (_) { return null; }
-  }
-
   function renderActiveCanaryChanges() {
     const container = state.activeCanaryAlert?.toast?.querySelector('[data-alert-changes]');
     if (container) container.innerHTML = state.activeCanaryAlert.changes.map(change => `<span>${esc(change)}</span>`).join('');
@@ -230,7 +219,6 @@
     toast.addEventListener('hidden.bs.toast', () => {
       clearTimeout(state.canaryAlertTimer);
       state.canaryAlertTimer = null;
-      state.activeCanaryAlert?.notification?.close();
       toast.remove();
       state.activeCanaryAlert = null;
       showNextCanaryAlert();
@@ -238,7 +226,6 @@
     instance.show();
     const duration = state.canaryAlertQueue.length ? CANARY_ALERT_QUEUED_MS : CANARY_ALERT_DEFAULT_MS;
     scheduleCanaryAlertHide(duration);
-    state.activeCanaryAlert.notification = notifyCanaryAlert(alert);
   }
 
   function showCanaryAlert(flight, changes, isNew = false) {
