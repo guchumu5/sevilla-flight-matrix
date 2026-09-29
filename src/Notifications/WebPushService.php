@@ -110,6 +110,12 @@ final class WebPushService
         // interrumpen al usuario con notificaciones.
         $watched = "'departure_recorded','belt_assigned','belt_changed','arrival_recorded','baggage_started'";
         $this->pdo->exec(
+            "UPDATE push_outbox o
+             JOIN flight_events e ON e.id=o.flight_event_id
+             SET o.attempts=4,o.last_error='Descartado por la política de cinco hitos'
+             WHERE o.pushed_at IS NULL AND o.attempts<4 AND e.event_type NOT IN ({$watched})"
+        );
+        $this->pdo->exec(
             "INSERT IGNORE INTO push_outbox (subscription_id,flight_event_id,title,body,target_url)
              SELECT s.id,e.id,
                     CONCAT(IF(f.is_canary=1,'Canarias · ',''),f.origin_name,' · ',f.physical_flight),
