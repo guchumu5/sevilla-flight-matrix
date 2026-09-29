@@ -32,10 +32,18 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
   <div id="operationAlert" class="alert d-none" role="alert"></div>
 
   <section class="row g-3 mb-4">
-    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>Aena</span><strong id="aenaState">—</strong><small>estado, sala y cinta oficiales</small></article></div>
+    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>Aena</span><strong id="aenaState">—</strong><small id="aenaDetail">estado, sala y cinta oficiales</small></article></div>
     <div class="col-md-6 col-xl-3"><article class="metric-card"><span>AirLabs</span><strong id="airlabsState">—</strong><small id="airlabsDetail">consulta agrupada de llegadas</small></article></div>
-    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>OpenSky</span><strong id="openskyState">—</strong><small>posición ADS-B con ICAO24 conocido</small></article></div>
-    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>Meteorología</span><strong id="weatherState">—</strong><small>METAR LEZL sin clave API</small></article></div>
+    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>OpenSky</span><strong id="openskyState">—</strong><small id="openskyDetail">posición ADS-B con ICAO24 conocido</small></article></div>
+    <div class="col-md-6 col-xl-3"><article class="metric-card"><span>Meteorología</span><strong id="weatherState">—</strong><small id="weatherDetail">METAR LEZL sin clave API</small></article></div>
+  </section>
+
+  <section class="panel p-3 p-md-4 mb-4" aria-labelledby="providerHealthTitle">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+      <div><h2 class="h5 mb-1" id="providerHealthTitle">Salud, frecuencia y consumo</h2><p class="text-secondary mb-0">Distingue una fuente sana, retrasada, sin datos o detenida por error. Las consultas son recuentos locales; nunca se presentan como cuota oficial si el proveedor no comunica el saldo.</p></div>
+      <span class="badge text-bg-secondary" id="healthUpdatedAt">Calculando…</span>
+    </div>
+    <div class="row g-3" id="providerHealthGrid"><div class="col-12 text-secondary">Cargando salud de las fuentes…</div></div>
   </section>
 
   <section class="panel p-3 p-md-4 mb-4">
@@ -83,7 +91,37 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
   const csrf = document.querySelector('main').dataset.csrf;
   const alertBox = document.querySelector('#operationAlert');
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  const healthLabels = {healthy:'AL DÍA',stale:'RETRASADO',error:'ERROR',unknown:'SIN DATOS',not_configured:'SIN CONFIGURAR'};
+  const healthClasses = {healthy:'success',stale:'warning',error:'danger',unknown:'secondary',not_configured:'secondary'};
   const state = value => value ? '<span class="text-success">LISTO</span>' : '<span class="text-danger">PENDIENTE</span>';
+  const formatAge = minutes => minutes === null || minutes === undefined ? 'sin lecturas' : minutes < 1 ? 'ahora' : minutes < 60 ? `hace ${minutes} min` : `hace ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+  const compactError = value => String(value || '').length > 180 ? String(value).slice(0, 177) + '…' : String(value || '');
+
+  function renderProviderHealth(items, serverTime) {
+    const byProvider = Object.fromEntries(items.map(item => [item.provider, item]));
+    const bindings = {aena:['#aenaState','#aenaDetail'],airlabs:['#airlabsState','#airlabsDetail'],opensky:['#openskyState','#openskyDetail'],aviationweather:['#weatherState','#weatherDetail']};
+    Object.entries(bindings).forEach(([provider, selectors]) => {
+      const item = byProvider[provider]; if (!item) return;
+      const color = healthClasses[item.status] || 'secondary';
+      document.querySelector(selectors[0]).innerHTML = `<span class="text-${color}">${healthLabels[item.status] || item.status}</span>`;
+      document.querySelector(selectors[1]).textContent = `${formatAge(item.age_minutes)} · ${item.last_records} registros`;
+    });
+
+    document.querySelector('#providerHealthGrid').innerHTML = items.map(item => {
+      const color = healthClasses[item.status] || 'secondary';
+      const modes = item.provider === 'aena' ? `<div class="provider-health-modes">
+        <span>Directo: <b>${item.modes?.live?.at ? esc(item.modes.live.at) : 'sin captura'}</b></span>
+        <span>Semanal: <b>${item.modes?.week?.at ? esc(item.modes.week.at) : 'sin captura'}</b></span>
+      </div>` : '';
+      return `<div class="col-md-6 col-xl-3"><article class="provider-health-card provider-health-${esc(item.status)} h-100">
+        <header><div><small>${esc(item.label)}</small><strong>${esc(healthLabels[item.status] || item.status)}</strong></div><span class="badge text-bg-${color}">${item.rate_limited ? 'CUOTA' : esc(formatAge(item.age_minutes))}</span></header>
+        <dl><div><dt>Último intento</dt><dd>${esc(item.last_attempt_at || 'Todavía no')}</dd></div><div><dt>Último éxito</dt><dd>${esc(item.last_success_at || 'Todavía no')}</dd></div><div><dt>Próximo esperado</dt><dd>${esc(item.next_expected_at || 'Sin referencia')}</dd></div><div><dt>Hoy</dt><dd>${Number(item.attempts_today || 0).toLocaleString('es-ES')} intentos</dd></div></dl>
+        ${modes}<p class="provider-quota-note">${esc(item.quota_note)}</p>
+        ${item.last_error ? `<p class="provider-error"><b>Último error:</b> ${esc(compactError(item.last_error))}</p>` : ''}
+      </article></div>`;
+    }).join('');
+    document.querySelector('#healthUpdatedAt').textContent = `Servidor ${serverTime || 'sin hora'}`;
+  }
 
   function showAlert(message, ok = true, details = null) {
     alertBox.className = `alert ${ok ? 'alert-success' : 'alert-danger'}`;
@@ -104,6 +142,7 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
         : 'sin claves configuradas';
       document.querySelector('#openskyState').innerHTML = state(data.providers.opensky);
       document.querySelector('#weatherState').innerHTML = state(data.providers.aviationweather);
+      renderProviderHealth(data.provider_health || [], data.server_time);
       const items = [
         ['PHP ' + data.php_version, true],
         ['Extensión PDO MySQL', data.extensions.pdo_mysql],

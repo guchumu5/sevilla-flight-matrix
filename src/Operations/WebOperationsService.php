@@ -46,6 +46,8 @@ final class WebOperationsService
             )->fetchAll();
         }
 
+        $providerHealth = $this->providerHealth($existing);
+
         return [
             'ok' => true,
             'server_time' => date('Y-m-d H:i:s'),
@@ -72,8 +74,162 @@ final class WebOperationsService
             ),
             'latest_runs' => $latestRuns,
             'latest_fetch_runs' => $latestFetchRuns,
+            'provider_health' => $providerHealth,
             'limits' => ['airlabs_max' => 50, 'opensky_max' => 25],
         ];
+    }
+
+    /** @param array<string,bool> $existing @return list<array<string,mixed>> */
+    private function providerHealth(array $existing): array
+    {
+        $definitions = [
+            'aena' => [
+                'label' => 'Aena oficial',
+                'configured' => strlen(trim((string)Env::get('AENA_INGEST_TOKEN', ''))) >= 24,
+                'cadence_minutes' => 15,
+                'stale_minutes' => 45,
+                'request_factor' => 1,
+            ],
+            'airlabs' => [
+                'label' => 'AirLabs',
+                'configured' => $this->airLabsKeys() !== [],
+                'cadence_minutes' => 5,
+                'stale_minutes' => 20,
+                'request_factor' => 2,
+            ],
+            'opensky' => [
+                'label' => 'OpenSky ADS-B',
+                'configured' => $this->configured('OPENSKY_CLIENT_ID') && $this->configured('OPENSKY_CLIENT_SECRET'),
+                'cadence_minutes' => 5,
+                'stale_minutes' => 20,
+                'request_factor' => 1,
+            ],
+            'aviationweather' => [
+                'label' => 'Meteorología LEZL',
+                'configured' => true,
+                'cadence_minutes' => 30,
+                'stale_minutes' => 90,
+                'request_factor' => 1,
+            ],
+        ];
+
+        $stats = [];
+        if (isset($existing['fetch_runs'])) {
+            $rows = $this->pdo->query(
+                "SELECT provider,
+                        COUNT(*) AS attempts_total,
+                        SUM(started_at >= CURRENT_DATE()) AS attempts_today,
+                        SUM(started_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')) AS attempts_month,
+                        MAX(CASE WHEN ok=1 THEN finished_at END) AS last_success_at,
+                        MAX(CASE WHEN ok=0 THEN finished_at END) AS last_failure_at
+                 FROM fetch_runs GROUP BY provider"
+            )->fetchAll();
+            foreach ($rows as $row) $stats[(string)$row['provider']] = $row;
+
+            $latestRows = $this->pdo->query(
+                'SELECT f.provider,f.started_at,f.finished_at,f.ok,f.records_count,f.error_message
+                 FROM fetch_runs f
+                 INNER JOIN (SELECT provider,MAX(id) AS id FROM fetch_runs GROUP BY provider) latest ON latest.id=f.id'
+            )->fetchAll();
+            foreach ($latestRows as $row) {
+                $provider = (string)$row['provider'];
+                $stats[$provider] = array_merge($stats[$provider] ?? [], [
+                    'last_attempt_at' => $row['finished_at'] ?: $row['started_at'],
+                    'last_ok' => (int)$row['ok'],
+                    'last_records' => (int)$row['records_count'],
+                    'last_error' => $row['error_message'],
+                ]);
+            }
+        }
+
+        $aenaModes = ['live' => null, 'week' => null];
+        if (isset($existing['sync_runs'])) {
+            $rows = $this->pdo->query(
+                "SELECT started_at,finished_at,status,records_received,error_message,metadata
+                 FROM sync_runs WHERE provider='aena' ORDER BY id DESC LIMIT 200"
+            )->fetchAll();
+            foreach ($rows as $row) {
+                $metadata = json_decode((string)($row['metadata'] ?? ''), true);
+                $collector = strtolower((string)($metadata['collector'] ?? ''));
+                $mode = str_contains($collector, 'week') ? 'week' : 'live';
+                if ($aenaModes[$mode] !== null) continue;
+                $aenaModes[$mode] = [
+                    'at' => $row['finished_at'] ?: $row['started_at'],
+                    'status' => $row['status'],
+                    'records' => (int)$row['records_received'],
+                    'error' => $row['error_message'],
+                ];
+                if ($aenaModes['live'] !== null && $aenaModes['week'] !== null) break;
+            }
+        }
+
+        $now = time();
+        $result = [];
+        foreach ($definitions as $provider => $definition) {
+            $row = $stats[$provider] ?? [];
+            $lastAttemptAt = $row['last_attempt_at'] ?? null;
+            $lastTimestamp = $lastAttemptAt ? strtotime((string)$lastAttemptAt) : false;
+            $ageMinutes = $lastTimestamp ? max(0, (int)floor(($now - $lastTimestamp) / 60)) : null;
+            $latestOk = isset($row['last_ok']) ? (int)$row['last_ok'] === 1 : null;
+            $lastError = trim((string)($row['last_error'] ?? ''));
+            $rateLimited = preg_match('/(?:429|limit|quota|cuota)/i', $lastError) === 1;
+            $status = 'unknown';
+            if (!$definition['configured']) {
+                $status = 'not_configured';
+            } elseif ($rateLimited) {
+                $status = 'error';
+            } elseif ($latestOk === false) {
+                $status = 'error';
+            } elseif ($ageMinutes === null) {
+                $status = 'unknown';
+            } elseif ($ageMinutes > $definition['stale_minutes']) {
+                $status = 'stale';
+            } else {
+                $status = 'healthy';
+            }
+
+            $attemptsMonth = (int)($row['attempts_month'] ?? 0);
+            $requestEstimate = $attemptsMonth * (int)$definition['request_factor'];
+            $quotaNote = match ($provider) {
+                'airlabs' => sprintf(
+                    '≈%d consultas este mes; %d claves; ≈%d por clave. AirLabs no publica aquí el saldo exacto.',
+                    $requestEstimate,
+                    count($this->airLabsKeys()),
+                    count($this->airLabsKeys()) > 0 ? (int)ceil($requestEstimate / count($this->airLabsKeys())) : 0
+                ),
+                'opensky' => sprintf('%d intentos locales este mes. El saldo exacto solo llega en la respuesta de OpenSky.', $attemptsMonth),
+                'aena' => sprintf('%d capturas recibidas este mes.', $attemptsMonth),
+                default => sprintf('%d consultas registradas este mes.', $attemptsMonth),
+            };
+
+            $nextExpectedAt = $lastTimestamp
+                ? date('Y-m-d H:i:s', $lastTimestamp + ((int)$definition['cadence_minutes'] * 60))
+                : null;
+
+            $item = [
+                'provider' => $provider,
+                'label' => $definition['label'],
+                'configured' => (bool)$definition['configured'],
+                'status' => $status,
+                'last_attempt_at' => $lastAttemptAt,
+                'last_success_at' => $row['last_success_at'] ?? null,
+                'last_failure_at' => $row['last_failure_at'] ?? null,
+                'last_records' => (int)($row['last_records'] ?? 0),
+                'last_error' => $lastError !== '' ? $lastError : null,
+                'age_minutes' => $ageMinutes,
+                'cadence_minutes' => (int)$definition['cadence_minutes'],
+                'next_expected_at' => $nextExpectedAt,
+                'attempts_today' => (int)($row['attempts_today'] ?? 0),
+                'attempts_month' => $attemptsMonth,
+                'estimated_upstream_requests_month' => $requestEstimate,
+                'rate_limited' => $rateLimited,
+                'quota_note' => $quotaNote,
+            ];
+            if ($provider === 'aena') $item['modes'] = $aenaModes;
+            $result[] = $item;
+        }
+
+        return $result;
     }
 
     /** @return array<string,mixed> */

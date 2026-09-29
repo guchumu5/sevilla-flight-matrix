@@ -240,7 +240,7 @@ puestos; por eso nunca convierte una posición pendiente en finger o remoto.
 La versión 1.8 amplía esa escena y representa las ocho cintas de la planta 0 en
 el orden operativo indicado para el proyecto: **8–1 de izquierda a derecha**,
 equivalente a **1–8 de derecha a izquierda**. Encima aparece una línea con las
-diez próximas llegadas, siempre con vuelo, procedencia, hora efectiva y cinta
+cinco próximas llegadas, siempre con vuelo, procedencia, hora efectiva y cinta
 oficial o `pendiente Aena`. El radar ADS-B queda plegado por defecto y se abre
 solo cuando el usuario lo necesita.
 
@@ -268,7 +268,7 @@ es caliente confirmado y desde el 70 % es caliente fuerte.
 
 La versión 1.11 rehace la infografía de movimiento en cuatro niveles: cielo,
 pista 09/27, plataforma con las seis pasarelas telescópicas documentadas por
-Aena y las ocho cintas. Los vuelos en el cielo se limitan a los diez más
+Aena y las ocho cintas. Los vuelos en el cielo se limitan a los cinco más
 próximos y se ordenan por distancia ADS-B; cuando no existe telemetría reciente
 se muestran como previstos y no se inventa su lado de entrada. Las coordenadas,
 rumbo, altura y distancia sitúan el marcador y determinan si la aproximación se
@@ -319,8 +319,8 @@ px y reserva 830 px para las ocho cintas en dos columnas.
 
 La corrección 1.11.6 ensancha la terminal hasta prácticamente la longitud de la
 pista y distribuye las seis pasarelas de extremo a extremo. Los carteles usan
-ahora una anchura fluida limitada, los diez vuelos previstos se reparten en una
-cuadrícula de cinco columnas y dos filas, las aproximaciones se apilan en
+ahora una anchura fluida limitada, los cinco vuelos previstos se reparten con
+espacio suficiente, las aproximaciones se apilan en
 vertical por cada cabecera y las maletas de cintas contiguas alternan su altura.
 Esto evita que las fichas se pisen tanto en escritorio como en móvil apaisado.
 
@@ -379,6 +379,14 @@ contiene todos los vuelos que devuelve el tablero y atenúa en gris los que ya
 han quedado atrás, manteniendo resaltados los movimientos todavía activos. Las
 antelaciones de cinta conservan el valor exacto en minutos y, desde 60 minutos,
 añaden su equivalencia en horas (`840 min · 14 h`).
+
+La versión 1.13.0 incorpora en **Procesos web** un panel de salud real para
+Aena, AirLabs, OpenSky y AviationWeather. Cada fuente queda clasificada como al
+día, retrasada, con error, sin datos o sin configurar; muestra último intento,
+último éxito, próxima ejecución esperada, registros e intentos del día. El
+consumo mensual se presenta como recuento o estimación local y nunca como cuota
+oficial cuando el proveedor no comunica el saldo. Los errores `429`, límites y
+cuotas quedan destacados para separar una fuente vacía de una fuente bloqueada.
 
 ## Seguridad
 
