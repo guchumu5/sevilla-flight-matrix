@@ -104,29 +104,36 @@ final class WebPushService
     /** @return array<string,int> */
     public function dispatch(int $limit = 50): array
     {
-        $material = "'belt_assigned','belt_changed','belt_removed','hall_changed','eta_changed','status_changed','gate_changed','baggage_changed','flight_cancelled','flight_withdrawn','flight_reappeared'";
+        // La vigilancia móvil es deliberadamente breve: un aviso por cada hito
+        // que el pasajero necesita conocer. Los cambios de ETA, sala, puerta,
+        // telemetría y estados intermedios siguen en el histórico, pero no
+        // interrumpen al usuario con notificaciones.
+        $watched = "'departure_recorded','belt_assigned','belt_changed','arrival_recorded','baggage_started'";
         $this->pdo->exec(
             "INSERT IGNORE INTO push_outbox (subscription_id,flight_event_id,title,body,target_url)
              SELECT s.id,e.id,
                     CONCAT(IF(f.is_canary=1,'Canarias · ',''),f.origin_name,' · ',f.physical_flight),
-                    LEFT(CONCAT(
-                      CASE e.event_type
-                        WHEN 'belt_assigned' THEN 'Cinta asignada'
-                        WHEN 'belt_changed' THEN 'Cambio de cinta'
-                        WHEN 'belt_removed' THEN 'Cinta retirada'
-                        WHEN 'eta_changed' THEN 'Nueva ETA'
-                        WHEN 'baggage_changed' THEN 'Equipaje actualizado'
-                        ELSE 'Actualización operativa'
-                      END,
-                      IF(e.before_value IS NULL OR e.before_value='', '', CONCAT(': ',e.before_value,' → ')),
-                      COALESCE(NULLIF(e.after_value,''),e.reason_detail)
-                    ),500),
+                    LEFT(CASE e.event_type
+                      WHEN 'departure_recorded' THEN CONCAT('✈️ Despega',IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
+                      WHEN 'belt_assigned' THEN CONCAT('🧳 Asignación de cinta · ',COALESCE(NULLIF(e.after_value,''),'pendiente de número'))
+                      WHEN 'belt_changed' THEN CONCAT('⚠️ Cambio de cinta · ',COALESCE(NULLIF(e.before_value,''),'—'),' → ',COALESCE(NULLIF(e.after_value,''),'—'))
+                      WHEN 'arrival_recorded' THEN CONCAT('🛬 Aterriza',IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
+                      WHEN 'baggage_started' THEN CONCAT(
+                        '🧳 En la cinta',
+                        COALESCE((SELECT CONCAT(' · ',IF(NULLIF(o.hall,'') IS NULL,'',CONCAT(o.hall,'/')),o.belt)
+                                  FROM observations o
+                                  WHERE o.flight_id=f.id AND NULLIF(o.belt,'') IS NOT NULL
+                                  ORDER BY (o.source='aena') DESC,o.observed_at DESC,o.id DESC LIMIT 1),'')
+                      )
+                    END,500),
                     CONCAT('index.php?date=',DATE_FORMAT(f.flight_date,'%Y-%m-%d'),'&flight=',f.id)
              FROM push_subscriptions s
-             JOIN flight_events e ON e.detected_at>=s.created_at AND e.event_type IN ({$material})
+             JOIN flight_events e ON e.detected_at>=s.created_at AND e.event_type IN ({$watched})
              JOIN flights f ON f.id=e.flight_id
              LEFT JOIN flight_watches w ON w.subscription_id=s.id AND w.flight_id=f.id AND w.enabled=1
-             WHERE s.active=1 AND (w.id IS NOT NULL OR (s.watch_canary_all=1 AND f.is_canary=1))"
+             WHERE s.active=1
+               AND (w.id IS NOT NULL OR (s.watch_canary_all=1 AND f.is_canary=1))
+               AND (e.event_type IN ('departure_recorded','arrival_recorded') OR e.source='aena')"
         );
 
         $stmt = $this->pdo->prepare(
