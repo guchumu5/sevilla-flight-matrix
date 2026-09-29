@@ -52,10 +52,17 @@ jobs:
         run: |
           node --check scripts/aena-collector.mjs
           node --check public/assets/js/app.js
+          node --check public/sw.js
           npm run test:aena-status
 
       - name: Crear esquema MySQL
         run: mysql -h127.0.0.1 -uroot -proot sevilla_matrix < database/schema.sql
+
+      - name: Comprobar copias y claves push
+        run: |
+          php bin/backup.php
+          test "$(find storage/backups -name 'matrix-auto-*.jsonl.gz' | wc -l)" -ge 1
+          php -r 'require "src/bootstrap.php"; $key=(new SevillaMatrix\Notifications\WebPushService(SevillaMatrix\Database::connection()))->publicKey(); if (strlen($key)<80) exit(1);'
 
       - name: Ejecutar dos capturas y una repeticion
         run: |

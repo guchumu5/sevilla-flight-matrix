@@ -9,7 +9,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (Auth::attempt((string)($_POST['password'] ?? ''))) {
         header('Location: admin.php'); exit;
     }
-    $error = 'Contraseña incorrecta o no configurada.';
+    $retry = Auth::retryAfter();
+    $error = $retry > 0
+        ? 'Demasiados intentos. Espera ' . (int)ceil($retry / 60) . ' minuto(s) antes de volver a probar.'
+        : 'Contraseña incorrecta o no configurada.';
 }
 ?>
 <!doctype html><html lang="es" data-bs-theme="dark"><head>
@@ -26,4 +29,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <input class="form-control mb-3" id="password" name="password" type="password" required autofocus>
     <button class="btn btn-success w-100">Entrar</button></form>
 </main></body></html>
-

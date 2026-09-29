@@ -166,6 +166,12 @@ METAR, que son evidencias complementarias y no sustituyen la autoridad de Aena.
 Los scripts de `bin/` se conservan para automatizar desde el panel web de Plesk
 o cPanel. No deben hacerse accesibles como direcciones web.
 
+Como respaldo de Plesk, el workflow **Proveedores de respaldo** llama a un
+endpoint protegido con el mismo secreto de ingestión. Antes de consultar,
+comprueba la última ejecución local: evita duplicar una tarea de Plesk que sí
+esté funcionando. OpenSky respeta su pausa de cuota y una respuesta 429 deja el
+proceso en estado **EN PAUSA**, no como una avería ni como un job fallido.
+
 `bin/sync-json.php` es exclusivamente de consola. Para importar el mismo
 contrato JSON sin terminal, entra en **Administración → Procesos web → Importar
 captura JSON**. El endpoint web exige sesión administrativa y CSRF, limita el
@@ -175,6 +181,29 @@ Desde **Administración → Cerebro de eventos** puede activarse **Avisos web**.
 El navegador consulta cada 30 segundos y notifica únicamente eventos materiales
 nuevos (cinta, sala, ETA, cancelación, puerta, posición y equipaje) mientras la
 página permanezca abierta o en segundo plano. No repite eventos ya vistos.
+
+La actualización `20260929_005_push_watch` añade avisos Web Push reales. Tras
+aplicarla desde **Actualizar MySQL**, el botón **Activar avisos** registra el
+móvil y mantiene activados por defecto todos los cambios materiales de vuelos
+canarios. En la ficha de cualquier vuelo se puede pulsar **Vigilar este vuelo**.
+Para despachar la cola aunque la web esté cerrada, añade en Plesk:
+
+```cron
+* * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/dispatch-push.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/push.log 2>&1
+```
+
+Las claves VAPID se generan automáticamente en `storage/keys/vapid.json` y la
+clave privada nunca se entrega al navegador ni debe subirse al repositorio.
+
+### Copias automáticas
+
+**Administración → Copias** crea, verifica y descarga copias comprimidas de
+todas las tablas. Cada fichero lleva suma SHA-256; la retención automática
+conserva 7 puntos diarios, 5 semanales y 12 mensuales. Programa en Plesk:
+
+```cron
+15 3 * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/backup.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/backup.log 2>&1
+```
 
 En Plesk, crea tareas de tipo **Ejecutar un comando**. Para la instalación de
 `ojito.top` con PHP 8.3, usa exactamente:
@@ -396,6 +425,19 @@ contrasta después con la cinta oficial. El tablero muestra su confianza, el
 resultado de cada caso y el porcentaje acumulado de acierto general y de
 Canarias. De este modo se mide el modelo sin reescribir predicciones a posteriori.
 
+La versión 1.15.0 añade recuperación operativa y protección de datos. La salud
+de Aena usa su última conciliación en directo y separa el estado semanal; las
+cadencias de Plesk son configurables y OpenSky entra en **EN PAUSA** mientras
+respeta el `Retry-After` de un 429. Un workflow de respaldo solo ejecuta una
+fuente si no existe una lectura reciente. La carga semanal repite un ciclo
+completo ante una indisponibilidad transitoria de Infovuelos.
+
+El administrador incorpora copias MySQL comprimidas, checksum, validación y
+retención 7/5/12. Web Push permite vigilar cualquier vuelo y activa por defecto
+las novedades materiales de Canarias aun con la aplicación cerrada. El acceso
+administrativo limita cinco intentos fallidos por quince minutos y conserva un
+registro técnico sin contraseñas ni direcciones IP en claro.
+
 ## Seguridad
 
 - El directorio público del dominio debe ser `public/`, nunca la raíz del proyecto.
@@ -403,6 +445,9 @@ Canarias. De este modo se mide el modelo sin reescribir predicciones a posterior
 - No introduzcas claves API en JavaScript.
 - Usa HTTPS en producción.
 - Cambia la contraseña de administración antes de publicar.
+- Si Plesk mantiene `httpdocs` como raíz y la aplicación se abre con `/public`,
+  conserva el `.htaccess` de la raíz: impide servir por HTTP `.env`, `storage`,
+  `bin`, `src`, `database`, los backups y las claves VAPID.
 
 ## Estados de la matriz
 

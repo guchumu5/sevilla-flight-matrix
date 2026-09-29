@@ -93,22 +93,22 @@ final class WebOperationsService
             'airlabs' => [
                 'label' => 'AirLabs',
                 'configured' => $this->airLabsKeys() !== [],
-                'cadence_minutes' => 5,
-                'stale_minutes' => 20,
+                'cadence_minutes' => $this->envMinutes('AIRLABS_CADENCE_MINUTES', 60),
+                'stale_minutes' => $this->envMinutes('AIRLABS_STALE_MINUTES', 150),
                 'request_factor' => 2,
             ],
             'opensky' => [
                 'label' => 'OpenSky ADS-B',
                 'configured' => $this->configured('OPENSKY_CLIENT_ID') && $this->configured('OPENSKY_CLIENT_SECRET'),
-                'cadence_minutes' => 5,
-                'stale_minutes' => 20,
+                'cadence_minutes' => $this->envMinutes('OPENSKY_CADENCE_MINUTES', 5),
+                'stale_minutes' => $this->envMinutes('OPENSKY_STALE_MINUTES', 20),
                 'request_factor' => 1,
             ],
             'aviationweather' => [
                 'label' => 'Meteorología LEZL',
                 'configured' => true,
-                'cadence_minutes' => 30,
-                'stale_minutes' => 90,
+                'cadence_minutes' => $this->envMinutes('WEATHER_CADENCE_MINUTES', 10),
+                'stale_minutes' => $this->envMinutes('WEATHER_STALE_MINUTES', 35),
                 'request_factor' => 1,
             ],
         ];
@@ -144,6 +144,14 @@ final class WebOperationsService
 
         $aenaModes = ['live' => null, 'week' => null];
         if (isset($existing['sync_runs'])) {
+            $aggregate = $this->pdo->query(
+                "SELECT COUNT(*) AS attempts_total,
+                        SUM(started_at >= CURRENT_DATE()) AS attempts_today,
+                        SUM(started_at >= DATE_FORMAT(CURRENT_DATE(), '%Y-%m-01')) AS attempts_month,
+                        MAX(CASE WHEN status IN ('success','partial') THEN finished_at END) AS last_success_at,
+                        MAX(CASE WHEN status='failed' THEN finished_at END) AS last_failure_at
+                 FROM sync_runs WHERE provider='aena'"
+            )->fetch() ?: [];
             $rows = $this->pdo->query(
                 "SELECT started_at,finished_at,status,records_received,error_message,metadata
                  FROM sync_runs WHERE provider='aena' ORDER BY id DESC LIMIT 200"
@@ -161,6 +169,21 @@ final class WebOperationsService
                 ];
                 if ($aenaModes['live'] !== null && $aenaModes['week'] !== null) break;
             }
+
+            // Aena se concilia en sync_runs, no en fetch_runs. Para la salud en
+            // directo prevalece la última captura live; un fallo semanal no debe
+            // declarar caída la fuente que sigue llegando cada 15 minutos.
+            if ($aenaModes['live'] !== null) {
+                $live = $aenaModes['live'];
+                $stats['aena'] = array_merge($aggregate, [
+                    'last_attempt_at' => $live['at'],
+                    'last_ok' => in_array($live['status'], ['success', 'partial'], true) ? 1 : 0,
+                    'last_records' => $live['records'],
+                    'last_error' => $live['error'],
+                ]);
+            } else {
+                $stats['aena'] = $aggregate;
+            }
         }
 
         $now = time();
@@ -172,12 +195,12 @@ final class WebOperationsService
             $ageMinutes = $lastTimestamp ? max(0, (int)floor(($now - $lastTimestamp) / 60)) : null;
             $latestOk = isset($row['last_ok']) ? (int)$row['last_ok'] === 1 : null;
             $lastError = trim((string)($row['last_error'] ?? ''));
-            $rateLimited = preg_match('/(?:429|limit|quota|cuota)/i', $lastError) === 1;
+            $rateLimited = preg_match('/(?:429|limit|quota|cuota|en pausa|reintentar)/i', $lastError) === 1;
             $status = 'unknown';
             if (!$definition['configured']) {
                 $status = 'not_configured';
             } elseif ($rateLimited) {
-                $status = 'error';
+                $status = 'paused';
             } elseif ($latestOk === false) {
                 $status = 'error';
             } elseif ($ageMinutes === null) {
@@ -230,6 +253,12 @@ final class WebOperationsService
         }
 
         return $result;
+    }
+
+    private function envMinutes(string $name, int $default): int
+    {
+        $value = filter_var(Env::get($name, (string)$default), FILTER_VALIDATE_INT);
+        return $value === false ? $default : max(1, min(1440, (int)$value));
     }
 
     /** @return array<string,mixed> */
@@ -657,10 +686,26 @@ final class WebOperationsService
             $finish->execute(['records_count' => $count, 'error_message' => $diagnostic, 'id' => $runId]);
             return $result + ['fetch_run_id' => $runId];
         } catch (Throwable $error) {
+            $message = substr($error->getMessage(), 0, 1000);
+            if ($provider === 'opensky' && preg_match('/(?:HTTP 429|en pausa|reintentar)/i', $message) === 1) {
+                $finish = $this->pdo->prepare(
+                    'UPDATE fetch_runs SET finished_at=NOW(),ok=1,records_count=0,error_message=:error_message WHERE id=:id'
+                );
+                $finish->execute(['error_message' => $message, 'id' => $runId]);
+                return [
+                    'ok' => true,
+                    'action' => 'opensky',
+                    'paused' => true,
+                    'message' => $message,
+                    'requested' => 0,
+                    'updated' => 0,
+                    'fetch_run_id' => $runId,
+                ];
+            }
             $finish = $this->pdo->prepare(
                 'UPDATE fetch_runs SET finished_at=NOW(),ok=0,error_message=:error_message WHERE id=:id'
             );
-            $finish->execute(['error_message' => substr($error->getMessage(), 0, 1000), 'id' => $runId]);
+            $finish->execute(['error_message' => $message, 'id' => $runId]);
             throw $error;
         }
     }

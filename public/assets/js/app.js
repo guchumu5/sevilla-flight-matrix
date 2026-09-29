@@ -14,6 +14,7 @@
   };
   const CANARY_ALERT_DEFAULT_MS = 60_000;
   const CANARY_ALERT_QUEUED_MS = 30_000;
+  const deepLink = new URLSearchParams(window.location.search);
   const els = {
     date: document.querySelector('#flightDate'), hall: document.querySelector('#hallFilter'),
     search: document.querySelector('#searchInput'), canary: document.querySelector('#canaryOnly'),
@@ -39,6 +40,7 @@
     predictionCanaryAccuracy: document.querySelector('#predictionCanaryAccuracy'), predictionEvaluated: document.querySelector('#predictionEvaluated'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
   };
+  if (/^\d{4}-\d{2}-\d{2}$/.test(deepLink.get('date') || '')) els.date.value = deepLink.get('date');
 
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
   const parseDate = value => value ? new Date(String(value).replace(' ', 'T')) : null;
@@ -300,8 +302,78 @@
       els.enableNotifications.classList.add('d-none');
       return;
     }
-    els.enableNotifications.textContent = Notification.permission === 'granted' ? 'Avisos activos' : 'Activar avisos';
-    els.enableNotifications.disabled = Notification.permission === 'granted';
+    const pushReady = Notification.permission === 'granted' && !!localStorage.getItem('matrix.pushDevice');
+    els.enableNotifications.textContent = pushReady ? 'Avisos móviles activos' : Notification.permission === 'granted' ? 'Completar avisos móviles' : 'Activar avisos';
+    els.enableNotifications.disabled = pushReady;
+  }
+
+  const urlBase64ToUint8Array = value => {
+    const padding = '='.repeat((4 - value.length % 4) % 4);
+    const raw = atob((value + padding).replace(/-/g, '+').replace(/_/g, '/'));
+    return Uint8Array.from([...raw].map(char => char.charCodeAt(0)));
+  };
+
+  async function enablePushNotifications() {
+    if (!window.isSecureContext || !('serviceWorker' in navigator) || !('PushManager' in window)) {
+      throw new Error('Este navegador necesita HTTPS y soporte Web Push.');
+    }
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') throw new Error('No se concedió permiso para mostrar avisos.');
+    const configResponse = await fetch('api/push.php?action=config', {cache:'no-store'});
+    const config = await configResponse.json();
+    if (!configResponse.ok || !config.public_key) throw new Error(config.error || 'No se pudo preparar Web Push. Aplica primero la actualización MySQL pendiente.');
+    await navigator.serviceWorker.register('sw.js');
+    const registration = await navigator.serviceWorker.ready;
+    let subscription = await registration.pushManager.getSubscription();
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly:true,
+        applicationServerKey:urlBase64ToUint8Array(config.public_key)
+      });
+    }
+    const response = await fetch('api/push.php', {
+      method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify({action:'subscribe',subscription:subscription.toJSON()})
+    });
+    const data = await response.json();
+    if (!response.ok || !data.device_token) throw new Error(data.error || 'No se pudo registrar este móvil.');
+    localStorage.setItem('matrix.notifications', 'on');
+    localStorage.setItem('matrix.pushDevice', data.device_token);
+    registration.active?.postMessage({type:'matrix-device-token',token:data.device_token});
+    return data.device_token;
+  }
+
+  async function watchFlight(flightId, button) {
+    let token = localStorage.getItem('matrix.pushDevice');
+    if (!token) token = await enablePushNotifications();
+    const enabled = button.dataset.watching !== '1';
+    button.disabled = true;
+    try {
+      const response = await fetch('api/push.php', {
+        method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({action:'watch',device_token:token,flight_id:Number(flightId),enabled})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'No se pudo cambiar la vigilancia.');
+      button.dataset.watching = enabled ? '1' : '0';
+      button.className = enabled ? 'btn btn-warning w-100 mb-4' : 'btn btn-outline-warning w-100 mb-4';
+      button.textContent = enabled ? '🔔 Vuelo vigilado · desactivar' : '🔔 Vigilar este vuelo';
+    } finally { button.disabled = false; }
+  }
+
+  async function renderWatchButton(flightId) {
+    const button = els.detailBody.querySelector('[data-watch-flight]');
+    if (!button) return;
+    const token = localStorage.getItem('matrix.pushDevice');
+    if (!token) return;
+    try {
+      const response = await fetch(`api/push.php?action=status&device_token=${encodeURIComponent(token)}&flight_id=${encodeURIComponent(flightId)}`, {cache:'no-store'});
+      const data = await response.json();
+      if (response.ok && data.watching) {
+        button.dataset.watching = '1'; button.className = 'btn btn-warning w-100 mb-4';
+        button.textContent = '🔔 Vuelo vigilado · desactivar';
+      }
+    } catch (_) {}
   }
 
   async function loadBoard(showSpinner = false) {
@@ -322,6 +394,11 @@
       els.connection.textContent = 'En directo';
       els.error.classList.add('d-none');
       render();
+      const linkedFlight = Number(deepLink.get('flight') || 0);
+      if (linkedFlight && !state.deepLinkOpened && state.flights.some(f => Number(f.id) === linkedFlight)) {
+        state.deepLinkOpened = true;
+        openDetail(linkedFlight);
+      }
     } catch (error) {
       els.connection.className = 'badge text-bg-danger';
       els.connection.textContent = 'Sin conexión';
@@ -1051,7 +1128,11 @@
           <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
         </article>`;
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
-      els.detailBody.innerHTML = summary + beltIntelligence(flight) + telemetrySummary(flight) + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
+      const watch = `<button class="btn btn-outline-warning w-100 mb-4" type="button" data-watch-flight="${Number(id)}" data-watching="0">🔔 Vigilar este vuelo</button>`;
+      els.detailBody.innerHTML = summary + watch + beltIntelligence(flight) + telemetrySummary(flight) + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
+      const watchButton = els.detailBody.querySelector('[data-watch-flight]');
+      watchButton?.addEventListener('click', () => watchFlight(id, watchButton).catch(error => window.alert(error.message)));
+      renderWatchButton(id);
     } catch (error) {
       els.detailBody.innerHTML = `<div class="alert alert-danger">${esc(error.message)}</div>`;
     }
@@ -1095,11 +1176,9 @@
   });
   els.fitMap.addEventListener('click', fitTrackedAircraft);
   if (els.enableNotifications) els.enableNotifications.addEventListener('click', async () => {
-    if (!window.isSecureContext || !('Notification' in window)) return;
     try {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') localStorage.setItem('matrix.notifications', 'on');
-    } catch (_) {}
+      await enablePushNotifications();
+    } catch (error) { window.alert(error.message); }
     updateNotificationButton();
   });
   if (els.radarCollapse) els.radarCollapse.addEventListener('shown.bs.collapse', () => {

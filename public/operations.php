@@ -91,8 +91,8 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
   const csrf = document.querySelector('main').dataset.csrf;
   const alertBox = document.querySelector('#operationAlert');
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  const healthLabels = {healthy:'AL DÍA',stale:'RETRASADO',error:'ERROR',unknown:'SIN DATOS',not_configured:'SIN CONFIGURAR'};
-  const healthClasses = {healthy:'success',stale:'warning',error:'danger',unknown:'secondary',not_configured:'secondary'};
+  const healthLabels = {healthy:'AL DÍA',paused:'EN PAUSA',stale:'RETRASADO',error:'ERROR',unknown:'SIN DATOS',not_configured:'SIN CONFIGURAR'};
+  const healthClasses = {healthy:'success',paused:'info',stale:'warning',error:'danger',unknown:'secondary',not_configured:'secondary'};
   const state = value => value ? '<span class="text-success">LISTO</span>' : '<span class="text-danger">PENDIENTE</span>';
   const formatAge = minutes => minutes === null || minutes === undefined ? 'sin lecturas' : minutes < 1 ? 'ahora' : minutes < 60 ? `hace ${minutes} min` : `hace ${Math.floor(minutes / 60)} h ${minutes % 60} min`;
   const compactError = value => String(value || '').length > 180 ? String(value).slice(0, 177) + '…' : String(value || '');

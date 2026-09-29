@@ -1,0 +1,13 @@
+{
+  "name": "Matriz de Cintas Sevilla",
+  "short_name": "Matriz SVQ",
+  "description": "Seguimiento operativo de llegadas y cintas del aeropuerto de Sevilla",
+  "start_url": "index.php",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#061a1f",
+  "theme_color": "#071b22",
+  "icons": [
+    {"src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"}
+  ]
+}

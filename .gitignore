@@ -1,7 +1,8 @@
 .env
 /storage/cache/*
 /storage/logs/*
+/storage/backups/*
+/storage/keys/*
 !/storage/cache/.gitkeep
 !/storage/logs/.gitkeep
 *.zip
-

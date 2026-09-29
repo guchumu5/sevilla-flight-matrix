@@ -31,6 +31,7 @@ final class OpenSkyClient
      */
     public function states(array $icao24s): array
     {
+        $this->guardCooldown();
         $codes = array_values(array_unique(array_filter(array_map(
             static fn(mixed $value): string => strtolower(trim((string)$value)),
             $icao24s
@@ -67,6 +68,10 @@ final class OpenSkyClient
             ? (int)$headers['x-rate-limit-retry-after-seconds']
             : (isset($headers['retry-after']) ? (int)$headers['retry-after'] : null);
         if ($body === false || $status >= 400) {
+            if ($status === 429) {
+                $seconds = max(60, (int)($retryAfter ?? 900));
+                $this->saveCooldown($seconds);
+            }
             $suffix = $retryAfter !== null && $retryAfter > 0
                 ? "; reintentar dentro de {$retryAfter} segundos"
                 : ($error !== '' ? ': ' . $error : '');
@@ -99,6 +104,36 @@ final class OpenSkyClient
                 'retry_after_seconds' => $retryAfter,
             ],
         ];
+    }
+
+    private function guardCooldown(): void
+    {
+        $file = $this->cooldownFile();
+        if (!is_file($file)) return;
+        $data = json_decode((string)file_get_contents($file), true);
+        $retryAt = (int)($data['retry_at'] ?? 0);
+        if ($retryAt <= time()) {
+            @unlink($file);
+            return;
+        }
+        $remaining = $retryAt - time();
+        throw new RuntimeException("OpenSky en pausa por cuota; reintentar dentro de {$remaining} segundos");
+    }
+
+    private function saveCooldown(int $seconds): void
+    {
+        $file = $this->cooldownFile();
+        $directory = dirname($file);
+        if (!is_dir($directory)) @mkdir($directory, 0770, true);
+        file_put_contents($file, json_encode([
+            'retry_at' => time() + $seconds,
+            'created_at' => date(DATE_ATOM),
+        ], JSON_UNESCAPED_SLASHES), LOCK_EX);
+    }
+
+    private function cooldownFile(): string
+    {
+        return dirname($this->cacheFile) . '/opensky-cooldown.json';
     }
 
     private function token(): string

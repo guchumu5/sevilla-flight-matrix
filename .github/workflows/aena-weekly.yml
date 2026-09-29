@@ -41,4 +41,16 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Leer siete días y conciliar
-        run: node scripts/aena-collector.mjs
+        shell: bash
+        run: |
+          for attempt in 1 2; do
+            if node scripts/aena-collector.mjs; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 2 ]; then
+              echo "::error::La programación semanal no pudo leerse tras dos ciclos completos."
+              exit 1
+            fi
+            echo "::warning::Infovuelos estuvo inestable; nuevo ciclo completo dentro de 90 segundos."
+            sleep 90
+          done

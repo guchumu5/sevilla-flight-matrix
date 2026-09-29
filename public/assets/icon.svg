@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#071b22"/>
+  <path d="M78 284h356M126 220h260" stroke="#2fd38a" stroke-width="52" stroke-linecap="round"/>
+  <circle cx="170" cy="356" r="42" fill="#ffb547"/><circle cx="342" cy="356" r="42" fill="#ffb547"/>
+  <text x="256" y="150" text-anchor="middle" font-family="Arial,sans-serif" font-weight="700" font-size="82" fill="#eaf3fa">SVQ</text>
+</svg>
