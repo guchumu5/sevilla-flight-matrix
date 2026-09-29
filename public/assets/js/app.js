@@ -205,7 +205,9 @@
     if (!els.canaryAlertStack || state.activeCanaryAlert || !state.canaryAlertQueue.length) return;
     const alert = state.canaryAlertQueue.shift();
     const {flight, changes, isNew} = alert;
-    const danger = ['7','8'].includes(String(flight.position || '').split('/').pop());
+    const actualBelt = String(flight.position || '').split('/').pop();
+    const predictedBelt = String(flight.predicted_position || '').split('/').pop();
+    const danger = ['7','8'].includes(actualBelt) || ['7','8'].includes(predictedBelt);
     const toast = document.createElement('article');
     toast.className = `toast canary-alert-toast ${danger?'canary-alert-danger':''}`;
     toast.setAttribute('role','alert');
