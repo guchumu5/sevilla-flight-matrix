@@ -1,5 +1,6 @@
 import { chromium } from 'playwright';
 import { baggageStateFromAenaStatus, statusIndicatesArrival } from './aena-status.mjs';
+import { choosePhysicalCode } from './aena-flight-identity.mjs';
 
 const AENA_URL = 'https://www.aena.es/es/infovuelos.html';
 const INGEST_URL = process.env.MATRIX_INGEST_URL || 'https://ojito.top/public/api/aena-board.php';
@@ -326,7 +327,8 @@ function groupPhysicalFlights(rows, windowFrom) {
   }
 
   const flights = [...groups.values()].map(group => {
-    const physical = group.codes[0];
+    const physical = choosePhysicalCode(group.codes);
+    const codeshares = group.codes.filter(code => code !== physical);
     const status = group.status || null;
     // Aena ha mostrado ambas variantes: "Entrega equipaje" y
     // "Entrega de equipajes". La segunda debe activar igualmente la cinta.
@@ -341,7 +343,7 @@ function groupPhysicalFlights(rows, windowFrom) {
       origin_iata: group.origin_iata,
       origin_name: group.origin_name || group.origin_iata,
       scheduled_arrival: scheduledArrival,
-      codeshares: group.codes.slice(1),
+      codeshares,
       status,
       eta: !arrived && effectiveArrival !== scheduledArrival ? effectiveArrival : null,
       actual_arrival: arrived ? effectiveArrival : null,

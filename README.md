@@ -468,6 +468,13 @@ mantiene la cadencia normal aproximada de 15 minutos. El endpoint protegido
 `public/api/aena-control.php` decide la cadencia utilizando el mismo
 `AENA_INGEST_TOKEN` del recolector.
 
+La versión 1.16.2 corrige la identidad de llegadas con código compartido. Si
+Infovuelos muestra primero un código IBE pero la misma llegada incluye VLG,
+IBS o ANE, el sistema conserva todos los códigos y utiliza como vuelo físico el
+operador conocido. La conciliación Aena también puede recuperar un registro
+creado anteriormente bajo el código compartido, evitando una segunda llegada
+fantasma y el falso estado de cinta pendiente.
+
 ## Seguridad
 
 - El directorio público del dominio debe ser `public/`, nunca la raíz del proyecto.

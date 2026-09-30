@@ -54,6 +54,7 @@ jobs:
           node --check public/assets/js/app.js
           node --check public/sw.js
           npm run test:aena-status
+          npm run test:aena-identity
 
       - name: Crear esquema MySQL
         run: mysql -h127.0.0.1 -uroot -proot sevilla_matrix < database/schema.sql

@@ -227,6 +227,12 @@ final class FlightReconciliationService
                 'first_seen', 'Primera aparición del vuelo en esta fuente.', $record['confidence'], $record, $record['observed_at'], $counts);
         } else {
             $flightId = (int)$flight['id'];
+            if ($provider === 'aena'
+                && !empty($flight['_matched_by_code'])
+                && (string)$flight['physical_flight'] !== (string)$record['physical_flight']) {
+                $this->promotePhysicalCode($flightId, $flight, $record, $runId, $provider, $counts);
+                $flight = $this->flightById($flightId);
+            }
             if ($this->updateCoreFields($flightId, $flight, $record, $runId, $provider, $counts)) {
                 $counts['flights_updated']++;
                 $flight = $this->flightById($flightId);
@@ -445,7 +451,55 @@ final class FlightReconciliationService
             'origin_iata' => $record['origin_iata'],
             'scheduled_arrival' => $record['scheduled_arrival'],
         ]);
-        return $stmt->fetch() ?: null;
+        $flight = $stmt->fetch();
+        if ($flight) return $flight;
+
+        // Un código compartido puede haber sido importado antes como si fuera
+        // el operador. Aena es la autoridad que permite reunirlo con el vuelo
+        // físico sin crear una segunda llegada fantasma.
+        $alias = $this->pdo->prepare(
+            'SELECT f.* FROM flights f
+             INNER JOIN flight_codes fc ON fc.flight_id=f.id
+             WHERE f.flight_date=:flight_date AND f.origin_iata=:origin_iata
+             AND fc.flight_code=:physical_flight
+             AND ABS(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,:scheduled_arrival))<=180
+             ORDER BY ABS(TIMESTAMPDIFF(SECOND,f.scheduled_arrival,:scheduled_arrival)) LIMIT 1'
+        );
+        $alias->execute([
+            'flight_date' => $record['flight_date'],
+            'origin_iata' => $record['origin_iata'],
+            'physical_flight' => $record['physical_flight'],
+            'scheduled_arrival' => $record['scheduled_arrival'],
+        ]);
+        $flight = $alias->fetch();
+        if (!$flight) return null;
+        $flight['_matched_by_code'] = 1;
+        return $flight;
+    }
+
+    /** @param array<string,mixed> $flight @param array<string,mixed> $record @param array<string,int> $counts */
+    private function promotePhysicalCode(int $flightId, array $flight, array $record, int $runId, string $provider, array &$counts): void
+    {
+        $duplicate = $this->pdo->prepare(
+            'SELECT id FROM flights WHERE id<>:id AND flight_date=:flight_date
+             AND physical_flight=:physical_flight AND origin_iata=:origin_iata LIMIT 1'
+        );
+        $duplicate->execute([
+            'id' => $flightId,
+            'flight_date' => $record['flight_date'],
+            'physical_flight' => $record['physical_flight'],
+            'origin_iata' => $record['origin_iata'],
+        ]);
+        if ($duplicate->fetchColumn()) return;
+
+        $this->pdo->prepare('UPDATE flights SET physical_flight=:physical WHERE id=:id')
+            ->execute(['physical' => $record['physical_flight'], 'id' => $flightId]);
+        $this->addEvent(
+            $flightId, $runId, $provider, 'flight_identity_corrected', 'physical_flight',
+            $flight['physical_flight'], $record['physical_flight'], 'aena_operating_code',
+            'Aena agrupó el código compartido bajo el operador físico de la misma llegada.',
+            'confirmado', $record, $record['observed_at'], $counts
+        );
     }
 
     private function flightById(int $id): ?array
