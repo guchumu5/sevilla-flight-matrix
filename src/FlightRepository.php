@@ -334,9 +334,7 @@ SQL;
     {
         if (!preg_match('/^[a-z0-9_]+$/i', $table)) return false;
         try {
-            $stmt = $this->pdo->prepare('SHOW TABLES LIKE ?');
-            $stmt->execute([$table]);
-            return (bool)$stmt->fetchColumn();
+            return (bool)$this->pdo->query('SHOW TABLES LIKE ' . $this->pdo->quote($table))->fetchColumn();
         } catch (\Throwable) {
             return false;
         }
