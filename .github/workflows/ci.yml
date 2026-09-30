@@ -89,6 +89,12 @@ jobs:
           php bin/sync-json.php --file=database/examples/sync_flights.aena-stable-after-secondary.example.json
           php -r 'require "src/bootstrap.php"; $rows=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-24"); $f=$rows[0]??[]; if (($f["secondary_belt_state"]??null)!=="not_confirmed" || ($f["belt"]??null)!=="2") { fwrite(STDERR, json_encode($f, JSON_PRETTY_PRINT)); exit(1); }'
 
+      - name: Comprobar análisis histórico de cambios de cinta
+        run: |
+          php bin/analyze-belt-changes.php --date=2026-09-24
+          test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM belt_change_analyses WHERE analysis_date="2026-09-24"')" = "1"
+          php -r 'require "src/bootstrap.php"; $rows=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-24"); $events=$rows[0]["belt_events"]??[]; $change=array_values(array_filter($events,fn($e)=>($e["event_type"]??null)==="belt_changed"))[0]??[]; if (empty($change["analysis_reason_label"])) { fwrite(STDERR,json_encode($events,JSON_PRETTY_PRINT)); exit(1); }'
+
       - name: Comprobar predicción previa y medición del acierto
         run: |
           php bin/sync-json.php --file=database/examples/prediction_history.example.json

@@ -21,7 +21,7 @@ if (!Auth::check()) {
 <body>
 <nav class="navbar app-navbar border-bottom"><div class="container-fluid px-lg-4">
   <a class="navbar-brand" href="admin.php">← Administración</a>
-  <div class="d-flex gap-2"><a class="btn btn-sm btn-outline-light" href="index.php">Tablero</a><a class="btn btn-sm btn-outline-light" href="logout.php">Salir</a></div>
+  <div class="d-flex gap-2"><a class="btn btn-sm btn-outline-warning" href="belt-analysis.php">Motivos de cinta</a><a class="btn btn-sm btn-outline-light" href="index.php">Tablero</a><a class="btn btn-sm btn-outline-light" href="logout.php">Salir</a></div>
 </div></nav>
 
 <main class="container-fluid px-3 px-lg-4 py-4">

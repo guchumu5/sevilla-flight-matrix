@@ -22,7 +22,7 @@
     now: document.querySelector('#nowButton'), fitMap: document.querySelector('#fitMapButton'),
     body: document.querySelector('#flightsBody'), table: document.querySelector('#tableWrap'),
     loading: document.querySelector('#loadingState'), empty: document.querySelector('#emptyState'),
-    error: document.querySelector('#errorAlert'), updated: document.querySelector('#lastUpdated'),
+    error: document.querySelector('#errorAlert'), updated: document.querySelector('#lastUpdated'), dailyBeltAlert:document.querySelector('#dailyBeltAlert'),
     connection: document.querySelector('#connectionBadge'), canaryWatch: document.querySelector('#canaryWatch'),
     enableNotifications: document.querySelector('#enableNotifications'), canaryAlertStack: document.querySelector('#canaryAlertStack'),
     upcomingStrip: document.querySelector('#upcomingStrip'),
@@ -398,6 +398,17 @@
       const incoming = payload.flights || [];
       processCanaryAlerts(incoming, els.date.value);
       state.flights = incoming;
+      const important = incoming.filter(f => Boolean(f.belt_attention));
+      const daily = payload.belt_analysis_daily;
+      if (els.dailyBeltAlert && (important.length || Number(daily?.changes_found || 0) > 0)) {
+        const parts=[];
+        if (important.length) parts.push(`${important.length} vuelo${important.length===1?'':'s'} requiere${important.length===1?'':'n'} atención de cinta ahora`);
+        if (Number(daily?.changes_found || 0)>0) parts.push(`${Number(daily.changes_found)} cambio${Number(daily.changes_found)===1?'':'s'} de ayer analizado${Number(daily.changes_found)===1?'':'s'}`);
+        els.dailyBeltAlert.className='alert belt-daily-alert';
+        els.dailyBeltAlert.innerHTML=`<strong>IMPORTANTE · vigilancia de cintas</strong><span>${esc(parts.join(' · '))}</span><a href="belt-analysis.php">Consultar motivos e histórico</a>`;
+      } else if (els.dailyBeltAlert) {
+        els.dailyBeltAlert.classList.add('d-none');
+      }
       renderPredictionSummary(payload.prediction_summary || null);
       els.updated.textContent = `Actualizado ${time(payload.generated_at)} · ${payload.authority_note}`;
       els.connection.className = 'badge text-bg-success';
@@ -462,10 +473,10 @@
   function flightRowMarkup(f, currentIds, pastIds) {
     const beltClass = !f.belt ? 'standby' : (['7','8'].includes(String(f.belt)) ? 'red' : '');
     const interval = [f.previous_same_belt_minutes, f.next_same_belt_minutes].filter(v => v !== null).sort((a,b)=>a-b)[0];
-    return `<tr class="flight-row ${Number(f.is_canary)===1?'canary':''} ${currentIds.has(Number(f.id))?'current-flight':''} ${pastIds.has(Number(f.id))?'past-flight':''}" data-flight-id="${Number(f.id)}" data-effective-minute="${minuteOfDay(effectiveArrival(f)) ?? ''}" tabindex="0">
+    return `<tr class="flight-row ${Number(f.is_canary)===1?'canary':''} ${f.belt_attention?'belt-attention-row':''} ${currentIds.has(Number(f.id))?'current-flight':''} ${pastIds.has(Number(f.id))?'past-flight':''}" data-flight-id="${Number(f.id)}" data-effective-minute="${minuteOfDay(effectiveArrival(f)) ?? ''}" tabindex="0">
       <td><span class="indicator" title="${esc(pressureText(f.pressure))}">${esc(f.indicator)}</span></td>
       <td><span class="time-primary">${time(f.scheduled_arrival)}</span></td>
-      <td><span class="belt ${beltClass}">${esc(f.belt_label)}</span>${secondaryBeltMarkup(f)}${predictionMarkup(f)}${beltAverageMarkup(f)}</td>
+      <td><span class="belt ${beltClass}">${esc(f.belt_label)}</span>${f.belt_attention?`<span class="belt-important" title="${esc(f.belt_attention_reason)}">IMPORTANTE · ${esc(f.belt_attention_reason)}</span>`:''}${secondaryBeltMarkup(f)}${predictionMarkup(f)}${beltAverageMarkup(f)}</td>
       <td><span class="origin-name">${esc(f.origin_name)}</span><span class="origin-code d-block">${esc(f.origin_iata)} · ${esc(f.traffic_class)}</span></td>
       <td><strong>${esc(f.physical_flight)}</strong><span class="meta d-block">${esc(f.codes || '')}</span></td>
       <td><strong>${time(effectiveArrival(f))}</strong><span class="meta d-block">${signed(f.deviation_minutes)}</span></td>
@@ -530,11 +541,18 @@
     els.canaryWatch.innerHTML = flights.map(f => {
       const minutes = minuteOfDay(effectiveArrival(f));
       const past = els.date.value === now.date && minutes !== null && minutes < now.minutes - 45;
-      const beltClass = ['7','8'].includes(String(f.belt)) ? 'danger' : '';
+      const confirmedBelt = f.source === 'aena' && f.belt ? beltPosition(f) : null;
+      const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
+      const beltClass = ['7','8'].includes(String(f.belt)) || ['7','8'].includes(String(f.predicted_belt)) || f.belt_attention ? 'danger' : '';
       return `<article class="canary-card ${past?'past':''} ${beltClass}" data-flight-id="${Number(f.id)}" tabindex="0">
         <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${esc(f.indicator)}</span></div>
         <div class="canary-card-time">${time(effectiveArrival(f))}</div>
-        <div class="d-flex justify-content-between gap-2"><span>${esc(f.physical_flight)}</span><b>${esc(f.belt_label || 'sin cinta')}</b></div>
+        <div class="canary-flight-code">${esc(f.physical_flight)}</div>
+        <div class="canary-belts">
+          <div class="canary-belt-line canary-belt-predicted"><span>Predicción matriz</span><b>${esc(predictedBelt || 'sin predicción')}</b><small>${predictedBelt ? `${Number(f.prediction_score || 0)}% · ${esc(f.prediction_confidence || 'baja')}` : 'histórico insuficiente'}</small></div>
+          <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Confirmada Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b><small>${confirmedBelt ? 'dato oficial prevalente' : 'todavía no publicada'}</small></div>
+        </div>
+        ${f.belt_attention ? `<div class="canary-important"><b>IMPORTANTE</b><span>${esc(f.belt_attention_reason)}</span></div>` : ''}
         ${f.secondary_belt_state === 'candidate' ? `<small class="canary-proposal">● ${esc((f.secondary_belt_source||'API').toUpperCase())}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}</small>` : ''}
       </article>`;
     }).join('');
@@ -1076,10 +1094,15 @@
     ];
     const eventMarkup = changes.length ? changes.map(event => {
       const publishedReason = event.reason_code && !['belt_change','belt_removed','source_changed'].includes(event.reason_code);
-      const reason = publishedReason ? event.reason_detail : 'La fuente no publicó una causa operativa verificable.';
+      const analyzed = Boolean(event.analysis_reason_label);
+      const reason = analyzed ? event.analysis_reason_detail : publishedReason ? event.reason_detail : 'La fuente no publicó una causa operativa verificable.';
+      const reasonLabel = analyzed
+        ? `${Number(event.analysis_official_reason)===1 ? 'Causa publicada' : 'Motivo inferido por la matriz'} · ${event.analysis_reason_label}`
+        : null;
       return `<article class="belt-event-item">
         <header><strong>${esc(event.before_value || 'sin cinta')} → ${esc(event.after_value || 'retirada')}</strong><time>${dateTime(event.detected_at)}</time></header>
-        <div><span class="badge ${event.source==='aena'?'text-bg-success':'text-bg-warning'}">${esc((event.source||'').toUpperCase())}</span> <span class="badge text-bg-secondary">${esc(event.confidence || 'provisional')}</span></div>
+        <div><span class="badge ${event.source==='aena'?'text-bg-success':'text-bg-warning'}">${esc((event.source||'').toUpperCase())}</span> <span class="badge ${event.analysis_confidence==='confirmado'?'text-bg-success':event.analysis_confidence==='probable'?'text-bg-warning':'text-bg-secondary'}">${esc(event.analysis_confidence || event.confidence || 'provisional')}</span></div>
+        ${reasonLabel ? `<strong class="belt-event-reason">${esc(reasonLabel)}</strong>` : ''}
         <p>${esc(reason)}</p>
       </article>`;
     }).join('') : '<p class="text-secondary mb-0">No se han registrado cambios de cinta.</p>';

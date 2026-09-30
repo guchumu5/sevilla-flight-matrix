@@ -156,6 +156,7 @@ SQL;
         unset($row);
         $this->attachBeltAverages($rows, $date);
         $this->attachBeltEvents($rows);
+        $this->attachBeltAttention($rows);
         $this->attachTelemetryTrails($rows);
         return $rows;
     }
@@ -286,13 +287,26 @@ SQL;
     {
         $ids = array_map('intval', array_column($rows, 'id'));
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $analysisAvailable = $this->tableExists('belt_change_analyses');
+        $analysisSelect = $analysisAvailable
+            ? ',a.reason_code AS analysis_reason_code,a.reason_label AS analysis_reason_label,
+               a.reason_detail AS analysis_reason_detail,a.confidence AS analysis_confidence,
+               a.official_reason AS analysis_official_reason,a.evidence AS analysis_evidence,
+               a.analyzed_at AS analysis_analyzed_at'
+            : '';
+        $analysisJoin = $analysisAvailable
+            ? " LEFT JOIN belt_change_analyses a ON a.id=(
+                  SELECT ba.id FROM belt_change_analyses ba
+                  WHERE ba.flight_event_id=e.id ORDER BY ba.analyzed_at DESC,ba.id DESC LIMIT 1
+                )"
+            : '';
         $stmt = $this->pdo->prepare(
-            "SELECT id,flight_id,source,event_type,before_value,after_value,reason_code,
-             reason_detail,confidence,evidence,detected_at
-             FROM flight_events
-             WHERE flight_id IN ($placeholders)
-             AND event_type IN ('belt_assigned','belt_changed','belt_removed')
-             ORDER BY detected_at,id"
+            "SELECT e.id,e.flight_id,e.source,e.event_type,e.before_value,e.after_value,e.reason_code,
+             e.reason_detail,e.confidence,e.evidence,e.detected_at{$analysisSelect}
+             FROM flight_events e{$analysisJoin}
+             WHERE e.flight_id IN ($placeholders)
+             AND e.event_type IN ('belt_assigned','belt_changed','belt_removed')
+             ORDER BY e.detected_at,e.id"
         );
         $stmt->execute($ids);
         $eventsByFlight = [];
@@ -301,10 +315,59 @@ SQL;
                 $decoded = json_decode($event['evidence'], true);
                 $event['evidence'] = is_array($decoded) ? $decoded : null;
             }
+            if (is_string($event['analysis_evidence'] ?? null)) {
+                $decoded = json_decode($event['analysis_evidence'], true);
+                $event['analysis_evidence'] = is_array($decoded) ? $decoded : null;
+            }
+            if (isset($event['analysis_official_reason'])) {
+                $event['analysis_official_reason'] = (int)$event['analysis_official_reason'];
+            }
             $eventsByFlight[(int)$event['flight_id']][] = $event;
         }
         foreach ($rows as &$row) {
             $row['belt_events'] = $eventsByFlight[(int)$row['id']] ?? [];
+        }
+        unset($row);
+    }
+
+    private function tableExists(string $table): bool
+    {
+        if (!preg_match('/^[a-z0-9_]+$/i', $table)) return false;
+        try {
+            $stmt = $this->pdo->prepare('SHOW TABLES LIKE ?');
+            $stmt->execute([$table]);
+            return (bool)$stmt->fetchColumn();
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function attachBeltAttention(array &$rows): void
+    {
+        $now = time();
+        foreach ($rows as &$row) {
+            $row['belt_attention'] = null;
+            $row['belt_attention_reason'] = null;
+            if ((int)($row['belt_changes'] ?? 0) > 0) {
+                $row['belt_attention'] = 'important';
+                $row['belt_attention_reason'] = 'Aena cambió la cinta después de su primera asignación.';
+                continue;
+            }
+            $officialBelt = ($row['source'] ?? null) === 'aena' && !empty($row['belt']);
+            if ($officialBelt || preg_match('/final|cancel/i', (string)(($row['status'] ?? '') . ' ' . ($row['baggage_state'] ?? '')))) continue;
+            $status = strtolower((string)(($row['status'] ?? '') . ' ' . ($row['baggage_state'] ?? '')));
+            if (!empty($row['actual_arrival']) || preg_match('/aterr|landed|tierra|entrega/', $status)) {
+                $row['belt_attention'] = 'critical';
+                $row['belt_attention_reason'] = 'El vuelo ya está en tierra y Aena todavía no confirma cinta.';
+                continue;
+            }
+            $lead = $row['belt_lead_flight_average_minutes'] ?? $row['belt_lead_origin_average_minutes'] ?? null;
+            $scheduled = strtotime((string)($row['scheduled_arrival'] ?? ''));
+            if ($lead !== null && $scheduled !== false && $now >= $scheduled - ((int)$lead * 60)) {
+                $row['belt_attention'] = 'important';
+                $row['belt_attention_reason'] = 'La cinta sigue pendiente después del momento medio histórico de publicación.';
+            }
         }
         unset($row);
     }

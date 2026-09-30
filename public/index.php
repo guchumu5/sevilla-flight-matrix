@@ -75,6 +75,8 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
     </div>
   </section>
 
+  <div class="alert belt-daily-alert d-none" id="dailyBeltAlert" role="alert"></div>
+
   <section class="row g-3 mb-3" aria-label="Resumen operativo">
     <div class="col-6 col-xl-3"><article class="metric-card"><span>Vuelos</span><strong id="metricFlights">—</strong><small>en el tablero</small></article></div>
     <div class="col-6 col-xl-3"><article class="metric-card metric-orange"><span>En revisión</span><strong id="metricOrange">—</strong><small>presión, desviación o propuesta</small></article></div>

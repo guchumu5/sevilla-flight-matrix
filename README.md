@@ -438,10 +438,26 @@ fuente si no existe una lectura reciente. La carga semanal repite un ciclo
 completo ante una indisponibilidad transitoria de Infovuelos.
 
 El administrador incorpora copias MySQL comprimidas, checksum, validación y
-retención 7/5/12. Web Push permite vigilar cualquier vuelo y activa por defecto
-las novedades materiales de Canarias aun con la aplicación cerrada. El acceso
+retención 7/5/12. Web Push permite vigilar expresamente cada vuelo y solo envía
+los cinco hitos configurados para esas operaciones. El acceso
 administrativo limita cinco intentos fallidos por quince minutos y conserva un
 registro técnico sin contraseñas ni direcciones IP en claro.
+
+La versión 1.16.0 separa en las tarjetas permanentes de Canarias la **predicción
+de la matriz** de la **cinta confirmada por Aena**. Una propuesta de AirLabs se
+mantiene como indicio secundario. `STAND BY` pasa a llamarse `CINTA PENDIENTE ·
+Aena`: no describe una espera del avión, sino la ausencia del dato oficial.
+
+También incorpora el análisis diario de los cambios de cinta del día anterior.
+Cada cambio oficial queda asociado a una causa publicada o, si no existe, a un
+motivo inferido con nivel de confianza y evidencia: desviación, solapamiento en
+la cinta previa, presión simultánea de sala o cambio de zona A/B. Las
+inferencias no afirman causalidad. El historial se consulta y puede ejecutarse
+desde **Administración → Motivos de cinta** después de aplicar el paquete MySQL
+`20260930_006_belt_change_analysis`. El tablero lo ejecuta una vez al día a
+partir de las 04:00; opcionalmente Plesk puede llamar a
+`bin/analyze-belt-changes.php` a las 04:20. Los vuelos con cambio confirmado o
+con una cinta oficial anormalmente tardía quedan destacados en rojo.
 
 ## Seguridad
 
