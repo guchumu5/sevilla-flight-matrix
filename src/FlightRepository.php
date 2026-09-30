@@ -143,7 +143,9 @@ ORDER BY effective_arrival, f.physical_flight
 SQL;
         $stmt = $this->pdo->prepare($sql);
         $stmt->execute(['date' => $date]);
-        $rows = (new MatrixEngine())->decorate($stmt->fetchAll());
+        $rows = $stmt->fetchAll();
+        $this->suppressCodeshareDuplicates($rows);
+        $rows = (new MatrixEngine())->decorate($rows);
         if (!$rows) return [];
         foreach ($rows as &$row) {
             if (is_string($row['prediction_features'] ?? null)) {
@@ -159,6 +161,36 @@ SQL;
         $this->attachBeltAttention($rows);
         $this->attachTelemetryTrails($rows);
         return $rows;
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function suppressCodeshareDuplicates(array &$rows): void
+    {
+        $operators = [];
+        foreach ($rows as $row) {
+            $physical = strtoupper((string)($row['physical_flight'] ?? ''));
+            if (preg_match('/^(?:VLG|IBS|ANE)/', $physical)) {
+                $operators[$physical][] = $row;
+            }
+        }
+        if ($operators === []) return;
+
+        $rows = array_values(array_filter($rows, static function (array $row) use ($operators): bool {
+            $physical = strtoupper((string)($row['physical_flight'] ?? ''));
+            if (!str_starts_with($physical, 'IBE')) return true;
+            $codes = preg_split('/\s*\/\s*/', strtoupper((string)($row['codes'] ?? '')), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            $arrival = strtotime((string)($row['scheduled_arrival'] ?? ''));
+            foreach ($codes as $code) {
+                foreach ($operators[$code] ?? [] as $canonical) {
+                    if ((string)($canonical['origin_iata'] ?? '') !== (string)($row['origin_iata'] ?? '')) continue;
+                    $canonicalArrival = strtotime((string)($canonical['scheduled_arrival'] ?? ''));
+                    if ($arrival !== false && $canonicalArrival !== false && abs($arrival - $canonicalArrival) <= 10800) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }));
     }
 
     public function predictionSummary(?string $beforeDate = null): array

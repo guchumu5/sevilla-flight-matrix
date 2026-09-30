@@ -475,6 +475,10 @@ operador conocido. La conciliación Aena también puede recuperar un registro
 creado anteriormente bajo el código compartido, evitando una segunda llegada
 fantasma y el falso estado de cinta pendiente.
 
+La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
+cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y
+proximidad horaria. El registro y sus evidencias no se borran de la base.
+
 ## Seguridad
 
 - El directorio público del dominio debe ser `public/`, nunca la raíz del proyecto.
