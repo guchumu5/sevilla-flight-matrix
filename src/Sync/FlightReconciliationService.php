@@ -462,14 +462,15 @@ final class FlightReconciliationService
              INNER JOIN flight_codes fc ON fc.flight_id=f.id
              WHERE f.flight_date=:flight_date AND f.origin_iata=:origin_iata
              AND fc.flight_code=:physical_flight
-             AND ABS(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,:scheduled_arrival))<=180
-             ORDER BY ABS(TIMESTAMPDIFF(SECOND,f.scheduled_arrival,:scheduled_arrival)) LIMIT 1'
+             AND ABS(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,:scheduled_arrival_window))<=180
+             ORDER BY ABS(TIMESTAMPDIFF(SECOND,f.scheduled_arrival,:scheduled_arrival_order)) LIMIT 1'
         );
         $alias->execute([
             'flight_date' => $record['flight_date'],
             'origin_iata' => $record['origin_iata'],
             'physical_flight' => $record['physical_flight'],
-            'scheduled_arrival' => $record['scheduled_arrival'],
+            'scheduled_arrival_window' => $record['scheduled_arrival'],
+            'scheduled_arrival_order' => $record['scheduled_arrival'],
         ]);
         $flight = $alias->fetch();
         if (!$flight) return null;
