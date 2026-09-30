@@ -46,8 +46,8 @@ $defaultDate = date('Y-m-d', strtotime('-1 day'));
     <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Patrón</th><th>Casos</th><th>Canarias</th><th>Confianza</th><th>Último</th></tr></thead><tbody id="patternsBody"></tbody></table></div>
   </section>
   <section class="panel overflow-hidden mb-4">
-    <header class="panel-header"><h2 class="h5 mb-1">Histórico consultable</h2><p class="text-secondary mb-0">Cada fila mantiene el cambio Aena, el motivo calculado, la confianza y las evidencias de contexto.</p></header>
-    <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Vuelo</th><th>Cambio oficial</th><th>Clasificación</th><th>Explicación</th><th>Evidencia</th></tr></thead><tbody id="analysisBody"><tr><td colspan="5" class="text-center py-5 text-secondary">Cargando…</td></tr></tbody></table></div>
+    <header class="panel-header"><h2 class="h5 mb-1">Histórico consultable</h2><p class="text-secondary mb-0">El cambio de cinta sí es oficial. Su causa solo es oficial cuando Aena la publica expresamente; en los demás casos mostramos una hipótesis trazable de la matriz.</p></header>
+    <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Vuelo</th><th>Cambio oficial</th><th>Grado de certeza</th><th>Motivo: oficial o inferido</th><th>Evidencia</th></tr></thead><tbody id="analysisBody"><tr><td colspan="5" class="text-center py-5 text-secondary">Cargando…</td></tr></tbody></table></div>
   </section>
   <section class="panel overflow-hidden">
     <header class="panel-header"><h2 class="h5 mb-1">Ejecuciones diarias</h2><p class="text-secondary mb-0">El mismo día y versión del modelo no se duplican.</p></header>
@@ -80,8 +80,8 @@ $defaultDate = date('Y-m-d', strtotime('-1 day'));
     document.querySelector('#analysisBody').innerHTML=rows.length?rows.map(item=>`<tr class="${Number(item.is_canary)===1?'table-warning':''}">
       <td><strong>${esc(item.physical_flight)}</strong><span class="meta d-block">${esc(item.origin_name)} · ${esc(item.analysis_date)}</span></td>
       <td><strong>${esc(item.before_value||'sin cinta')} → ${esc(item.after_value||'retirada')}</strong><span class="meta d-block">Aena · ${esc(item.detected_at)}</span></td>
-      <td>${badge(item.confidence)}<span class="meta d-block">${Number(item.official_reason)===1?'causa publicada':'inferencia matriz'}</span></td>
-      <td><strong>${esc(item.reason_label)}</strong><span class="meta d-block">${esc(item.reason_detail)}</span></td>
+      <td>${badge(item.confidence)}<span class="meta d-block">${Number(item.official_reason)===1?'AENA PUBLICÓ LA CAUSA':'HIPÓTESIS · NO CONFIRMADA POR AENA'}</span></td>
+      <td><strong>${esc(item.reason_label)}</strong><span class="meta d-block">${esc(item.reason_detail)}</span>${Number(item.official_reason)===1?'':'<span class="meta d-block text-warning">El contexto es compatible con este motivo, pero no demuestra causalidad.</span>'}</td>
       <td>${esc(evidence(item))}<span class="meta d-block">${esc(item.model_version)}</span></td></tr>`).join(''):'<tr><td colspan="5" class="text-center py-5 text-secondary">No hay cambios analizados para este día.</td></tr>';
     const runs=data.runs||[];
     const patterns=data.patterns||[];

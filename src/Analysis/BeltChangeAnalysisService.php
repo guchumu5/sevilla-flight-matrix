@@ -10,7 +10,7 @@ use Throwable;
 
 final class BeltChangeAnalysisService
 {
-    public const MODEL_VERSION = 'belt_reason_v1';
+    public const MODEL_VERSION = 'belt_reason_v2';
     private const LOCK_NAME = 'sevilla_matrix_belt_analysis';
 
     public function __construct(private readonly PDO $pdo)
@@ -233,10 +233,22 @@ final class BeltChangeAnalysisService
         usort($oldConflicts, static fn(array $a, array $b): int => abs($a['interval_minutes']) <=> abs($b['interval_minutes']));
         $minimumConflict = $oldConflicts ? abs((int)$oldConflicts[0]['interval_minutes']) : null;
 
-        $genericCodes = ['belt_change','source_changed','belt_assignment','belt_removed'];
+        $genericCodes = [
+            'belt_change', 'source_changed', 'belt_assignment', 'belt_removed',
+            'aena_capture', 'automatic_aena_capture', 'manual_aena_capture',
+        ];
         $detail = trim((string)$event['reason_detail']);
-        $genericDetail = $detail === '' || preg_match('/(?:la fuente cambió la cinta|causa operativa no fue publicada|causa no publicada)/i', $detail);
-        $published = !$genericDetail || !in_array((string)$event['reason_code'], $genericCodes, true);
+        $explicitlyUnpublished = $detail === '' || preg_match(
+            '/(?:no\s+public[oó].{0,50}causa|causa\s+operativa\s+no\s+fue\s+publicada|causa\s+no\s+publicada|sin\s+causa\s+publicada)/iu',
+            $detail
+        );
+        $genericCapture = preg_match(
+            '/(?:captura\s+autom[aá]tica\s+de\s+infovuelos|la\s+fuente\s+cambi[oó]\s+la\s+cinta)/iu',
+            $detail
+        );
+        $published = !$explicitlyUnpublished
+            && !$genericCapture
+            && !in_array((string)$event['reason_code'], $genericCodes, true);
 
         if ($published) {
             $reason = [

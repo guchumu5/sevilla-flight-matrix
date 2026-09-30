@@ -2,7 +2,7 @@ name: Aena en directo
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -18,24 +18,67 @@ jobs:
     timeout-minutes: 18
     env:
       MATRIX_INGEST_URL: ${{ vars.MATRIX_INGEST_URL }}
+      MATRIX_CONTROL_URL: ${{ vars.MATRIX_CONTROL_URL }}
       MATRIX_INGEST_TOKEN: ${{ secrets.MATRIX_INGEST_TOKEN }}
       AENA_MODE: live
     steps:
+      - name: Decidir cadencia Aena
+        id: cadence
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Ejecución manual: se realizará la captura."
+            exit 0
+          fi
+
+          control_url="$MATRIX_CONTROL_URL"
+          if [ -z "$control_url" ]; then
+            control_url="${MATRIX_INGEST_URL%/*}/aena-control.php"
+          fi
+          if [ -z "$control_url" ] || [ -z "$MATRIX_INGEST_TOKEN" ]; then
+            echo "::warning::No se pudo consultar la cadencia; se ejecutará Aena por seguridad."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if ! response=$(curl --fail --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer $MATRIX_INGEST_TOKEN" "$control_url"); then
+            echo "::warning::El control de cadencia no respondió; se ejecutará Aena por seguridad."
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          critical=$(jq -r '.critical // false' <<< "$response")
+          normal_due=$(jq -r '.normal_due // true' <<< "$response")
+          count=$(jq -r '.critical_count // 0' <<< "$response")
+          if [ "$critical" = "true" ] || [ "$normal_due" = "true" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "Captura activada: casos críticos=$count, vencimiento normal=$normal_due."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Sin casos críticos y con captura Aena reciente; esta comprobación no abre el navegador."
+          fi
+
       - name: Descargar código
+        if: steps.cadence.outputs.run == 'true'
         uses: actions/checkout@v4
 
       - name: Preparar Node
+        if: steps.cadence.outputs.run == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
       - name: Instalar recolector
+        if: steps.cadence.outputs.run == 'true'
         run: npm install --no-audit --no-fund
 
       - name: Instalar Chromium
+        if: steps.cadence.outputs.run == 'true'
         run: npx playwright install --with-deps chromium
 
       - name: Leer Infovuelos y conciliar
+        if: steps.cadence.outputs.run == 'true'
         shell: bash
         run: |
           for attempt in 1 2; do

@@ -459,6 +459,15 @@ partir de las 04:00; opcionalmente Plesk puede llamar a
 `bin/analyze-belt-changes.php` a las 04:20. Los vuelos con cambio confirmado o
 con una cinta oficial anormalmente tardía quedan destacados en rojo.
 
+La versión 1.16.1 corrige la distinción entre una causa realmente publicada y
+el texto técnico de una captura de Infovuelos. Si Aena no publica una causa, el
+sistema lo presenta expresamente como hipótesis no confirmada y conserva las
+evidencias que la sustentan. Los casos críticos abiertos activan una captura de
+Infovuelos cada 5 minutos hasta que el equipaje finaliza; sin casos críticos se
+mantiene la cadencia normal aproximada de 15 minutos. El endpoint protegido
+`public/api/aena-control.php` decide la cadencia utilizando el mismo
+`AENA_INGEST_TOKEN` del recolector.
+
 ## Seguridad
 
 - El directorio público del dominio debe ser `public/`, nunca la raíz del proyecto.

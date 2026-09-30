@@ -347,14 +347,15 @@ SQL;
         foreach ($rows as &$row) {
             $row['belt_attention'] = null;
             $row['belt_attention_reason'] = null;
+            $status = strtolower((string)(($row['status'] ?? '') . ' ' . ($row['baggage_state'] ?? '')));
+            if (preg_match('/final|cancel|equipaje entregado|entrega finalizada|completed/', $status)) continue;
             if ((int)($row['belt_changes'] ?? 0) > 0) {
                 $row['belt_attention'] = 'important';
-                $row['belt_attention_reason'] = 'Aena cambió la cinta después de su primera asignación.';
+                $row['belt_attention_reason'] = 'Aena cambió la cinta: seguimiento reforzado cada 5 min hasta finalizar el equipaje.';
                 continue;
             }
             $officialBelt = ($row['source'] ?? null) === 'aena' && !empty($row['belt']);
-            if ($officialBelt || preg_match('/final|cancel/i', (string)(($row['status'] ?? '') . ' ' . ($row['baggage_state'] ?? '')))) continue;
-            $status = strtolower((string)(($row['status'] ?? '') . ' ' . ($row['baggage_state'] ?? '')));
+            if ($officialBelt) continue;
             if (!empty($row['actual_arrival']) || preg_match('/aterr|landed|tierra|entrega/', $status)) {
                 $row['belt_attention'] = 'critical';
                 $row['belt_attention_reason'] = 'El vuelo ya está en tierra y Aena todavía no confirma cinta.';
