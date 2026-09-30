@@ -61,6 +61,10 @@
     return `${sign}${absolute} min · ${sign}${hours} h${remainder ? ` ${remainder} min` : ''}`;
   };
   const effectiveArrival = f => f.actual_arrival || f.eta || f.effective_arrival || f.scheduled_arrival;
+  const codeshareCodes = flight => [...new Set(String(flight?.codes || '')
+    .split(/\s*\/\s*|\s*,\s*/)
+    .map(code => code.trim().toUpperCase())
+    .filter(code => code && code !== String(flight?.physical_flight || '').trim().toUpperCase()))];
   const minuteOfDay = value => {
     const match = String(value || '').match(/(?:T|\s)(\d{2}):(\d{2})/);
     return match ? Number(match[1]) * 60 + Number(match[2]) : null;
@@ -544,10 +548,12 @@
       const confirmedBelt = f.source === 'aena' && f.belt ? beltPosition(f) : null;
       const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
       const beltClass = ['7','8'].includes(String(f.belt)) || ['7','8'].includes(String(f.predicted_belt)) || f.belt_attention ? 'danger' : '';
+      const sharedCodes = codeshareCodes(f);
       return `<article class="canary-card ${past?'past':''} ${beltClass}" data-flight-id="${Number(f.id)}" tabindex="0">
         <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${esc(f.indicator)}</span></div>
         <div class="canary-card-time">${time(effectiveArrival(f))}</div>
         <div class="canary-flight-code">${esc(f.physical_flight)}</div>
+        ${sharedCodes.length ? `<div class="canary-codeshare"><span>Compartido:</span> <strong>${sharedCodes.map(esc).join(' · ')}</strong></div>` : ''}
         <div class="canary-belts">
           <div class="canary-belt-line canary-belt-predicted"><span>Predicción matriz</span><b>${esc(predictedBelt || 'sin predicción')}</b><small>${predictedBelt ? `${Number(f.prediction_score || 0)}% · ${esc(f.prediction_confidence || 'baja')}` : 'histórico insuficiente'}</small></div>
           <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Confirmada Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b><small>${confirmedBelt ? 'dato oficial prevalente' : 'todavía no publicada'}</small></div>

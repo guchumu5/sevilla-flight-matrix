@@ -42,6 +42,9 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .canary-card-time { margin:.15rem 0; color:#ffd47d; font-size:1.45rem; font-weight:850; }
 .canary-card span,.canary-card small { color:var(--muted); font-size:.78rem; }
 .canary-flight-code { color:#dbeaff; font-size:.76rem; font-weight:800; }
+.canary-codeshare { margin-top:.12rem; color:#ffd47d; font-size:.72rem; line-height:1.25; }
+.canary-codeshare span { color:var(--muted); }
+.canary-codeshare strong { color:#ffd47d; font-weight:850; letter-spacing:.02em; }
 .canary-belts { display:grid; grid-template-columns:1fr 1fr; gap:.4rem; margin-top:.55rem; }
 .canary-belt-line { min-width:0; padding:.48rem; border:1px solid rgba(255,255,255,.1); border-radius:9px; background:rgba(5,14,24,.5); }
 .canary-belt-line span,.canary-belt-line b,.canary-belt-line small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
