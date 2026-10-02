@@ -37,6 +37,7 @@
     metricFlights: document.querySelector('#metricFlights'), metricOrange: document.querySelector('#metricOrange'),
     metricRed: document.querySelector('#metricRed'), metricHall: document.querySelector('#metricHall'),
     predictionSummary: document.querySelector('#predictionSummary'), predictionAccuracy: document.querySelector('#predictionAccuracy'),
+    predictionExactAccuracy: document.querySelector('#predictionExactAccuracy'),
     predictionCanaryAccuracy: document.querySelector('#predictionCanaryAccuracy'), predictionEvaluated: document.querySelector('#predictionEvaluated'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
   };
@@ -150,7 +151,9 @@
     if (!flight.predicted_belt) return '';
     const evaluated = flight.prediction_correct === null || flight.prediction_correct === undefined
       ? 'pendiente de Aena'
-      : Number(flight.prediction_correct) === 1 ? 'acertó' : `no coincidió con ${beltPosition(flight)}`;
+      : Number(flight.prediction_exact) === 1 ? 'acierto exacto'
+      : Number(flight.prediction_correct) === 1 ? `acierto de bloque; cinta oficial ${beltPosition(flight)}`
+      : `fallo de bloque; cinta oficial ${beltPosition(flight)}`;
     const danger = ['7','8'].includes(String(flight.predicted_belt));
     return `<span class="prediction-belt ${danger?'prediction-red':''}" title="Modelo histórico · ${esc(evaluated)}">
       ◎ predicción ${esc(flight.predicted_hall || '?')}/${esc(flight.predicted_belt)} · ${Number(flight.prediction_score || 0)}% · ${esc(flight.prediction_confidence || 'baja')}
@@ -443,6 +446,7 @@
     els.predictionSummary.classList.toggle('d-none', evaluated === 0 && !state.flights.some(f => f.predicted_belt));
     els.predictionAccuracy.textContent = evaluated ? `${Number(summary.accuracy_percentage || 0).toLocaleString('es-ES')}%` : 'Sin muestra';
     els.predictionCanaryAccuracy.textContent = canaryEvaluated ? `${Number(summary.canary_accuracy_percentage || 0).toLocaleString('es-ES')}%` : 'Sin muestra';
+    els.predictionExactAccuracy.textContent = evaluated ? `${Number(summary.exact_accuracy_percentage || 0).toLocaleString('es-ES')}%` : 'Sin muestra';
     els.predictionEvaluated.textContent = evaluated.toLocaleString('es-ES');
   }
 
@@ -1120,7 +1124,13 @@
       </div>
       ${flight.predicted_belt ? `<aside class="prediction-detail ${['7','8'].includes(String(flight.predicted_belt))?'prediction-detail-red':''}">
         <div><strong>Predicción previa ${esc(flight.predicted_hall || '?')}/${esc(flight.predicted_belt)}</strong><span>${Number(flight.prediction_score || 0)}% · confianza ${esc(flight.prediction_confidence || 'baja')}</span></div>
-        <p>${flight.prediction_correct === null || flight.prediction_correct === undefined ? 'Pendiente de contrastar con Aena.' : Number(flight.prediction_correct)===1 ? '✓ Coincidió con la cinta oficial.' : `No coincidió; Aena publicó ${beltPosition(flight)}.`}</p>
+        <p>${flight.prediction_correct === null || flight.prediction_correct === undefined
+          ? 'Pendiente de contrastar con Aena.'
+          : Number(flight.prediction_exact)===1
+            ? '✓ Acierto exacto: coincidieron el bloque y la cinta oficial.'
+            : Number(flight.prediction_correct)===1
+              ? `✓ Acierto operativo de bloque; la cinta concreta fue distinta dentro del mismo bloque y Aena publicó ${beltPosition(flight)}.`
+              : `✕ Fallo crítico de bloque; la predicción quedó en el bloque ${Number(flight.predicted_belt)<=6?'1–6':'7–8'} y Aena publicó ${beltPosition(flight)}.`}</p>
       </aside>` : ''}
       ${beltDistributionMarkup(flight.belt_distribution_flight, `Mismo vuelo ${flight.physical_flight}`, flight.belt)}
       ${Number(flight.is_canary)===1 ? beltDistributionMarkup(flight.belt_distribution_origin, `Origen canario ${flight.origin_name}`, flight.belt) : ''}

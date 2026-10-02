@@ -88,9 +88,19 @@ final class PredictionEngine
 
         $whereDate = $beforeDate ? ' AND f.flight_date<=:before_date' : '';
         $sql = "SELECT COUNT(*) AS evaluated,
-                       SUM(CASE WHEN CAST(p.predicted_belt AS CHAR)=CAST(actual.belt AS CHAR) THEN 1 ELSE 0 END) AS correct,
+                       SUM(CASE WHEN (CAST(RIGHT(TRIM(p.predicted_belt),1) AS UNSIGNED) BETWEEN 1 AND 6
+                                           AND CAST(RIGHT(TRIM(actual.belt),1) AS UNSIGNED) BETWEEN 1 AND 6)
+                                          OR (CAST(RIGHT(TRIM(p.predicted_belt),1) AS UNSIGNED) BETWEEN 7 AND 8
+                                           AND CAST(RIGHT(TRIM(actual.belt),1) AS UNSIGNED) BETWEEN 7 AND 8)
+                                      THEN 1 ELSE 0 END) AS correct,
+                       SUM(CASE WHEN CAST(p.predicted_belt AS CHAR)=CAST(actual.belt AS CHAR) THEN 1 ELSE 0 END) AS exact_correct,
                        SUM(CASE WHEN f.is_canary=1 THEN 1 ELSE 0 END) AS canary_evaluated,
-                       SUM(CASE WHEN f.is_canary=1 AND CAST(p.predicted_belt AS CHAR)=CAST(actual.belt AS CHAR) THEN 1 ELSE 0 END) AS canary_correct
+                       SUM(CASE WHEN f.is_canary=1 AND ((CAST(RIGHT(TRIM(p.predicted_belt),1) AS UNSIGNED) BETWEEN 1 AND 6
+                                                        AND CAST(RIGHT(TRIM(actual.belt),1) AS UNSIGNED) BETWEEN 1 AND 6)
+                                                       OR (CAST(RIGHT(TRIM(p.predicted_belt),1) AS UNSIGNED) BETWEEN 7 AND 8
+                                                        AND CAST(RIGHT(TRIM(actual.belt),1) AS UNSIGNED) BETWEEN 7 AND 8))
+                                THEN 1 ELSE 0 END) AS canary_correct,
+                       SUM(CASE WHEN f.is_canary=1 AND CAST(p.predicted_belt AS CHAR)=CAST(actual.belt AS CHAR) THEN 1 ELSE 0 END) AS canary_exact_correct
                 FROM predictions p
                 INNER JOIN flights f ON f.id=p.flight_id
                 INNER JOIN observations actual ON actual.id=(
@@ -106,16 +116,22 @@ final class PredictionEngine
 
         $evaluated = (int)($row['evaluated'] ?? 0);
         $correct = (int)($row['correct'] ?? 0);
+        $exactCorrect = (int)($row['exact_correct'] ?? 0);
         $canaryEvaluated = (int)($row['canary_evaluated'] ?? 0);
         $canaryCorrect = (int)($row['canary_correct'] ?? 0);
+        $canaryExactCorrect = (int)($row['canary_exact_correct'] ?? 0);
         return [
             'evaluated' => $evaluated,
             'correct' => $correct,
             'accuracy_percentage' => $evaluated ? round(($correct / $evaluated) * 100, 1) : null,
+            'exact_correct' => $exactCorrect,
+            'exact_accuracy_percentage' => $evaluated ? round(($exactCorrect / $evaluated) * 100, 1) : null,
             'canary_evaluated' => $canaryEvaluated,
             'canary_correct' => $canaryCorrect,
             'canary_accuracy_percentage' => $canaryEvaluated ? round(($canaryCorrect / $canaryEvaluated) * 100, 1) : null,
-            'method' => 'historical_weighted_v1',
+            'canary_exact_correct' => $canaryExactCorrect,
+            'canary_exact_accuracy_percentage' => $canaryEvaluated ? round(($canaryExactCorrect / $canaryEvaluated) * 100, 1) : null,
+            'method' => 'historical_weighted_v2_blocks',
         ];
     }
 
@@ -201,8 +217,10 @@ final class PredictionEngine
     {
         return [
             'evaluated' => 0, 'correct' => 0, 'accuracy_percentage' => null,
+            'exact_correct' => 0, 'exact_accuracy_percentage' => null,
             'canary_evaluated' => 0, 'canary_correct' => 0,
-            'canary_accuracy_percentage' => null, 'method' => 'historical_weighted_v1',
+            'canary_accuracy_percentage' => null, 'canary_exact_correct' => 0,
+            'canary_exact_accuracy_percentage' => null, 'method' => 'historical_weighted_v2_blocks',
         ];
     }
 }

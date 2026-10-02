@@ -87,8 +87,9 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
   <section class="prediction-summary panel mb-3 d-none" id="predictionSummary" aria-live="polite">
     <div><span class="prediction-orb">◎</span><div><strong>Cerebro predictivo</strong><small>Predicción guardada antes de la cinta oficial; Aena prevalece siempre.</small></div></div>
     <div class="prediction-summary-values">
-      <span><small>Acierto general</small><strong id="predictionAccuracy">—</strong></span>
-      <span><small>Canarias</small><strong id="predictionCanaryAccuracy">—</strong></span>
+      <span><small>Bloque general</small><strong id="predictionAccuracy">—</strong></span>
+      <span><small>Bloque Canarias</small><strong id="predictionCanaryAccuracy">—</strong></span>
+      <span><small>Cinta exacta</small><strong id="predictionExactAccuracy">—</strong></span>
       <span><small>Evaluadas</small><strong id="predictionEvaluated">0</strong></span>
     </div>
   </section>

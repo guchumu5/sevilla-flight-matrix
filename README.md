@@ -482,6 +482,11 @@ La versión 1.16.5 muestra expresamente en las tarjetas prioritarias de Canarias
 los códigos compartidos asociados al vuelo físico, sin recrearlos como vuelos
 independientes.
 
+La versión 1.17.0 evalúa el cerebro predictivo en dos bloques operativos: cintas
+1–6 y cintas 7–8. Un movimiento dentro del mismo bloque cuenta como acierto
+operativo; el acierto de cinta exacta se conserva como métrica secundaria y un
+salto entre bloques se identifica como fallo crítico.
+
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y
 proximidad horaria. El registro y sus evidencias no se borran de la base.

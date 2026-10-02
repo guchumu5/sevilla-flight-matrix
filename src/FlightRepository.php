@@ -73,7 +73,13 @@ SELECT
     latest_prediction.features AS prediction_features,
     CASE WHEN latest_prediction.id IS NULL OR latest_aena.belt IS NULL THEN NULL
          WHEN CAST(latest_prediction.predicted_belt AS CHAR)=CAST(latest_aena.belt AS CHAR) THEN 1
-         ELSE 0 END AS prediction_correct
+         ELSE 0 END AS prediction_exact,
+    CASE WHEN latest_prediction.id IS NULL OR latest_aena.belt IS NULL THEN NULL
+         WHEN (CAST(RIGHT(TRIM(latest_prediction.predicted_belt),1) AS UNSIGNED) BETWEEN 1 AND 6
+               AND CAST(RIGHT(TRIM(latest_aena.belt),1) AS UNSIGNED) BETWEEN 1 AND 6)
+           OR (CAST(RIGHT(TRIM(latest_prediction.predicted_belt),1) AS UNSIGNED) BETWEEN 7 AND 8
+               AND CAST(RIGHT(TRIM(latest_aena.belt),1) AS UNSIGNED) BETWEEN 7 AND 8)
+         THEN 1 ELSE 0 END AS prediction_correct
 FROM flights f
 LEFT JOIN observations latest_aena ON latest_aena.id = (
     SELECT o.id FROM observations o
@@ -154,6 +160,8 @@ SQL;
             }
             $row['prediction_correct'] = $row['prediction_correct'] === null
                 ? null : (int)$row['prediction_correct'];
+            $row['prediction_exact'] = $row['prediction_exact'] === null
+                ? null : (int)$row['prediction_exact'];
         }
         unset($row);
         $this->attachBeltAverages($rows, $date);
