@@ -1169,7 +1169,7 @@
       if (status) {
         status.className = 'd-block mt-2 text-warning';
         status.textContent = data.queued
-          ? 'Datos solicitados al pulsar. Se actualizarán en el próximo ciclo (máximo aproximado: 5 min).'
+          ? 'Datos solicitados al pulsar. Se actualizarán en el próximo ciclo (normalmente 5–10 min; GitHub puede demorarlo).'
           : 'La lectura ya estaba solicitada; no se repetirá durante 5 min.';
       }
     } catch (error) {
