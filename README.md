@@ -541,6 +541,17 @@ Canarias**. El proceso de entrega debe ejecutarse cada minuto en Plesk:
 La web debe servirse por HTTPS y `storage/keys/` debe ser escribible para que
 PHP pueda conservar la identidad VAPID del servidor.
 
+La versión 1.20.1 incorpora en **Centro de procesos** el botón **Despachar
+avisos**. Ejecuta exactamente el mismo servicio que `bin/dispatch-push.php` y
+muestra desde la web cuántos avisos fueron enviados, fallaron o quedaron
+pendientes. El diagnóstico comprueba además las tablas `push_subscriptions`,
+`flight_watches` y `push_outbox`. Si el cron falla, ejecútalo temporalmente sin
+redirección para que Plesk muestre el motivo:
+
+```bash
+/opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/dispatch-push.php
+```
+
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y
 proximidad horaria. El registro y sus evidencias no se borran de la base.

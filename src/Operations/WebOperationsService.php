@@ -9,12 +9,13 @@ use SevillaMatrix\Api\AirLabsClient;
 use SevillaMatrix\Api\AviationWeatherClient;
 use SevillaMatrix\Api\OpenSkyClient;
 use SevillaMatrix\Env;
+use SevillaMatrix\Notifications\WebPushService;
 use SevillaMatrix\Sync\FlightReconciliationService;
 use Throwable;
 
 final class WebOperationsService
 {
-    private const ACTIONS = ['airlabs', 'opensky', 'weather', 'all'];
+    private const ACTIONS = ['airlabs', 'opensky', 'weather', 'push', 'all'];
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -23,7 +24,11 @@ final class WebOperationsService
     /** @return array<string,mixed> */
     public function status(): array
     {
-        $requiredTables = ['flights', 'observations', 'weather_observations', 'fetch_runs', 'sync_runs', 'flight_source_state', 'flight_events'];
+        $requiredTables = [
+            'flights', 'observations', 'weather_observations', 'fetch_runs',
+            'sync_runs', 'flight_source_state', 'flight_events',
+            'push_subscriptions', 'flight_watches', 'push_outbox',
+        ];
         $existing = [];
         $stmt = $this->pdo->query('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()');
         foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $table) {
@@ -291,8 +296,41 @@ final class WebOperationsService
             'airlabs' => $this->recordFetch('airlabs', fn(): array => $this->withLock('airlabs', fn(): array => $this->airLabs($this->clamp($limit, 1, 50)))),
             'opensky' => $this->recordFetch('opensky', fn(): array => $this->withLock('opensky', fn(): array => $this->openSky($this->clamp($limit, 1, 25)))),
             'weather' => $this->recordFetch('aviationweather', fn(): array => $this->withLock('weather', fn(): array => $this->weather())),
+            'push' => $this->dispatchPush(),
             'all' => $this->runAll($this->clamp($limit, 1, 10)),
         };
+    }
+
+    /** @return array<string,mixed> */
+    private function dispatchPush(): array
+    {
+        $required = ['push_subscriptions', 'flight_watches', 'push_outbox'];
+        $placeholders = implode(',', array_fill(0, count($required), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT table_name FROM information_schema.tables
+             WHERE table_schema=DATABASE() AND table_name IN ({$placeholders})"
+        );
+        $stmt->execute($required);
+        $existing = array_map('strval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        $missing = array_values(array_diff($required, $existing));
+        if ($missing !== []) {
+            throw new RuntimeException(
+                'Falta la actualización MySQL 20260929_005_push_watch. Tablas pendientes: ' . implode(', ', $missing)
+            );
+        }
+        $result = (new WebPushService($this->pdo))->dispatch(100);
+        return [
+            'ok' => true,
+            'useful' => ((int)$result['sent'] + (int)$result['failed']) > 0,
+            'action' => 'push',
+            'message' => sprintf(
+                'Web Push procesó la cola: %d enviados, %d fallidos y %d pendientes.',
+                (int)$result['sent'],
+                (int)$result['failed'],
+                (int)$result['queued']
+            ),
+            'result' => $result,
+        ];
     }
 
     /** @return array<string,mixed> */
