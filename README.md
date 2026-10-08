@@ -558,6 +558,13 @@ textos de `push_outbox` y el generador normaliza a `utf8mb4` los valores que se
 combinan con iconos. Esto evita el error MariaDB 1267 sin borrar suscripciones,
 vigilancias ni avisos pendientes.
 
+La versión 1.21.0 completa la carga bajo demanda dentro del panel lateral. Al
+abrir un vuelo se encola la lectura y la propia ficha consulta el resultado en
+segundo plano cada 30 segundos durante un máximo de 12 minutos. En cuanto llega
+una instantánea nueva, aparecen automáticamente aeronave, altitud, velocidad,
+distancia, duración y estado sin recargar la página. Al cerrar el panel o abrir
+otro vuelo se detiene la espera anterior.
+
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y
 proximidad horaria. El registro y sus evidencias no se borran de la base.

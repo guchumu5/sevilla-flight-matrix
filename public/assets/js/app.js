@@ -11,7 +11,7 @@
     scenePositions: new Map(), sceneRemovalTimers: new Map(), alertDate: null,
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
-    canaryWatchEnabled: false
+    canaryWatchEnabled: false, detailFlightId: null, flightAwarePollTimer: null
   };
   const CANARY_ALERT_DEFAULT_MS = 60_000;
   const CANARY_ALERT_QUEUED_MS = 30_000;
@@ -1156,8 +1156,62 @@
     </section>`;
   }
 
-  async function requestFlightAwareSnapshot(flightId) {
+  function stopFlightAwarePolling() {
+    if (state.flightAwarePollTimer) window.clearTimeout(state.flightAwarePollTimer);
+    state.flightAwarePollTimer = null;
+  }
+
+  async function pollFlightAwareSnapshot(flightId, baselineObservedAt, attempt = 1) {
+    if (Number(state.detailFlightId) !== Number(flightId)) return;
+    try {
+      const response = await fetch(`api/history.php?flight_id=${encodeURIComponent(flightId)}`, {cache:'no-store'});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'No se pudo comprobar la lectura.');
+      if (Number(state.detailFlightId) !== Number(flightId)) return;
+      const snapshot = payload.flightaware || null;
+      const observedAt = String(snapshot?.observed_at || '');
+      if (snapshot && observedAt && observedAt !== String(baselineObservedAt || '')) {
+        const target = els.detailBody.querySelector('[data-flightaware-snapshot]');
+        const status = els.detailBody.querySelector('[data-flightaware-request-status]');
+        if (target) target.innerHTML = flightAwareSnapshotMarkup(snapshot);
+        if (status) {
+          status.className = 'd-block mt-2 text-success';
+          status.textContent = `Datos del avión cargados automáticamente · ${dateTime(snapshot.observed_at)}.`;
+        }
+        stopFlightAwarePolling();
+        return;
+      }
+      if (attempt >= 24) {
+        const status = els.detailBody.querySelector('[data-flightaware-request-status]');
+        if (status) {
+          status.className = 'd-block mt-2 text-secondary';
+          status.textContent = snapshot
+            ? 'La lectura terminó sin publicar datos diferentes; se conserva la última ficha disponible.'
+            : 'FlightAware no publicó datos utilizables en esta ventana. Puedes mantener el panel abierto o intentarlo más tarde.';
+        }
+        stopFlightAwarePolling();
+        return;
+      }
+    } catch (error) {
+      if (attempt >= 24) {
+        const status = els.detailBody.querySelector('[data-flightaware-request-status]');
+        if (status) {
+          status.className = 'd-block mt-2 text-danger';
+          status.textContent = error.message || 'No se pudo actualizar la ficha del avión.';
+        }
+        stopFlightAwarePolling();
+        return;
+      }
+    }
+    state.flightAwarePollTimer = window.setTimeout(
+      () => pollFlightAwareSnapshot(flightId, baselineObservedAt, attempt + 1),
+      30_000
+    );
+  }
+
+  async function requestFlightAwareSnapshot(flightId, baselineObservedAt = null) {
     const status = els.detailBody.querySelector('[data-flightaware-request-status]');
+    stopFlightAwarePolling();
     try {
       const response = await fetch('api/flightaware.php', {
         method:'POST',
@@ -1168,10 +1222,14 @@
       if (!response.ok) throw new Error(data.error || 'No se pudo solicitar la lectura.');
       if (status) {
         status.className = 'd-block mt-2 text-warning';
-        status.textContent = data.queued
-          ? 'Datos solicitados al pulsar. Se actualizarán en el próximo ciclo (normalmente 5–10 min; GitHub puede demorarlo).'
-          : 'La lectura ya estaba solicitada; no se repetirá durante 5 min.';
+        status.innerHTML = `<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>${data.queued
+          ? 'Consultando los datos del avión. Esta ficha se completará automáticamente cuando lleguen.'
+          : 'La consulta ya estaba en marcha. Esta ficha se completará automáticamente.'}`;
       }
+      state.flightAwarePollTimer = window.setTimeout(
+        () => pollFlightAwareSnapshot(flightId, baselineObservedAt),
+        15_000
+      );
     } catch (error) {
       if (status) {
         status.className = 'd-block mt-2 text-danger';
@@ -1254,6 +1312,8 @@
   async function openDetail(id) {
     const flight = state.flights.find(f => Number(f.id) === Number(id));
     if (!flight) return;
+    stopFlightAwarePolling();
+    state.detailFlightId = Number(id);
     els.detailTitle.textContent = `${flight.physical_flight || 'Vuelo'} · ${flight.origin_name || ''}`;
     els.detailBody.innerHTML = '<div class="loading-state"><div class="spinner-border spinner-border-sm"></div></div>';
     bootstrap.Offcanvas.getOrCreateInstance('#flightDetail').show();
@@ -1261,6 +1321,7 @@
       const response = await fetch(`api/history.php?flight_id=${encodeURIComponent(id)}`, {cache:'no-store'});
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'No se pudo cargar el histórico.');
+      if (Number(state.detailFlightId) !== Number(id)) return;
       const summary = `<div class="detail-grid mb-4">
         <div class="detail-stat"><small>Programada</small><strong>${time(flight.scheduled_arrival)}</strong></div>
         <div class="detail-stat"><small>ETA / real</small><strong>${time(effectiveArrival(flight))}</strong></div>
@@ -1292,11 +1353,11 @@
       const watch = `<button class="btn btn-outline-warning w-100 mb-2" type="button" data-watch-flight="${Number(id)}" data-watching="0">🔔 Vigilar este vuelo</button>
         <p class="watch-explanation mb-3">Seguimiento Aena reforzado cada 5 min y avisos de despegue, ETA, cinta, incidencias, aterrizaje, equipaje y aproximadamente 40 min antes de llegar.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita únicamente al abrir este vuelo.</small></div>`;
-      els.detailBody.innerHTML = summary + watch + beltIntelligence(flight) + telemetrySummary(flight) + flightAwareSnapshotMarkup(payload.flightaware) + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
+      els.detailBody.innerHTML = summary + watch + beltIntelligence(flight) + telemetrySummary(flight) + `<div data-flightaware-snapshot>${flightAwareSnapshotMarkup(payload.flightaware)}</div>` + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
       const watchButton = els.detailBody.querySelector('[data-watch-flight]');
       watchButton?.addEventListener('click', () => watchFlight(id, watchButton).catch(error => window.alert(error.message)));
       renderWatchButton(id);
-      requestFlightAwareSnapshot(id);
+      requestFlightAwareSnapshot(id, payload.flightaware?.observed_at || null);
     } catch (error) {
       els.detailBody.innerHTML = `<div class="alert alert-danger">${esc(error.message)}</div>`;
     }
@@ -1320,6 +1381,10 @@
   document.addEventListener('click', event => {
     const button = event.target.closest('[data-open-flight]');
     if (button) openDetail(button.dataset.openFlight);
+  });
+  document.querySelector('#flightDetail')?.addEventListener('hidden.bs.offcanvas', () => {
+    state.detailFlightId = null;
+    stopFlightAwarePolling();
   });
   [els.hall,els.canary,els.secondary].forEach(el => el.addEventListener('change', () => {
     render();
