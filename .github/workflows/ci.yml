@@ -51,10 +51,12 @@ jobs:
       - name: Validar recolector Aena
         run: |
           node --check scripts/aena-collector.mjs
+          node --check scripts/flightaware-collector.mjs
           node --check public/assets/js/app.js
           node --check public/sw.js
           npm run test:aena-status
           npm run test:aena-identity
+          npm run test:flightaware
 
       - name: Crear esquema MySQL
         run: mysql -h127.0.0.1 -uroot -proot sevilla_matrix < database/schema.sql
@@ -74,6 +76,11 @@ jobs:
       - name: Comprobar vigilancia individual y Canarias global
         run: |
           php -r 'require "src/bootstrap.php"; $svc=new SevillaMatrix\Notifications\WebPushService(SevillaMatrix\Database::connection()); $sub=$svc->subscribe(["endpoint"=>"https://push.example.invalid/ci","keys"=>["p256dh"=>"ci-p256dh","auth"=>"ci-auth"]],"CI"); $token=$sub["device_token"]; $flight=(int)SevillaMatrix\Database::connection()->query("SELECT id FROM flights LIMIT 1")->fetchColumn(); $svc->setWatch($token,$flight,true); $svc->setCanaryWatch($token,true); $status=$svc->status($token,$flight); if (empty($status["watching"]) || empty($status["watch_canary_all"])) exit(1); $svc->setCanaryWatch($token,false); if (!empty($svc->status($token)["watch_canary_all"])) exit(1);'
+
+      - name: Comprobar instantánea FlightAware separada
+        run: |
+          mysql -h127.0.0.1 -uroot -proot sevilla_matrix -e 'INSERT INTO flightaware_snapshots (flight_id,observed_at,public_url,status_text,aircraft_type,speed_mph,distance_mi) SELECT id,NOW(),"https://www.flightaware.com/live/flight/VLG3051","EN ROUTE","Airbus A320 (A320)",448,895 FROM flights LIMIT 1'
+          php -r 'require "src/bootstrap.php"; $f=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-24")[0]??[]; if (($f["flightaware"]["speed_mph"]??null)!==448 && (int)($f["flightaware"]["speed_mph"]??0)!==448) exit(1);'
 
       - name: Comprobar idempotencia e historico
         run: |

@@ -1137,6 +1137,25 @@
     </section>`;
   }
 
+  function flightAwareSnapshotMarkup(snapshot) {
+    if (!snapshot) return '';
+    const value = (number, suffix) => isFiniteNumber(number)
+      ? `${Number(number).toLocaleString('es-ES')} ${suffix}` : '—';
+    return `<section class="telemetry-card flightaware-snapshot mb-4">
+      <header><div><strong>FlightAware web</strong><span class="badge text-bg-warning">secundario</span></div><time>${dateTime(snapshot.observed_at)}</time></header>
+      <p>${esc(snapshot.status_text || 'Estado público sin descripción')}</p>
+      <div class="telemetry-values">
+        <div><small>Aeronave</small><strong>${esc(snapshot.aircraft_type || '—')}</strong></div>
+        <div><small>Altitud visible</small><strong>${value(snapshot.altitude_ft,'ft')}</strong></div>
+        <div><small>Velocidad visible</small><strong>${value(snapshot.speed_mph,'mph')}</strong></div>
+        <div><small>Distancia</small><strong>${value(snapshot.distance_mi,'mi')}</strong></div>
+        <div><small>Duración</small><strong>${esc(snapshot.duration_text || '—')}</strong></div>
+        <div><small>Últimos hitos</small><strong>${esc(snapshot.arrival_text || snapshot.departure_text || '—')}</strong></div>
+      </div>
+      <small class="telemetry-note">Lectura limitada de la ficha pública. Puede faltar o retrasarse y nunca sustituye a Aena para hora, sala o cinta.</small>
+    </section>`;
+  }
+
   function propensityLabel(profile) {
     const labels = {
       historico_insuficiente:'Histórico insuficiente (<5)',
@@ -1249,7 +1268,7 @@
       const watch = `<button class="btn btn-outline-warning w-100 mb-2" type="button" data-watch-flight="${Number(id)}" data-watching="0">🔔 Vigilar este vuelo</button>
         <p class="watch-explanation mb-3">Seguimiento Aena reforzado cada 5 min y avisos de despegue, ETA, cinta, incidencias, aterrizaje, equipaje y aproximadamente 40 min antes de llegar.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small></div>`;
-      els.detailBody.innerHTML = summary + watch + beltIntelligence(flight) + telemetrySummary(flight) + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
+      els.detailBody.innerHTML = summary + watch + beltIntelligence(flight) + telemetrySummary(flight) + flightAwareSnapshotMarkup(payload.flightaware) + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
       const watchButton = els.detailBody.querySelector('[data-watch-flight]');
       watchButton?.addEventListener('click', () => watchFlight(id, watchButton).catch(error => window.alert(error.message)));
       renderWatchButton(id);

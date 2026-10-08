@@ -168,6 +168,7 @@ SQL;
         $this->attachBeltEvents($rows);
         $this->attachBeltAttention($rows);
         $this->attachTelemetryTrails($rows);
+        $this->attachFlightAwareSnapshots($rows);
         return $rows;
     }
 
@@ -435,6 +436,46 @@ SQL;
             $row['telemetry_trail'] = $trails[(int)$row['id']] ?? [];
         }
         unset($row);
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function attachFlightAwareSnapshots(array &$rows): void
+    {
+        foreach ($rows as &$row) $row['flightaware'] = null;
+        unset($row);
+        if (!$this->tableExists('flightaware_snapshots')) return;
+        $ids = array_map('intval', array_column($rows, 'id'));
+        if ($ids === []) return;
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT s.* FROM flightaware_snapshots s
+             WHERE s.flight_id IN ($placeholders)
+               AND s.id=(SELECT s2.id FROM flightaware_snapshots s2
+                         WHERE s2.flight_id=s.flight_id ORDER BY s2.observed_at DESC,s2.id DESC LIMIT 1)"
+        );
+        $stmt->execute($ids);
+        $indexed = [];
+        foreach ($stmt->fetchAll() as $snapshot) $indexed[(int)$snapshot['flight_id']] = $snapshot;
+        foreach ($rows as &$row) {
+            $row['flightaware'] = $indexed[(int)$row['id']] ?? null;
+            if (empty($row['aircraft_type']) && !empty($row['flightaware']['aircraft_type'])) {
+                $row['aircraft_type'] = $row['flightaware']['aircraft_type'];
+            }
+        }
+        unset($row);
+    }
+
+    public function flightAwareSnapshot(int $flightId): ?array
+    {
+        if (!$this->tableExists('flightaware_snapshots')) return null;
+        $stmt = $this->pdo->prepare(
+            'SELECT id,flight_id,observed_at,public_url,status_text,aircraft_type,altitude_ft,
+                    speed_mph,distance_mi,duration_text,departure_text,arrival_text
+             FROM flightaware_snapshots WHERE flight_id=? ORDER BY observed_at DESC,id DESC LIMIT 1'
+        );
+        $stmt->execute([$flightId]);
+        $row = $stmt->fetch();
+        return is_array($row) ? $row : null;
     }
 
     public function history(int $flightId): array

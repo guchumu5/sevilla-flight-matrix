@@ -71,6 +71,10 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .flightaware-detail { display:grid; gap:.35rem; }
 .flightaware-detail .flightaware-link { width:100%; }
 .flightaware-detail small { color:var(--muted); line-height:1.35; }
+.flightaware-snapshot { border-color:rgba(255,181,71,.42); }
+.flightaware-snapshot > header { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.65rem .75rem; border-bottom:1px solid var(--border); background:rgba(255,181,71,.08); }
+.flightaware-snapshot > header div { display:flex; align-items:center; gap:.45rem; }.flightaware-snapshot > header time { color:var(--muted); font-size:.68rem; }
+.flightaware-snapshot > p { margin:0; padding:.6rem .75rem 0; color:#ffd78b; font-size:.78rem; font-weight:800; }
 .canary-empty { width:100%; padding:.65rem; color:var(--muted); text-align:center; }
 .watch-explanation { color:var(--muted); font-size:.72rem; line-height:1.4; }
 .canary-alert-stack { position:fixed; top:76px; right:1rem; z-index:1095; width:min(390px,calc(100vw - 2rem)); }

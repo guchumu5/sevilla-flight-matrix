@@ -239,10 +239,12 @@ cinta y estado.
 
 Cada tarjeta prioritaria y cada ficha de vuelo incluyen un enlace directo al
 mapa público de FlightAware. Allí pueden consultarse tipo, velocidad, altitud,
-distancia y fotografías cuando FlightAware los publique. La página pública no
-se utiliza como una API ni se raspa. Para una futura ingesta estructurada se ha
-reservado `FLIGHTAWARE_AEROAPI_KEY` en `.env`; activarla requerirá contratar
-AeroAPI y controlar su coste por consulta.
+distancia y fotografías cuando FlightAware los publique. Además existe un
+lector web experimental, limitado a vuelos vigilados y datos que la ficha
+muestre sin iniciar sesión; no accede a endpoints internos ni intenta eludir
+bloqueos. Para una futura ingesta oficial se ha reservado
+`FLIGHTAWARE_AEROAPI_KEY` en `.env`; activarla requerirá AeroAPI y controlar su
+coste por consulta.
 
 Una cinta comunicada por AirLabs se conserva y aparece en la cronología como
 provisional, incluso si el proveedor no informa la sala. Si discrepa de Aena no
@@ -505,6 +507,19 @@ cintas, incidencias y fases operativas aunque el tablero esté cerrado; los
 vuelos vigilados individualmente reciben además un único recordatorio unos 40
 minutos antes de su llegada. Las tarjetas muestran juntas la hora programada,
 la llegada prevista o real y su desviación firmada (`+30 min`, `−20 min`).
+
+La versión 1.19.0 añade un lector experimental de la ficha pública de
+FlightAware sin clave API. Se limita a un máximo de ocho vuelos próximos que
+estén vigilados individualmente o cubiertos por los avisos globales de
+Canarias, consulta cada diez minutos y guarda únicamente los campos visibles:
+estado, tipo, altitud, velocidad, distancia, duración y últimos hitos. Las
+lecturas repetidas no se duplican. No accede a datos premium, no intenta
+resolver bloqueos y cualquier error de una ficha se convierte en aviso del
+workflow sin detener Aena, AirLabs, OpenSky ni las notificaciones. Para usarlo,
+aplica en **Actualizar MySQL** el paquete
+`20261008_007_flightaware_web`; después el workflow
+**FlightAware vuelos vigilados** funciona con el mismo secreto
+`MATRIX_INGEST_TOKEN`.
 
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y

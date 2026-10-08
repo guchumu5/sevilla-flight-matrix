@@ -4,6 +4,8 @@
   "type": "module",
   "scripts": {
     "check:aena": "node --check scripts/aena-collector.mjs",
+    "check:flightaware": "node --check scripts/flightaware-collector.mjs",
+    "test:flightaware": "node scripts/flightaware-parser.test.mjs",
     "test:aena-status": "node scripts/aena-status.test.mjs",
     "test:aena-identity": "node scripts/aena-flight-identity.test.mjs"
   },
