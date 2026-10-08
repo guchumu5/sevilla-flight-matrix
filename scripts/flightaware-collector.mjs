@@ -30,7 +30,7 @@ if (!control.configured) {
 }
 const flights = Array.isArray(control.flights) ? control.flights.slice(0,8) : [];
 if (!flights.length) {
-  console.log('Sin vuelos vigilados próximos para consultar en FlightAware.');
+  console.log('Sin lecturas FlightAware solicitadas desde la aplicación.');
   process.exit(0);
 }
 

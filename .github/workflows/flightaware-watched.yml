@@ -2,7 +2,7 @@ name: FlightAware vuelos vigilados
 
 on:
   schedule:
-    - cron: '3,13,23,33,43,53 * * * *'
+    - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
   workflow_dispatch:
 
 permissions:
@@ -24,7 +24,22 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - run: npm install --no-audit --no-fund
-      - run: npx playwright install --with-deps chromium
-      - name: Leer fichas públicas vigiladas
+      - name: Comprobar si la app solicitó una lectura
+        id: queue
+        shell: bash
+        run: |
+          curl --fail --silent --show-error \
+            -H "Authorization: Bearer ${MATRIX_INGEST_TOKEN}" \
+            -H 'Accept: application/json' \
+            "${MATRIX_FLIGHTAWARE_URL}" > "${RUNNER_TEMP}/flightaware-queue.json"
+          node -e "const d=JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/flightaware-queue.json','utf8')); if(!d.ok) throw new Error(d.error||'Respuesta de cola no válida'); require('fs').appendFileSync(process.env.GITHUB_OUTPUT,'pending='+(Array.isArray(d.flights)&&d.flights.length>0?'true':'false')+'\n')"
+      - if: steps.queue.outputs.pending == 'true'
+        run: npm install --no-audit --no-fund
+      - if: steps.queue.outputs.pending == 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Leer fichas públicas solicitadas desde la app
+        if: steps.queue.outputs.pending == 'true'
         run: node scripts/flightaware-collector.mjs
+      - name: Cola vacía
+        if: steps.queue.outputs.pending != 'true'
+        run: echo 'Sin lecturas FlightAware solicitadas desde la aplicación.'

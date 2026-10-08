@@ -1156,6 +1156,30 @@
     </section>`;
   }
 
+  async function requestFlightAwareSnapshot(flightId) {
+    const status = els.detailBody.querySelector('[data-flightaware-request-status]');
+    try {
+      const response = await fetch('api/flightaware.php', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({action:'request',flight_id:Number(flightId)})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'No se pudo solicitar la lectura.');
+      if (status) {
+        status.className = 'd-block mt-2 text-warning';
+        status.textContent = data.queued
+          ? 'Datos solicitados al pulsar. Se actualizarán en el próximo ciclo (máximo aproximado: 5 min).'
+          : 'La lectura ya estaba solicitada; no se repetirá durante 5 min.';
+      }
+    } catch (error) {
+      if (status) {
+        status.className = 'd-block mt-2 text-danger';
+        status.textContent = error.message || 'No se pudo solicitar la lectura FlightAware.';
+      }
+    }
+  }
+
   function propensityLabel(profile) {
     const labels = {
       historico_insuficiente:'Histórico insuficiente (<5)',
@@ -1267,11 +1291,12 @@
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
       const watch = `<button class="btn btn-outline-warning w-100 mb-2" type="button" data-watch-flight="${Number(id)}" data-watching="0">🔔 Vigilar este vuelo</button>
         <p class="watch-explanation mb-3">Seguimiento Aena reforzado cada 5 min y avisos de despegue, ETA, cinta, incidencias, aterrizaje, equipaje y aproximadamente 40 min antes de llegar.</p>
-        <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small></div>`;
+        <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita únicamente al abrir este vuelo.</small></div>`;
       els.detailBody.innerHTML = summary + watch + beltIntelligence(flight) + telemetrySummary(flight) + flightAwareSnapshotMarkup(payload.flightaware) + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
       const watchButton = els.detailBody.querySelector('[data-watch-flight]');
       watchButton?.addEventListener('click', () => watchFlight(id, watchButton).catch(error => window.alert(error.message)));
       renderWatchButton(id);
+      requestFlightAwareSnapshot(id);
     } catch (error) {
       els.detailBody.innerHTML = `<div class="alert alert-danger">${esc(error.message)}</div>`;
     }

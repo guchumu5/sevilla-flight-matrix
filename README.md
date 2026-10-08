@@ -521,6 +521,26 @@ aplica en **Actualizar MySQL** el paquete
 **FlightAware vuelos vigilados** funciona con el mismo secreto
 `MATRIX_INGEST_TOKEN`.
 
+La versión 1.20.0 cambia ese lector a un modelo estrictamente bajo demanda.
+FlightAware no se abre de forma periódica para toda la vigilancia: al pulsar
+un avión o vuelo, la web encola una lectura con una limitación de una solicitud
+por vuelo cada cinco minutos. El workflow comprueba la cola cada cinco minutos
+y no inicia Chromium si está vacía. Aplica también el paquete MySQL
+`20261008_008_flightaware_on_demand`; no requiere una clave API de FlightAware.
+
+Los avisos del sistema son Web Push reales y pueden aparecer con la web
+cerrada. En Android se autorizan desde Chrome/Edge/Firefox. En iPhone/iPad hay
+que abrir la URL directamente en Safari, usar **Compartir → Añadir a pantalla
+de inicio**, abrir la app instalada y activar **Vigilar este vuelo** o **Avisos
+Canarias**. El proceso de entrega debe ejecutarse cada minuto en Plesk:
+
+```cron
+* * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/dispatch-push.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/push.log 2>&1
+```
+
+La web debe servirse por HTTPS y `storage/keys/` debe ser escribible para que
+PHP pueda conservar la identidad VAPID del servidor.
+
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y
 proximidad horaria. El registro y sus evidencias no se borran de la base.
