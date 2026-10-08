@@ -22,6 +22,11 @@ try {
         $service->setWatch((string)($input['device_token'] ?? ''), (int)($input['flight_id'] ?? 0), (bool)($input['enabled'] ?? false));
         Response::json(['ok' => true]);
     }
+    if ($action === 'watch_canary_all') {
+        $enabled = (bool)($input['enabled'] ?? false);
+        $service->setCanaryWatch((string)($input['device_token'] ?? ''), $enabled);
+        Response::json(['ok' => true, 'watch_canary_all' => $enabled]);
+    }
     Response::json(['error' => 'Acción no permitida.'], 422);
 } catch (Throwable $error) {
     Response::json(['error' => $error->getMessage()], 500);

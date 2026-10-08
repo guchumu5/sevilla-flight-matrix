@@ -98,10 +98,10 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
     <header class="panel-header d-flex align-items-center justify-content-between gap-2">
       <div>
         <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias siempre visible</h2>
-        <p class="mb-0 text-secondary small">Todos los vuelos canarios del día, aunque filtres la tabla principal.</p>
+        <p class="mb-0 text-secondary small">Todos los vuelos canarios del día. «Activar avisos» cubre despegue, ETA, cinta, incidencias, aterrizaje y equipaje.</p>
       </div>
       <div class="d-flex align-items-center gap-2">
-        <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">Activar avisos</button>
+        <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>
         <span class="canary-watch-mark" aria-hidden="true">🌴</span>
       </div>
     </header>

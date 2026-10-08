@@ -183,14 +183,18 @@ nuevos (cinta, sala, ETA, cancelación, puerta, posición y equipaje) mientras l
 página permanezca abierta o en segundo plano. No repite eventos ya vistos.
 
 La actualización `20260929_005_push_watch` añade avisos Web Push reales. Tras
-aplicarla desde **Actualizar MySQL**, el botón **Activar avisos** registra el
-móvil, pero no añade vuelos automáticamente. En la ficha de cada vuelo debe
-pulsarse expresamente **Vigilar este vuelo**; solo esos vuelos generan avisos.
-Las alertas amarillas de Canarias dentro del tablero siguen siendo información
-visual, pero no crean notificaciones del sistema si el vuelo no está vigilado.
-La vigilancia móvil solo interrumpe en cinco hitos: **despega**, **asignación
-oficial de cinta**, **cambio oficial de cinta**, **aterriza** y **equipaje en la
-cinta**. El resto de cambios continúa guardado en el cerebro sin generar ruido.
+aplicarla desde **Actualizar MySQL**, existen dos niveles independientes:
+
+- **Vigilar este vuelo** refuerza su consulta Aena cada 5 minutos, avisa de sus
+  cambios operativos y genera una alerta aproximadamente 40 minutos antes de
+  la llegada para salir a recoger al pasajero.
+- **Activar avisos Canarias** suscribe el dispositivo a todos los vuelos de
+  LPA, TFN, TFS, ACE y FUE; el mismo botón permite desactivarlos.
+
+Los avisos incluyen despegue, publicación/cambio/retirada de cinta, ETA con
+adelanto o retraso, cambio de sala/puerta/posición, cancelación o retirada,
+aterrizaje e inicio/final de equipaje. Las variaciones de ETA inferiores a cinco
+minutos se conservan en el cerebro pero no generan ruido móvil.
 Para despachar la cola aunque la web esté cerrada, añade en Plesk:
 
 ```cron
@@ -232,6 +236,13 @@ incluye la cuota restante cuando OpenSky publica esa cabecera. AirLabs es una
 fuente secundaria y se recomienda ejecutarlo una vez por hora para conservar
 cuota. Las observaciones introducidas como Aena tienen prevalencia en sala,
 cinta y estado.
+
+Cada tarjeta prioritaria y cada ficha de vuelo incluyen un enlace directo al
+mapa público de FlightAware. Allí pueden consultarse tipo, velocidad, altitud,
+distancia y fotografías cuando FlightAware los publique. La página pública no
+se utiliza como una API ni se raspa. Para una futura ingesta estructurada se ha
+reservado `FLIGHTAWARE_AEROAPI_KEY` en `.env`; activarla requerirá contratar
+AeroAPI y controlar su coste por consulta.
 
 Una cinta comunicada por AirLabs se conserva y aparece en la cronología como
 provisional, incluso si el proveedor no informa la sala. Si discrepa de Aena no
@@ -486,6 +497,14 @@ La versión 1.17.0 evalúa el cerebro predictivo en dos bloques operativos: cint
 1–6 y cintas 7–8. Un movimiento dentro del mismo bloque cuenta como acierto
 operativo; el acierto de cinta exacta se conserva como métrica secundaria y un
 salto entre bloques se identifica como fallo crítico.
+
+La versión 1.18.0 convierte la vigilancia en una prioridad real. Los vuelos
+marcados y los vuelos canarios con avisos globales mantienen la comprobación
+Aena reforzada cada 5 minutos. Web Push comunica ETA, adelantos/retrasos,
+cintas, incidencias y fases operativas aunque el tablero esté cerrado; los
+vuelos vigilados individualmente reciben además un único recordatorio unos 40
+minutos antes de su llegada. Las tarjetas muestran juntas la hora programada,
+la llegada prevista o real y su desviación firmada (`+30 min`, `−20 min`).
 
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y

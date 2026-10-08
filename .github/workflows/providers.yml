@@ -2,7 +2,7 @@ name: Proveedores de respaldo
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
+    - cron: '*/5 * * * *'
     - cron: '7 * * * *'
   workflow_dispatch:
     inputs:
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   fast:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '*/10 * * * *'
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '*/5 * * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:

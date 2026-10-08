@@ -39,7 +39,13 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .canary-card:hover,.canary-card:focus { transform:translateY(-2px); border-color:var(--orange); outline:none; }
 .canary-card.past { opacity:.54; }
 .canary-card.danger { border-color:var(--red); box-shadow:inset 0 0 0 1px rgba(255,95,109,.26); }
-.canary-card-time { margin:.15rem 0; color:#ffd47d; font-size:1.45rem; font-weight:850; }
+.canary-card-timing { display:grid; grid-template-columns:1fr 1fr; gap:.4rem; margin:.45rem 0; }
+.canary-card-timing > span { display:grid; grid-template-columns:1fr auto; align-items:baseline; padding:.38rem .45rem; border:1px solid rgba(255,255,255,.1); border-radius:8px; background:rgba(5,14,24,.45); }
+.canary-card-timing small { grid-column:1/-1; text-transform:uppercase; letter-spacing:.04em; }
+.canary-card-timing b { color:#fff; font-size:1.12rem; }.canary-card-timing em { font-size:.68rem; font-style:normal; font-weight:900; }
+.flight-timing em.late,.canary-card-timing em.late,.upcoming-timing em.late { color:#ff8d98; }
+.flight-timing em.early,.canary-card-timing em.early,.upcoming-timing em.early { color:#75d3ff; }
+.flight-timing em.ontime,.canary-card-timing em.ontime,.upcoming-timing em.ontime { color:#78efbc; }
 .canary-card span,.canary-card small { color:var(--muted); font-size:.78rem; }
 .canary-flight-code { color:#dbeaff; font-size:.76rem; font-weight:800; }
 .canary-codeshare { margin-top:.12rem; color:#ffd47d; font-size:.72rem; line-height:1.25; }
@@ -57,7 +63,16 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .canary-important { margin-top:.5rem; padding:.45rem .5rem; border:1px solid var(--red); border-radius:8px; background:rgba(255,95,109,.13); }
 .canary-important b,.canary-important span { display:block; color:#ffc1c7; }.canary-important b { font-size:.66rem; letter-spacing:.06em; }.canary-important span { margin-top:.1rem; font-size:.68rem; }
 .canary-card .canary-proposal { display:block; margin-top:.45rem; color:#ffd47d; }
+.flightaware-link { display:inline-flex; align-items:center; justify-content:center; gap:.3rem; padding:.55rem .7rem; border:1px solid rgba(82,168,255,.55); border-radius:9px; background:rgba(20,76,122,.2); color:#9ed8ff; font-size:.78rem; font-weight:800; text-decoration:none; }
+.flightaware-link:hover,.flightaware-link:focus { border-color:#75c8ff; background:rgba(40,115,176,.3); color:#d9f2ff; }
+.flightaware-link-compact { margin-top:.55rem; padding:.3rem .5rem; font-size:.65rem; }
+.canary-card .flightaware-link { width:100%; }
+.upcoming-flight .flightaware-link { position:absolute; right:.5rem; bottom:.45rem; z-index:2; margin:0; }
+.flightaware-detail { display:grid; gap:.35rem; }
+.flightaware-detail .flightaware-link { width:100%; }
+.flightaware-detail small { color:var(--muted); line-height:1.35; }
 .canary-empty { width:100%; padding:.65rem; color:var(--muted); text-align:center; }
+.watch-explanation { color:var(--muted); font-size:.72rem; line-height:1.4; }
 .canary-alert-stack { position:fixed; top:76px; right:1rem; z-index:1095; width:min(390px,calc(100vw - 2rem)); }
 .canary-alert-toast { width:100%; margin-bottom:.65rem; border:2px solid var(--orange); background:#201b14; color:var(--text); box-shadow:0 12px 38px rgba(0,0,0,.48); }
 .canary-alert-toast .toast-header { border-bottom-color:#644e25; background:#332817; color:#ffe1a6; }.canary-alert-toast .toast-body b,.canary-alert-toast .toast-body span { display:block; }.canary-alert-toast .toast-body span { margin-top:.25rem; color:#f3e7d1; font-size:.78rem; }
@@ -70,7 +85,11 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .upcoming-plane { grid-area:plane; color:#80caff; font-size:1.25rem; }.upcoming-flight.canary .upcoming-plane { color:var(--orange); }
 .upcoming-flight > div { grid-area:data; min-width:0; }.upcoming-flight > div strong,.upcoming-flight > div b,.upcoming-flight > div small { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .upcoming-flight > div strong { color:#8fd3ff; font-size:.75rem; }.upcoming-flight > div b { font-size:.88rem; }.upcoming-flight > div small { color:var(--muted); font-size:.64rem; }
-.upcoming-flight time { grid-area:time; align-self:start; color:#fff; font-weight:900; }.upcoming-flight em { grid-area:belt; align-self:end; color:#78efbc; font-size:.7rem; font-style:normal; font-weight:800; }
+.upcoming-timing { grid-area:time!important; display:grid; gap:.15rem; min-width:84px; text-align:right; }
+.upcoming-timing > span { display:grid!important; grid-template-columns:1fr auto; gap:.22rem; align-items:baseline; overflow:visible!important; }
+.upcoming-timing small { grid-column:1/-1; color:var(--muted); font-size:.52rem; text-transform:uppercase; }
+.upcoming-timing b { color:#fff; font-size:.78rem; }.upcoming-timing em { font-size:.57rem; font-style:normal; font-weight:900; }
+.upcoming-flight > em { grid-area:belt; align-self:end; color:#78efbc; font-size:.7rem; font-style:normal; font-weight:800; }
 .upcoming-empty { padding:.8rem; color:var(--muted); }
 #flightMap { height:280px; background:#091625; }
 .leaflet-container { font-family:inherit; }

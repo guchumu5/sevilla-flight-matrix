@@ -10,7 +10,8 @@
     flights: [], loading: false, autoScrolledDate: null,
     scenePositions: new Map(), sceneRemovalTimers: new Map(), alertDate: null,
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
-    canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null
+    canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
+    canaryWatchEnabled: false
   };
   const CANARY_ALERT_DEFAULT_MS = 60_000;
   const CANARY_ALERT_QUEUED_MS = 30_000;
@@ -48,6 +49,16 @@
   const time = value => value ? new Intl.DateTimeFormat('es-ES',{hour:'2-digit',minute:'2-digit'}).format(parseDate(value)) : '—';
   const dateTime = value => value ? new Intl.DateTimeFormat('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(parseDate(value)) : '—';
   const signed = value => Number(value) > 0 ? `+${value} min` : `${value} min`;
+  const timingMarkup = (flight, className = 'flight-timing') => {
+    const deviation = Number(flight.deviation_minutes || 0);
+    const effective = effectiveArrival(flight);
+    const actual = Boolean(flight.actual_arrival);
+    const deviationClass = deviation > 0 ? 'late' : deviation < 0 ? 'early' : 'ontime';
+    return '<div class="' + esc(className) + '">' +
+      '<span><small>Previsto</small><b>' + time(flight.scheduled_arrival) + '</b></span>' +
+      '<span><small>' + (actual ? 'Llegó' : 'Llegará') + '</small><b>' + time(effective) + '</b>' +
+      '<em class="' + deviationClass + '">' + signed(deviation) + '</em></span></div>';
+  };
   const pressureText = p => ({baja:'Sin presión',media:'Presión media',alta:'Presión alta',muy_alta:'Presión muy alta'}[p] || p);
   const hallLoadText = p => ({baja:'Baja',media:'Media',alta:'Alta'}[p] || p);
   const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
@@ -159,6 +170,13 @@
       ◎ predicción ${esc(flight.predicted_hall || '?')}/${esc(flight.predicted_belt)} · ${Number(flight.prediction_score || 0)}% · ${esc(flight.prediction_confidence || 'baja')}
     </span>`;
   };
+  const flightAwareUrl = flight => {
+    const code = String(flight?.physical_flight || '').replace(/\s+/g, '').toUpperCase();
+    return code ? `https://www.flightaware.com/live/flight/${encodeURIComponent(code)}` : 'https://www.flightaware.com/live/';
+  };
+  const flightAwareLink = (flight, compact = false) => `<a class="flightaware-link ${compact?'flightaware-link-compact':''}"
+    data-flightaware-link href="${flightAwareUrl(flight)}" target="_blank" rel="noopener noreferrer"
+    title="Abrir mapa y ficha pública de ${esc(flight.physical_flight || 'este vuelo')} en FlightAware">🛰️ ${compact?'Mapa':'Mapa y ficha en FlightAware'} ↗</a>`;
   const canarySnapshotKey = flight => `${flight.flight_date || els.date.value}|${flight.physical_flight}|${flight.origin_iata}`;
   const alertValue = value => value === null || value === undefined || value === '' ? 'pendiente' : String(value);
 
@@ -297,8 +315,50 @@
       return;
     }
     const pushReady = Notification.permission === 'granted' && !!localStorage.getItem('matrix.pushDevice');
-    els.enableNotifications.textContent = pushReady ? 'Avisos móviles activos' : Notification.permission === 'granted' ? 'Completar avisos móviles' : 'Activar avisos';
-    els.enableNotifications.disabled = pushReady;
+    els.enableNotifications.classList.remove('d-none');
+    els.enableNotifications.className = state.canaryWatchEnabled
+      ? 'btn btn-sm btn-warning'
+      : 'btn btn-sm btn-outline-warning';
+    els.enableNotifications.textContent = state.canaryWatchEnabled
+      ? '🔔 Avisos Canarias activos · desactivar'
+      : pushReady ? '🔕 Activar avisos Canarias' : '🔔 Activar avisos Canarias';
+    els.enableNotifications.disabled = false;
+  }
+
+  async function refreshNotificationStatus() {
+    const token = localStorage.getItem('matrix.pushDevice');
+    if (!token) {
+      state.canaryWatchEnabled = false;
+      updateNotificationButton();
+      return;
+    }
+    try {
+      const response = await fetch('api/push.php?action=status&device_token=' + encodeURIComponent(token), {cache:'no-store'});
+      const data = await response.json();
+      if (response.ok) state.canaryWatchEnabled = Boolean(data.watch_canary_all);
+    } catch (_) {}
+    updateNotificationButton();
+  }
+
+  async function toggleCanaryNotifications() {
+    let token = localStorage.getItem('matrix.pushDevice');
+    const existingDevice = Boolean(token);
+    if (!token) token = await enablePushNotifications();
+    else await refreshNotificationStatus();
+    const enabled = existingDevice ? !state.canaryWatchEnabled : true;
+    els.enableNotifications.disabled = true;
+    try {
+      const response = await fetch('api/push.php', {
+        method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({action:'watch_canary_all',device_token:token,enabled})
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'No se pudo cambiar la vigilancia de Canarias.');
+      state.canaryWatchEnabled = Boolean(data.watch_canary_all);
+      updateNotificationButton();
+    } finally {
+      els.enableNotifications.disabled = false;
+    }
   }
 
   const urlBase64ToUint8Array = value => {
@@ -356,6 +416,7 @@
     if (!response.ok || !data.device_token) throw new Error(data.error || 'No se pudo registrar este móvil.');
     localStorage.setItem('matrix.notifications', 'on');
     localStorage.setItem('matrix.pushDevice', data.device_token);
+    state.canaryWatchEnabled = Boolean(data.watch_canary_all);
     registration.active?.postMessage({type:'matrix-device-token',token:data.device_token});
     return data.device_token;
   }
@@ -526,6 +587,12 @@
   }
 
   function bindFlightOpeners() {
+    document.querySelectorAll('[data-flightaware-link]').forEach(link => {
+      if (link.dataset.flightawareBound === '1') return;
+      link.dataset.flightawareBound = '1';
+      link.addEventListener('click', event => event.stopPropagation());
+      link.addEventListener('keydown', event => event.stopPropagation());
+    });
     document.querySelectorAll('.flight-row, .canary-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-belt.has-flight, .belt-change-card').forEach(item => {
       if (item.dataset.flightOpenerBound === '1') return;
       item.dataset.flightOpenerBound = '1';
@@ -555,7 +622,7 @@
       const sharedCodes = codeshareCodes(f);
       return `<article class="canary-card ${past?'past':''} ${beltClass}" data-flight-id="${Number(f.id)}" tabindex="0">
         <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${esc(f.indicator)}</span></div>
-        <div class="canary-card-time">${time(effectiveArrival(f))}</div>
+        ${timingMarkup(f, 'canary-card-timing')}
         <div class="canary-flight-code">${esc(f.physical_flight)}</div>
         ${sharedCodes.length ? `<div class="canary-codeshare"><span>Compartido:</span> <strong>${sharedCodes.map(esc).join(' · ')}</strong></div>` : ''}
         <div class="canary-belts">
@@ -564,6 +631,7 @@
         </div>
         ${f.belt_attention ? `<div class="canary-important"><b>IMPORTANTE</b><span>${esc(f.belt_attention_reason)}</span></div>` : ''}
         ${f.secondary_belt_state === 'candidate' ? `<small class="canary-proposal">● ${esc((f.secondary_belt_source||'API').toUpperCase())}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}</small>` : ''}
+        ${flightAwareLink(f, true)}
       </article>`;
     }).join('');
   }
@@ -586,8 +654,9 @@
         <span class="upcoming-order">${index + 1}</span>
         <span class="upcoming-plane" aria-hidden="true">✈</span>
         <div><strong>${esc(f.physical_flight)}</strong><b>${esc(f.origin_name)}</b><small>${esc(f.origin_iata)} · ${esc(f.aircraft_type || 'avión pendiente')}</small><small>μ cinta ${leadText(f.belt_lead_flight_average_minutes)} · n=${Number(f.belt_lead_flight_samples || 0)}</small></div>
-        <time>${time(effectiveArrival(f))}</time>
+        ${timingMarkup(f, 'upcoming-timing')}
         <em>${esc(officialBelt)}</em>
+        ${flightAwareLink(f, true)}
       </article>`;
     }).join('');
   }
@@ -1177,7 +1246,9 @@
           <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
         </article>`;
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
-      const watch = `<button class="btn btn-outline-warning w-100 mb-4" type="button" data-watch-flight="${Number(id)}" data-watching="0">🔔 Vigilar este vuelo</button>`;
+      const watch = `<button class="btn btn-outline-warning w-100 mb-2" type="button" data-watch-flight="${Number(id)}" data-watching="0">🔔 Vigilar este vuelo</button>
+        <p class="watch-explanation mb-3">Seguimiento Aena reforzado cada 5 min y avisos de despegue, ETA, cinta, incidencias, aterrizaje, equipaje y aproximadamente 40 min antes de llegar.</p>
+        <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small></div>`;
       els.detailBody.innerHTML = summary + watch + beltIntelligence(flight) + telemetrySummary(flight) + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
       const watchButton = els.detailBody.querySelector('[data-watch-flight]');
       watchButton?.addEventListener('click', () => watchFlight(id, watchButton).catch(error => window.alert(error.message)));
@@ -1226,7 +1297,7 @@
   els.fitMap.addEventListener('click', fitTrackedAircraft);
   if (els.enableNotifications) els.enableNotifications.addEventListener('click', async () => {
     try {
-      await enablePushNotifications();
+      await toggleCanaryNotifications();
     } catch (error) { window.alert(error.message); }
     updateNotificationButton();
   });
@@ -1250,6 +1321,7 @@
   });
 
   updateNotificationButton();
+  refreshNotificationStatus();
   updateSceneClock();
   setInterval(updateSceneClock, 1000);
   loadBoard(true);

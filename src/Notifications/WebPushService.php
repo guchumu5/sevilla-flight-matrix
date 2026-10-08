@@ -39,14 +39,24 @@ final class WebPushService
             'INSERT INTO push_subscriptions
              (device_token,endpoint,endpoint_hash,p256dh,auth_secret,watch_canary_all,active,user_agent)
              VALUES (:token,:endpoint,:hash,:p256dh,:auth,0,1,:agent)
-             ON DUPLICATE KEY UPDATE endpoint=VALUES(endpoint),p256dh=VALUES(p256dh),auth_secret=VALUES(auth_secret),watch_canary_all=0,active=1,user_agent=VALUES(user_agent),last_error=NULL'
+             ON DUPLICATE KEY UPDATE endpoint=VALUES(endpoint),p256dh=VALUES(p256dh),auth_secret=VALUES(auth_secret),active=1,user_agent=VALUES(user_agent),last_error=NULL'
         );
         $stmt->execute([
             'token' => $token, 'endpoint' => $endpoint, 'hash' => $hash,
             'p256dh' => substr($p256dh, 0, 180), 'auth' => substr($auth, 0, 100),
             'agent' => substr($userAgent, 0, 300),
         ]);
-        return ['device_token' => $token, 'watch_canary_all' => false];
+        $current = $this->status($token);
+        return ['device_token' => $token, 'watch_canary_all' => (bool)($current['watch_canary_all'] ?? false)];
+    }
+
+    public function setCanaryWatch(string $deviceToken, bool $enabled): void
+    {
+        $subscriptionId = $this->subscriptionId($deviceToken);
+        $stmt = $this->pdo->prepare(
+            'UPDATE push_subscriptions SET watch_canary_all=:enabled,updated_at=NOW() WHERE id=:id'
+        );
+        $stmt->execute(['enabled' => $enabled ? 1 : 0, 'id' => $subscriptionId]);
     }
 
     public function setWatch(string $deviceToken, int $flightId, bool $enabled): void
@@ -104,23 +114,29 @@ final class WebPushService
     /** @return array<string,int> */
     public function dispatch(int $limit = 50): array
     {
-        // La vigilancia móvil es deliberadamente breve: un aviso por cada hito
-        // que el pasajero necesita conocer. Los cambios de ETA, sala, puerta,
-        // telemetría y estados intermedios siguen en el histórico, pero no
-        // interrumpen al usuario con notificaciones.
-        $watched = "'departure_recorded','belt_assigned','belt_changed','arrival_recorded','baggage_started'";
+        $this->createArrivalReminders();
+        $watched = "'departure_recorded','belt_assigned','belt_changed','belt_removed','arrival_recorded'," .
+            "'baggage_started','eta_published','eta_changed','flight_cancelled','flight_missing'," .
+            "'flight_withdrawn','flight_reappeared','arrival_reminder','schedule_changed'," .
+            "'hall_changed','gate_changed','stand_changed','baggage_finished'";
         $this->pdo->exec(
             "UPDATE push_outbox o
              JOIN flight_events e ON e.id=o.flight_event_id
-             SET o.attempts=4,o.last_error='Descartado por la política de cinco hitos'
+             SET o.attempts=4,o.last_error='Descartado por la política de avisos operativos'
              WHERE o.pushed_at IS NULL AND o.attempts<4 AND e.event_type NOT IN ({$watched})"
         );
         $this->pdo->exec(
             "UPDATE push_outbox o
              JOIN flight_events e ON e.id=o.flight_event_id
+             JOIN flights f ON f.id=e.flight_id
+             JOIN push_subscriptions s ON s.id=o.subscription_id
              LEFT JOIN flight_watches w ON w.subscription_id=o.subscription_id AND w.flight_id=e.flight_id AND w.enabled=1
-             SET o.attempts=4,o.last_error='Descartado: el vuelo no está vigilado'
-             WHERE o.pushed_at IS NULL AND o.attempts<4 AND w.id IS NULL"
+             SET o.attempts=4,o.last_error='Descartado: sin vigilancia individual ni Canarias global'
+             WHERE o.pushed_at IS NULL AND o.attempts<4
+               AND NOT (
+                 (w.id IS NOT NULL AND e.detected_at>=w.updated_at)
+                 OR (s.watch_canary_all=1 AND f.is_canary=1 AND e.detected_at>=s.updated_at)
+               )"
         );
         $this->pdo->exec(
             "INSERT IGNORE INTO push_outbox (subscription_id,flight_event_id,title,body,target_url)
@@ -130,7 +146,28 @@ final class WebPushService
                       WHEN 'departure_recorded' THEN CONCAT('✈️ Despega',IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
                       WHEN 'belt_assigned' THEN CONCAT('🧳 Asignación de cinta · ',COALESCE(NULLIF(e.after_value,''),'pendiente de número'))
                       WHEN 'belt_changed' THEN CONCAT('⚠️ Cambio de cinta · ',COALESCE(NULLIF(e.before_value,''),'—'),' → ',COALESCE(NULLIF(e.after_value,''),'—'))
+                      WHEN 'belt_removed' THEN CONCAT('⚠️ Aena retiró la cinta ',COALESCE(NULLIF(e.before_value,''),'—'),' · nueva asignación pendiente')
+                      WHEN 'eta_published' THEN CONCAT(
+                        '⏱️ Nueva ETA ',DATE_FORMAT(e.after_value,'%H:%i'),' · ',
+                        IF(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value)>0,'+',''),
+                        TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value),' min sobre programada'
+                      )
+                      WHEN 'eta_changed' THEN CONCAT(
+                        '⏱️ ETA ',DATE_FORMAT(e.after_value,'%H:%i'),' · ',
+                        IF(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value)>0,'+',''),
+                        TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value),' min sobre programada',
+                        ' · antes ',DATE_FORMAT(e.before_value,'%H:%i')
+                      )
+                      WHEN 'schedule_changed' THEN CONCAT('🗓️ Cambio de programación · ',DATE_FORMAT(e.before_value,'%H:%i'),' → ',DATE_FORMAT(e.after_value,'%H:%i'))
+                      WHEN 'hall_changed' THEN CONCAT('⚠️ Cambio de sala · ',COALESCE(NULLIF(e.before_value,''),'—'),' → ',COALESCE(NULLIF(e.after_value,''),'—'))
+                      WHEN 'gate_changed' THEN CONCAT('🚪 Cambio de puerta · ',COALESCE(NULLIF(e.before_value,''),'—'),' → ',COALESCE(NULLIF(e.after_value,''),'—'))
+                      WHEN 'stand_changed' THEN CONCAT('🅿️ Cambio de posición · ',COALESCE(NULLIF(e.before_value,''),'—'),' → ',COALESCE(NULLIF(e.after_value,''),'—'))
                       WHEN 'arrival_recorded' THEN CONCAT('🛬 Aterriza',IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
+                      WHEN 'arrival_reminder' THEN CONCAT('🚗 Aviso 40 min · llegada prevista ',DATE_FORMAT(e.after_value,'%H:%i'))
+                      WHEN 'flight_cancelled' THEN '🚫 Vuelo cancelado por la fuente'
+                      WHEN 'flight_missing' THEN '⚠️ El vuelo dejó de aparecer temporalmente en la fuente'
+                      WHEN 'flight_withdrawn' THEN '🚫 Vuelo retirado tras varias comprobaciones'
+                      WHEN 'flight_reappeared' THEN '✅ El vuelo vuelve a aparecer en la fuente'
                       WHEN 'baggage_started' THEN CONCAT(
                         '🧳 En la cinta',
                         COALESCE((SELECT CONCAT(' · ',IF(NULLIF(o.hall,'') IS NULL,'',CONCAT(o.hall,'/')),o.belt)
@@ -138,6 +175,7 @@ final class WebPushService
                                   WHERE o.flight_id=f.id AND NULLIF(o.belt,'') IS NOT NULL
                                   ORDER BY (o.source='aena') DESC,o.observed_at DESC,o.id DESC LIMIT 1),'')
                       )
+                      WHEN 'baggage_finished' THEN '✅ Entrega de equipaje finalizada'
                     END,500),
                     CONCAT('index.php?date=',DATE_FORMAT(f.flight_date,'%Y-%m-%d'),'&flight=',f.id)
              FROM push_subscriptions s
@@ -145,8 +183,19 @@ final class WebPushService
              JOIN flights f ON f.id=e.flight_id
              LEFT JOIN flight_watches w ON w.subscription_id=s.id AND w.flight_id=f.id AND w.enabled=1
              WHERE s.active=1
-               AND w.id IS NOT NULL
-               AND (e.event_type IN ('departure_recorded','arrival_recorded') OR e.source='aena')"
+               AND (
+                 (w.id IS NOT NULL AND e.detected_at>=w.updated_at)
+                 OR (s.watch_canary_all=1 AND f.is_canary=1 AND e.detected_at>=s.updated_at)
+               )
+               AND (e.event_type IN ('departure_recorded','arrival_recorded','arrival_reminder') OR e.source='aena')
+               AND NOT (
+                 e.event_type='eta_changed'
+                 AND ABS(TIMESTAMPDIFF(MINUTE,e.before_value,e.after_value))<5
+               )
+               AND NOT (
+                 e.event_type='eta_published'
+                 AND ABS(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value))<5
+               )"
         );
 
         $stmt = $this->pdo->prepare(
@@ -179,6 +228,50 @@ final class WebPushService
             }
         }
         return ['queued' => (int)$this->pdo->query('SELECT COUNT(*) FROM push_outbox WHERE pushed_at IS NULL')->fetchColumn(), 'sent' => $sent, 'failed' => $failed];
+    }
+
+    private function createArrivalReminders(): void
+    {
+        // Se crea un único hito auditable por vuelo. La ventana de cinco
+        // minutos mantiene el aviso cerca de los 40 incluso con un cron breve.
+        $this->pdo->exec(
+            "INSERT IGNORE INTO flight_events
+             (flight_id,sync_run_id,source,event_type,field_name,before_value,after_value,
+              reason_code,reason_detail,confidence,evidence,detected_at,event_fingerprint)
+             SELECT due.flight_id,NULL,'system','arrival_reminder','effective_arrival',NULL,due.arrival_at,
+                    'arrival_reminder_40m','Aviso previo para salir a recoger al pasajero.',
+                    'probable',JSON_OBJECT('minutes_before',TIMESTAMPDIFF(MINUTE,NOW(),due.arrival_at)),
+                    NOW(),SHA2(CONCAT('arrival_reminder_40m|',due.flight_id,'|',DATE(due.arrival_at)),256)
+             FROM (
+               SELECT f.id AS flight_id,
+                      COALESCE(
+                        (SELECT COALESCE(o.actual_arrival,o.eta)
+                         FROM observations o
+                         WHERE o.flight_id=f.id AND o.source='aena'
+                           AND (o.actual_arrival IS NOT NULL OR o.eta IS NOT NULL)
+                         ORDER BY o.observed_at DESC,o.id DESC LIMIT 1),
+                        (SELECT COALESCE(o.actual_arrival,o.eta)
+                         FROM observations o
+                         WHERE o.flight_id=f.id AND o.source<>'aena'
+                           AND (o.actual_arrival IS NOT NULL OR o.eta IS NOT NULL)
+                         ORDER BY o.observed_at DESC,o.id DESC LIMIT 1),
+                        f.scheduled_arrival
+                      ) AS arrival_at
+               FROM flights f
+               WHERE f.flight_date BETWEEN DATE_SUB(CURRENT_DATE(),INTERVAL 1 DAY)
+                                       AND DATE_ADD(CURRENT_DATE(),INTERVAL 1 DAY)
+                 AND EXISTS (
+                   SELECT 1 FROM flight_watches w
+                   INNER JOIN push_subscriptions s ON s.id=w.subscription_id
+                   WHERE w.flight_id=f.id AND w.enabled=1 AND s.active=1
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM observations landed
+                   WHERE landed.flight_id=f.id AND landed.actual_arrival IS NOT NULL
+                 )
+             ) due
+             WHERE TIMESTAMPDIFF(MINUTE,NOW(),due.arrival_at) BETWEEN 36 AND 40"
+        );
     }
 
     private function subscriptionId(string $token): int
