@@ -141,12 +141,12 @@ final class WebPushService
         $this->pdo->exec(
             "INSERT IGNORE INTO push_outbox (subscription_id,flight_event_id,title,body,target_url)
              SELECT s.id,e.id,
-                    CONCAT(IF(f.is_canary=1,'Canarias · ',''),f.origin_name,' · ',f.physical_flight),
+                    CONCAT(IF(f.is_canary=1,'Canarias · ',''),CONVERT(f.origin_name USING utf8mb4),' · ',CONVERT(f.physical_flight USING utf8mb4)),
                     LEFT(CASE e.event_type
                       WHEN 'departure_recorded' THEN CONCAT('✈️ Despega',IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
-                      WHEN 'belt_assigned' THEN CONCAT('🧳 Asignación de cinta · ',COALESCE(NULLIF(e.after_value,''),'pendiente de número'))
-                      WHEN 'belt_changed' THEN CONCAT('⚠️ Cambio de cinta · ',COALESCE(NULLIF(e.before_value,''),'—'),' → ',COALESCE(NULLIF(e.after_value,''),'—'))
-                      WHEN 'belt_removed' THEN CONCAT('⚠️ Aena retiró la cinta ',COALESCE(NULLIF(e.before_value,''),'—'),' · nueva asignación pendiente')
+                      WHEN 'belt_assigned' THEN CONCAT('🧳 Asignación de cinta · ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'pendiente de número'))
+                      WHEN 'belt_changed' THEN CONCAT('⚠️ Cambio de cinta · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'))
+                      WHEN 'belt_removed' THEN CONCAT('⚠️ Aena retiró la cinta ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' · nueva asignación pendiente')
                       WHEN 'eta_published' THEN CONCAT(
                         '⏱️ Nueva ETA ',DATE_FORMAT(e.after_value,'%H:%i'),' · ',
                         IF(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value)>0,'+',''),
@@ -159,9 +159,9 @@ final class WebPushService
                         ' · antes ',DATE_FORMAT(e.before_value,'%H:%i')
                       )
                       WHEN 'schedule_changed' THEN CONCAT('🗓️ Cambio de programación · ',DATE_FORMAT(e.before_value,'%H:%i'),' → ',DATE_FORMAT(e.after_value,'%H:%i'))
-                      WHEN 'hall_changed' THEN CONCAT('⚠️ Cambio de sala · ',COALESCE(NULLIF(e.before_value,''),'—'),' → ',COALESCE(NULLIF(e.after_value,''),'—'))
-                      WHEN 'gate_changed' THEN CONCAT('🚪 Cambio de puerta · ',COALESCE(NULLIF(e.before_value,''),'—'),' → ',COALESCE(NULLIF(e.after_value,''),'—'))
-                      WHEN 'stand_changed' THEN CONCAT('🅿️ Cambio de posición · ',COALESCE(NULLIF(e.before_value,''),'—'),' → ',COALESCE(NULLIF(e.after_value,''),'—'))
+                      WHEN 'hall_changed' THEN CONCAT('⚠️ Cambio de sala · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'))
+                      WHEN 'gate_changed' THEN CONCAT('🚪 Cambio de puerta · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'))
+                      WHEN 'stand_changed' THEN CONCAT('🅿️ Cambio de posición · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'))
                       WHEN 'arrival_recorded' THEN CONCAT('🛬 Aterriza',IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
                       WHEN 'arrival_reminder' THEN CONCAT('🚗 Aviso 40 min · llegada prevista ',DATE_FORMAT(e.after_value,'%H:%i'))
                       WHEN 'flight_cancelled' THEN '🚫 Vuelo cancelado por la fuente'
@@ -170,7 +170,7 @@ final class WebPushService
                       WHEN 'flight_reappeared' THEN '✅ El vuelo vuelve a aparecer en la fuente'
                       WHEN 'baggage_started' THEN CONCAT(
                         '🧳 En la cinta',
-                        COALESCE((SELECT CONCAT(' · ',IF(NULLIF(o.hall,'') IS NULL,'',CONCAT(o.hall,'/')),o.belt)
+                        COALESCE((SELECT CONCAT(' · ',IF(NULLIF(o.hall,'') IS NULL,'',CONCAT(CONVERT(o.hall USING utf8mb4),'/')),CONVERT(o.belt USING utf8mb4))
                                   FROM observations o
                                   WHERE o.flight_id=f.id AND NULLIF(o.belt,'') IS NOT NULL
                                   ORDER BY (o.source='aena') DESC,o.observed_at DESC,o.id DESC LIMIT 1),'')

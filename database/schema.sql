@@ -284,9 +284,9 @@ CREATE TABLE IF NOT EXISTS push_outbox (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   subscription_id BIGINT UNSIGNED NOT NULL,
   flight_event_id BIGINT UNSIGNED NOT NULL,
-  title VARCHAR(180) NOT NULL,
-  body VARCHAR(500) NOT NULL,
-  target_url VARCHAR(300) NOT NULL DEFAULT 'index.php',
+  title VARCHAR(180) CHARACTER SET utf8mb4 NOT NULL,
+  body VARCHAR(500) CHARACTER SET utf8mb4 NOT NULL,
+  target_url VARCHAR(300) CHARACTER SET utf8mb4 NOT NULL DEFAULT 'index.php',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   pushed_at DATETIME NULL,
   displayed_at DATETIME NULL,
@@ -295,4 +295,4 @@ CREATE TABLE IF NOT EXISTS push_outbox (
   CONSTRAINT fk_push_outbox_subscription FOREIGN KEY (subscription_id) REFERENCES push_subscriptions(id) ON DELETE CASCADE,
   CONSTRAINT fk_push_outbox_event FOREIGN KEY (flight_event_id) REFERENCES flight_events(id) ON DELETE CASCADE,
   UNIQUE KEY uq_push_event (subscription_id, flight_event_id), KEY idx_push_pending (pushed_at, created_at)
-) ENGINE=InnoDB;
+) ENGINE=InnoDB DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

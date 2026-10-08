@@ -552,6 +552,12 @@ redirección para que Plesk muestre el motivo:
 /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/dispatch-push.php
 ```
 
+La versión 1.20.2 corrige instalaciones antiguas creadas con columnas
+`utf8mb3`: el paquete `20261008_009_push_utf8mb4` convierte exclusivamente los
+textos de `push_outbox` y el generador normaliza a `utf8mb4` los valores que se
+combinan con iconos. Esto evita el error MariaDB 1267 sin borrar suscripciones,
+vigilancias ni avisos pendientes.
+
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y
 proximidad horaria. El registro y sus evidencias no se borran de la base.
