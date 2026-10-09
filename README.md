@@ -565,6 +565,15 @@ una instantánea nueva, aparecen automáticamente aeronave, altitud, velocidad,
 distancia, duración y estado sin recargar la página. Al cerrar el panel o abrir
 otro vuelo se detiene la espera anterior.
 
+La versión 1.21.1 repara la entrega Web Push en instalaciones iOS antiguas. La
+web vuelve a enlazar el identificador del dispositivo con el *service worker*
+en cada apertura, renueva una suscripción que use otra clave VAPID y conserva
+las vigilancias al registrar el nuevo endpoint. Los avisos emergentes de
+Canarias respetan ahora el interruptor: estando desactivado se actualiza la
+línea base sin mostrar cambios acumulados. Los procesos de GitHub siguen las
+redirecciones HTTP y usan como destino predeterminado el origen canónico
+`https://www.ojito.top`, evitando interpretar como JSON la página HTML del 301.
+
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y
 proximidad horaria. El registro y sus evidencias no se borran de la base.

@@ -26,29 +26,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      ENDPOINT: ${{ vars.MATRIX_PROVIDER_URL || 'https://ojito.top/public/api/provider-cron.php' }}
+      ENDPOINT: ${{ vars.MATRIX_PROVIDER_URL || 'https://www.ojito.top/public/api/provider-cron.php' }}
       TOKEN: ${{ secrets.MATRIX_INGEST_TOKEN }}
     steps:
+      - name: Normalizar dominio canónico
+        run: echo "ENDPOINT=${ENDPOINT/https:\/\/ojito.top/https:\/\/www.ojito.top}" >> "$GITHUB_ENV"
       - name: Actualizar proveedor manual
         if: github.event_name == 'workflow_dispatch'
-        run: curl --fail-with-body --retry 2 --max-time 150 -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data "{\"action\":\"${{ inputs.provider }}\"}" "$ENDPOINT"
+        run: >-
+          curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          --data "{\"action\":\"${{ inputs.provider }}\"}" "$ENDPOINT"
       - name: Actualizar OpenSky con pausa de cuota
         if: github.event_name == 'schedule'
-        run: curl --fail-with-body --retry 2 --max-time 150 -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data '{"action":"opensky"}' "$ENDPOINT"
+        run: >-
+          curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          --data '{"action":"opensky"}' "$ENDPOINT"
       - name: Actualizar meteorología
         if: github.event_name == 'schedule'
-        run: curl --fail-with-body --retry 2 --max-time 150 -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data '{"action":"weather"}' "$ENDPOINT"
+        run: >-
+          curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          --data '{"action":"weather"}' "$ENDPOINT"
       - name: Despachar avisos móviles pendientes
         if: github.event_name == 'schedule'
-        run: curl --fail-with-body --retry 2 --max-time 150 -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data '{"action":"push"}' "$ENDPOINT"
+        run: >-
+          curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          --data '{"action":"push"}' "$ENDPOINT"
 
   airlabs:
     if: github.event_name == 'schedule' && github.event.schedule == '7 * * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      ENDPOINT: ${{ vars.MATRIX_PROVIDER_URL || 'https://ojito.top/public/api/provider-cron.php' }}
+      ENDPOINT: ${{ vars.MATRIX_PROVIDER_URL || 'https://www.ojito.top/public/api/provider-cron.php' }}
       TOKEN: ${{ secrets.MATRIX_INGEST_TOKEN }}
     steps:
+      - name: Normalizar dominio canónico
+        run: echo "ENDPOINT=${ENDPOINT/https:\/\/ojito.top/https:\/\/www.ojito.top}" >> "$GITHUB_ENV"
       - name: Actualizar AirLabs una vez por hora
-        run: curl --fail-with-body --retry 2 --max-time 150 -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data '{"action":"airlabs"}' "$ENDPOINT"
+        run: >-
+          curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          --data '{"action":"airlabs"}' "$ENDPOINT"

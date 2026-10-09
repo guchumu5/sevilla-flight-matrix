@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
-      MATRIX_FLIGHTAWARE_URL: ${{ vars.MATRIX_FLIGHTAWARE_URL || 'https://ojito.top/public/api/flightaware.php' }}
+      MATRIX_FLIGHTAWARE_URL: ${{ vars.MATRIX_FLIGHTAWARE_URL || 'https://www.ojito.top/public/api/flightaware.php' }}
       MATRIX_INGEST_TOKEN: ${{ secrets.MATRIX_INGEST_TOKEN }}
     steps:
       - uses: actions/checkout@v4
@@ -28,10 +28,11 @@ jobs:
         id: queue
         shell: bash
         run: |
-          curl --fail --silent --show-error \
+          endpoint="${MATRIX_FLIGHTAWARE_URL/https:\/\/ojito.top/https:\/\/www.ojito.top}"
+          curl --location --fail --silent --show-error --max-time 45 \
             -H "Authorization: Bearer ${MATRIX_INGEST_TOKEN}" \
             -H 'Accept: application/json' \
-            "${MATRIX_FLIGHTAWARE_URL}" > "${RUNNER_TEMP}/flightaware-queue.json"
+            "${endpoint}" > "${RUNNER_TEMP}/flightaware-queue.json"
           node -e "const d=JSON.parse(require('fs').readFileSync(process.env.RUNNER_TEMP+'/flightaware-queue.json','utf8')); if(!d.ok) throw new Error(d.error||'Respuesta de cola no válida'); require('fs').appendFileSync(process.env.GITHUB_OUTPUT,'pending='+(Array.isArray(d.flights)&&d.flights.length>0?'true':'false')+'\n')"
       - if: steps.queue.outputs.pending == 'true'
         run: npm install --no-audit --no-fund

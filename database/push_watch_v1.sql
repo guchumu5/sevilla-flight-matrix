@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   endpoint_hash CHAR(64) NOT NULL,
   p256dh VARCHAR(180) NOT NULL,
   auth_secret VARCHAR(100) NOT NULL,
-  watch_canary_all TINYINT(1) NOT NULL DEFAULT 1,
+  watch_canary_all TINYINT(1) NOT NULL DEFAULT 0,
   active TINYINT(1) NOT NULL DEFAULT 1,
   user_agent VARCHAR(300) NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

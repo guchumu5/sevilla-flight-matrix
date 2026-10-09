@@ -22,7 +22,7 @@ final class WebPushService
     }
 
     /** @param array<string,mixed> $subscription @return array<string,mixed> */
-    public function subscribe(array $subscription, string $userAgent): array
+    public function subscribe(array $subscription, string $userAgent, string $previousDeviceToken = ''): array
     {
         $endpoint = trim((string)($subscription['endpoint'] ?? ''));
         $keys = is_array($subscription['keys'] ?? null) ? $subscription['keys'] : [];
@@ -34,7 +34,24 @@ final class WebPushService
         $hash = hash('sha256', $endpoint);
         $existing = $this->pdo->prepare('SELECT device_token FROM push_subscriptions WHERE endpoint_hash=:hash LIMIT 1');
         $existing->execute(['hash' => $hash]);
-        $token = (string)($existing->fetchColumn() ?: bin2hex(random_bytes(32)));
+        $token = (string)($existing->fetchColumn() ?: '');
+        if ($token === '' && preg_match('/^[a-f0-9]{64}$/', $previousDeviceToken)) {
+            $previous = $this->pdo->prepare('SELECT device_token FROM push_subscriptions WHERE device_token=:token LIMIT 1');
+            $previous->execute(['token' => $previousDeviceToken]);
+            $token = (string)($previous->fetchColumn() ?: '');
+            if ($token !== '') {
+                $this->pdo->prepare(
+                    'UPDATE push_subscriptions
+                     SET endpoint=:endpoint,endpoint_hash=:hash,p256dh=:p256dh,auth_secret=:auth,
+                         active=1,user_agent=:agent,last_error=NULL
+                     WHERE device_token=:token'
+                )->execute([
+                    'endpoint' => $endpoint, 'hash' => $hash, 'p256dh' => substr($p256dh, 0, 180),
+                    'auth' => substr($auth, 0, 100), 'agent' => substr($userAgent, 0, 300), 'token' => $token,
+                ]);
+            }
+        }
+        if ($token === '') $token = bin2hex(random_bytes(32));
         $stmt = $this->pdo->prepare(
             'INSERT INTO push_subscriptions
              (device_token,endpoint,endpoint_hash,p256dh,auth_secret,watch_canary_all,active,user_agent)

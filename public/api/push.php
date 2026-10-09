@@ -17,7 +17,11 @@ try {
     if ($_SERVER['REQUEST_METHOD'] !== 'POST') Response::json(['error' => 'Método no permitido.'], 405);
     $input = Response::input();
     $action = (string)($input['action'] ?? '');
-    if ($action === 'subscribe') Response::json(['ok' => true] + $service->subscribe((array)($input['subscription'] ?? []), (string)($_SERVER['HTTP_USER_AGENT'] ?? '')));
+    if ($action === 'subscribe') Response::json(['ok' => true] + $service->subscribe(
+        (array)($input['subscription'] ?? []),
+        (string)($_SERVER['HTTP_USER_AGENT'] ?? ''),
+        (string)($input['previous_device_token'] ?? '')
+    ));
     if ($action === 'watch') {
         $service->setWatch((string)($input['device_token'] ?? ''), (int)($input['flight_id'] ?? 0), (bool)($input['enabled'] ?? false));
         Response::json(['ok' => true]);

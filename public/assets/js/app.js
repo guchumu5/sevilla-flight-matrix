@@ -11,7 +11,7 @@
     scenePositions: new Map(), sceneRemovalTimers: new Map(), alertDate: null,
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
-    canaryWatchEnabled: false, detailFlightId: null, flightAwarePollTimer: null
+    canaryWatchEnabled: false, pushLastError: '', detailFlightId: null, flightAwarePollTimer: null
   };
   const CANARY_ALERT_DEFAULT_MS = 60_000;
   const CANARY_ALERT_QUEUED_MS = 30_000;
@@ -274,6 +274,18 @@
     }
   }
 
+  function clearCanaryAlerts() {
+    clearTimeout(state.canaryAlertTimer);
+    state.canaryAlertTimer = null;
+    state.canaryAlertQueue = [];
+    if (state.activeCanaryAlert?.instance) {
+      state.activeCanaryAlert.instance.hide();
+    } else {
+      state.activeCanaryAlert = null;
+      els.canaryAlertStack?.replaceChildren();
+    }
+  }
+
   function processCanaryAlerts(incoming, date) {
     const storageKey = `svq-canary-snapshot:${date}`;
     let previous = {};
@@ -285,7 +297,9 @@
       current[key] = snapshot;
       const before = previous[key];
       if (!before) {
-        if (Object.keys(previous).length) showCanaryAlert(snapshot, [`Llegada ${time(effectiveArrival(f))} · ${snapshot.position}`], true);
+        if (state.canaryWatchEnabled && Object.keys(previous).length) {
+          showCanaryAlert(snapshot, [`Llegada ${time(effectiveArrival(f))} · ${snapshot.position}`], true);
+        }
         return;
       }
       const changes = [];
@@ -302,7 +316,7 @@
           changes.push(`${label}: ${formatter(before[field])} → ${formatter(snapshot[field])}`);
         }
       });
-      if (changes.length) showCanaryAlert(snapshot, changes);
+      if (state.canaryWatchEnabled && changes.length) showCanaryAlert(snapshot, changes);
     });
     try { localStorage.setItem(storageKey, JSON.stringify(current)); } catch (_) {}
     state.alertDate = date;
@@ -315,18 +329,29 @@
       return;
     }
     const pushReady = Notification.permission === 'granted' && !!localStorage.getItem('matrix.pushDevice');
+    const needsRepair = pushReady && Boolean(state.pushLastError);
     els.enableNotifications.classList.remove('d-none');
     els.enableNotifications.className = state.canaryWatchEnabled
       ? 'btn btn-sm btn-warning'
       : 'btn btn-sm btn-outline-warning';
     els.enableNotifications.textContent = state.canaryWatchEnabled
       ? '🔔 Avisos Canarias activos · desactivar'
-      : pushReady ? '🔕 Activar avisos Canarias' : '🔔 Activar avisos Canarias';
+      : needsRepair ? '🔧 Reparar y activar avisos Canarias' : '🔔 Activar avisos Canarias';
+    els.enableNotifications.title = state.pushLastError
+      ? `El último envío falló: ${state.pushLastError}. Pulsa para reparar la suscripción.`
+      : '';
     els.enableNotifications.disabled = false;
   }
 
   async function refreshNotificationStatus() {
-    const token = localStorage.getItem('matrix.pushDevice');
+    let token = localStorage.getItem('matrix.pushDevice');
+    if ('Notification' in window && Notification.permission === 'granted' && !pushCapabilityError()) {
+      try {
+        token = await enablePushNotifications();
+      } catch (error) {
+        state.pushLastError = error.message || 'No se pudo renovar Web Push';
+      }
+    }
     if (!token) {
       state.canaryWatchEnabled = false;
       updateNotificationButton();
@@ -335,17 +360,28 @@
     try {
       const response = await fetch('api/push.php?action=status&device_token=' + encodeURIComponent(token), {cache:'no-store'});
       const data = await response.json();
-      if (response.ok) state.canaryWatchEnabled = Boolean(data.watch_canary_all);
-    } catch (_) {}
+      if (!response.ok) throw new Error(data.error || 'No se pudo comprobar la suscripción.');
+      if (!data.subscribed) {
+        state.canaryWatchEnabled = false;
+        state.pushLastError = data.last_error || 'La suscripción anterior ha caducado';
+        clearCanaryAlerts();
+        updateNotificationButton();
+        return;
+      }
+      state.canaryWatchEnabled = Boolean(data.watch_canary_all);
+      state.pushLastError = data.last_error || '';
+      if (Notification.permission === 'granted') await ensureServiceWorker(token);
+    } catch (error) {
+      state.pushLastError = error.message || 'No se pudo comprobar Web Push';
+    }
     updateNotificationButton();
   }
 
   async function toggleCanaryNotifications() {
     let token = localStorage.getItem('matrix.pushDevice');
-    const existingDevice = Boolean(token);
-    if (!token) token = await enablePushNotifications();
-    else await refreshNotificationStatus();
-    const enabled = existingDevice ? !state.canaryWatchEnabled : true;
+    const enabled = !state.canaryWatchEnabled;
+    if (enabled) token = await enablePushNotifications();
+    if (!token) throw new Error('No existe una suscripción de avisos válida en este dispositivo.');
     els.enableNotifications.disabled = true;
     try {
       const response = await fetch('api/push.php', {
@@ -355,6 +391,8 @@
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'No se pudo cambiar la vigilancia de Canarias.');
       state.canaryWatchEnabled = Boolean(data.watch_canary_all);
+      state.pushLastError = '';
+      if (!state.canaryWatchEnabled) clearCanaryAlerts();
       updateNotificationButton();
     } finally {
       els.enableNotifications.disabled = false;
@@ -367,11 +405,35 @@
     return Uint8Array.from([...raw].map(char => char.charCodeAt(0)));
   };
 
+  const arrayBufferToBase64Url = value => {
+    if (!value) return '';
+    const bytes = new Uint8Array(value);
+    let binary = '';
+    bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  };
+
+  async function ensureServiceWorker(token = '') {
+    let registration;
+    try {
+      registration = await navigator.serviceWorker.register('sw.js', {scope:'./', updateViaCache:'none'});
+    } catch (_) {
+      registration = await navigator.serviceWorker.register('sw.js', {scope:'./'});
+    }
+    try { await registration.update(); } catch (_) {}
+    const ready = await navigator.serviceWorker.ready;
+    if (token) {
+      const worker = ready.active || registration.active || navigator.serviceWorker.controller;
+      worker?.postMessage({type:'matrix-device-token',token});
+    }
+    return ready;
+  }
+
   function pushCapabilityError() {
     const appleMobile = /iPhone|iPad|iPod/i.test(navigator.userAgent);
     const installed = window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone === true;
     if (!window.isSecureContext) {
-      return 'La página no está en un contexto seguro. Ábrela directamente con https://ojito.top/public/ (no desde una vista previa ni un navegador interno).';
+      return 'La página no está en un contexto seguro. Ábrela directamente con https://www.ojito.top/public/ (no desde una vista previa ni un navegador interno).';
     }
     if (appleMobile && !installed) {
       return 'En iPhone/iPad los avisos solo funcionan desde la app instalada: abre esta página en Safari → Compartir → Añadir a pantalla de inicio; después abre Matriz SVQ desde su icono y pulsa de nuevo «Vigilar este vuelo».';
@@ -399,9 +461,14 @@
     const configResponse = await fetch('api/push.php?action=config', {cache:'no-store'});
     const config = await configResponse.json();
     if (!configResponse.ok || !config.public_key) throw new Error(config.error || 'No se pudo preparar Web Push. Aplica primero la actualización MySQL pendiente.');
-    await navigator.serviceWorker.register('sw.js');
-    const registration = await navigator.serviceWorker.ready;
+    const previousDeviceToken = localStorage.getItem('matrix.pushDevice') || '';
+    const registration = await ensureServiceWorker(previousDeviceToken);
     let subscription = await registration.pushManager.getSubscription();
+    const currentApplicationKey = arrayBufferToBase64Url(subscription?.options?.applicationServerKey);
+    if (subscription && currentApplicationKey && currentApplicationKey !== config.public_key) {
+      await subscription.unsubscribe();
+      subscription = null;
+    }
     if (!subscription) {
       subscription = await registration.pushManager.subscribe({
         userVisibleOnly:true,
@@ -410,21 +477,27 @@
     }
     const response = await fetch('api/push.php', {
       method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
-      body:JSON.stringify({action:'subscribe',subscription:subscription.toJSON()})
+      body:JSON.stringify({
+        action:'subscribe',
+        subscription:subscription.toJSON(),
+        previous_device_token:previousDeviceToken
+      })
     });
     const data = await response.json();
     if (!response.ok || !data.device_token) throw new Error(data.error || 'No se pudo registrar este móvil.');
     localStorage.setItem('matrix.notifications', 'on');
     localStorage.setItem('matrix.pushDevice', data.device_token);
     state.canaryWatchEnabled = Boolean(data.watch_canary_all);
-    registration.active?.postMessage({type:'matrix-device-token',token:data.device_token});
+    state.pushLastError = '';
+    (registration.active || navigator.serviceWorker.controller)?.postMessage({type:'matrix-device-token',token:data.device_token});
     return data.device_token;
   }
 
   async function watchFlight(flightId, button) {
     let token = localStorage.getItem('matrix.pushDevice');
-    if (!token) token = await enablePushNotifications();
     const enabled = button.dataset.watching !== '1';
+    if (enabled) token = await enablePushNotifications();
+    if (!token) throw new Error('No existe una suscripción de avisos válida en este dispositivo.');
     button.disabled = true;
     try {
       const response = await fetch('api/push.php', {
@@ -1430,9 +1503,8 @@
   });
 
   updateNotificationButton();
-  refreshNotificationStatus();
   updateSceneClock();
   setInterval(updateSceneClock, 1000);
-  loadBoard(true);
+  refreshNotificationStatus().finally(() => loadBoard(true));
   setInterval(() => loadBoard(false), Number(document.querySelector('main').dataset.pollSeconds || 15) * 1000);
 })();
