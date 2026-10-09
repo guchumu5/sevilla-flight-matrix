@@ -1,6 +1,12 @@
 name: FlightAware vuelos vigilados
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/flightaware-collector.mjs'
+      - 'scripts/flightaware-parser.mjs'
+      - '.github/workflows/flightaware-watched.yml'
   schedule:
     - cron: '3,8,13,18,23,28,33,38,43,48,53,58 * * * *'
   workflow_dispatch:
