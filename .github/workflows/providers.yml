@@ -36,24 +36,28 @@ jobs:
         run: >-
           curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
           -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          -H "X-Matrix-Token: $TOKEN"
           --data "{\"action\":\"${{ inputs.provider }}\"}" "$ENDPOINT"
       - name: Actualizar OpenSky con pausa de cuota
         if: github.event_name == 'schedule'
         run: >-
           curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
           -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          -H "X-Matrix-Token: $TOKEN"
           --data '{"action":"opensky"}' "$ENDPOINT"
       - name: Actualizar meteorología
         if: github.event_name == 'schedule'
         run: >-
           curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
           -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          -H "X-Matrix-Token: $TOKEN"
           --data '{"action":"weather"}' "$ENDPOINT"
       - name: Despachar avisos móviles pendientes
         if: github.event_name == 'schedule'
         run: >-
           curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
           -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          -H "X-Matrix-Token: $TOKEN"
           --data '{"action":"push"}' "$ENDPOINT"
 
   airlabs:
@@ -70,4 +74,5 @@ jobs:
         run: >-
           curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
           -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          -H "X-Matrix-Token: $TOKEN"
           --data '{"action":"airlabs"}' "$ENDPOINT"

@@ -10,8 +10,8 @@ use SevillaMatrix\Response;
 
 $configured = trim((string)Env::get('AENA_INGEST_TOKEN', ''));
 $authorization = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
-$provided = '';
-if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) $provided = trim($matches[1]);
+$provided = trim((string)($_SERVER['HTTP_X_MATRIX_TOKEN'] ?? ''));
+if ($provided === '' && preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) $provided = trim($matches[1]);
 if (strlen($configured) < 24 || $provided === '' || !hash_equals($configured, $provided)) {
     Response::json(['error' => 'Credencial de automatización no válida.'], 401);
 }

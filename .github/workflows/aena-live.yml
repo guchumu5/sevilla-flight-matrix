@@ -32,9 +32,10 @@ jobs:
             exit 0
           fi
 
-          control_url="$MATRIX_CONTROL_URL"
+          ingest_url="${MATRIX_INGEST_URL/https:\/\/ojito.top/https:\/\/www.ojito.top}"
+          control_url="${MATRIX_CONTROL_URL/https:\/\/ojito.top/https:\/\/www.ojito.top}"
           if [ -z "$control_url" ]; then
-            control_url="${MATRIX_INGEST_URL%/*}/aena-control.php"
+            control_url="${ingest_url%/*}/aena-control.php"
           fi
           if [ -z "$control_url" ] || [ -z "$MATRIX_INGEST_TOKEN" ]; then
             echo "::warning::No se pudo consultar la cadencia; se ejecutará Aena por seguridad."
@@ -42,8 +43,9 @@ jobs:
             exit 0
           fi
 
-          if ! response=$(curl --fail --silent --show-error --max-time 20 \
-            -H "Authorization: Bearer $MATRIX_INGEST_TOKEN" "$control_url"); then
+          if ! response=$(curl --location --fail-with-body --silent --show-error --max-time 20 \
+            -H "Authorization: Bearer $MATRIX_INGEST_TOKEN" \
+            -H "X-Matrix-Token: $MATRIX_INGEST_TOKEN" "$control_url"); then
             echo "::warning::El control de cadencia no respondió; se ejecutará Aena por seguridad."
             echo "run=true" >> "$GITHUB_OUTPUT"
             exit 0

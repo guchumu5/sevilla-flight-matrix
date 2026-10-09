@@ -3,7 +3,8 @@ import { baggageStateFromAenaStatus, statusIndicatesArrival } from './aena-statu
 import { choosePhysicalCode } from './aena-flight-identity.mjs';
 
 const AENA_URL = 'https://www.aena.es/es/infovuelos.html';
-const INGEST_URL = process.env.MATRIX_INGEST_URL || 'https://ojito.top/public/api/aena-board.php';
+const canonicalAppUrl = value => String(value || '').replace(/^https:\/\/ojito\.top\//i, 'https://www.ojito.top/');
+const INGEST_URL = canonicalAppUrl(process.env.MATRIX_INGEST_URL || 'https://www.ojito.top/public/api/aena-board.php');
 const INGEST_TOKEN = process.env.MATRIX_INGEST_TOKEN || '';
 const TIME_ZONE = 'Europe/Madrid';
 const MAX_VISIBLE_ROWS = 20;
@@ -396,7 +397,7 @@ async function postCapture(payload) {
   const text = await response.text();
   let body;
   try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 1000) }; }
-  if (!response.ok || body.ok === false) {
+  if (!response.ok || response.status !== 201 || body.ok === false || !body.fetch_run_id || !body.result) {
     throw new Error(`El receptor respondió ${response.status}: ${body.error || body.raw || 'error desconocido'}`);
   }
   return body;

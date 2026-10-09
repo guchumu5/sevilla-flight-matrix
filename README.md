@@ -573,6 +573,9 @@ Canarias respetan ahora el interruptor: estando desactivado se actualiza la
 línea base sin mostrar cambios acumulados. Los procesos de GitHub siguen las
 redirecciones HTTP y usan como destino predeterminado el origen canónico
 `https://www.ojito.top`, evitando interpretar como JSON la página HTML del 301.
+El colector Aena exige además la respuesta de conciliación `201`: una página
+informativa obtenida accidentalmente por redirección ya no puede contarse como
+una captura correcta.
 
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y

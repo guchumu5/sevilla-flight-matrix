@@ -2,7 +2,7 @@ import { chromium } from 'playwright';
 import { parseFlightAwarePublicPage } from './flightaware-parser.mjs';
 
 const ENDPOINT = process.env.MATRIX_FLIGHTAWARE_URL
-  || 'https://ojito.top/public/api/flightaware.php';
+  || 'https://www.ojito.top/public/api/flightaware.php';
 const TOKEN = process.env.MATRIX_INGEST_TOKEN || '';
 if (TOKEN.length < 24) throw new Error('Falta MATRIX_INGEST_TOKEN o tiene menos de 24 caracteres.');
 
@@ -11,6 +11,7 @@ const request = async (method, body) => {
     method,
     headers: {
       Authorization: `Bearer ${TOKEN}`,
+      'X-Matrix-Token': TOKEN,
       Accept: 'application/json',
       ...(body ? {'Content-Type':'application/json'} : {}),
     },
