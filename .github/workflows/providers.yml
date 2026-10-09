@@ -1,6 +1,11 @@
 name: Proveedores de respaldo
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - 'public/api/provider-cron.php'
+      - '.github/workflows/providers.yml'
   schedule:
     - cron: '*/5 * * * *'
     - cron: '7 * * * *'
@@ -22,7 +27,7 @@ concurrency:
 
 jobs:
   fast:
-    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '*/5 * * * *'
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event.schedule == '*/5 * * * *'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -31,6 +36,13 @@ jobs:
     steps:
       - name: Normalizar dominio canónico
         run: echo "ENDPOINT=${ENDPOINT/https:\/\/ojito.top/https:\/\/www.ojito.top}" >> "$GITHUB_ENV"
+      - name: Verificar entrega de avisos al publicar
+        if: github.event_name == 'push'
+        run: >-
+          curl --location --post301 --post302 --fail-with-body --retry 2 --max-time 150
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          -H "X-Matrix-Token: $TOKEN"
+          --data '{"action":"push"}' "$ENDPOINT"
       - name: Actualizar proveedor manual
         if: github.event_name == 'workflow_dispatch'
         run: >-
