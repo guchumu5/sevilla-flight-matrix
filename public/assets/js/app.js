@@ -1505,6 +1505,9 @@
   updateNotificationButton();
   updateSceneClock();
   setInterval(updateSceneClock, 1000);
-  refreshNotificationStatus().finally(() => loadBoard(true));
+  Promise.race([
+    refreshNotificationStatus(),
+    new Promise(resolve => setTimeout(resolve, 1500))
+  ]).finally(() => loadBoard(true));
   setInterval(() => loadBoard(false), Number(document.querySelector('main').dataset.pollSeconds || 15) * 1000);
 })();
