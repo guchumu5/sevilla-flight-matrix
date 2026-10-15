@@ -158,6 +158,33 @@
     μ vuelo ${leadText(flight.belt_lead_flight_average_minutes)} · n=${Number(flight.belt_lead_flight_samples || 0)}<br>
     μ origen ${leadText(flight.belt_lead_origin_average_minutes)} · n=${Number(flight.belt_lead_origin_samples || 0)}
   </span>`;
+  const beltOccupancyMarkup = (flight, detailed = false) => {
+    const model = flight?.belt_occupancy_30m;
+    const arrival = model?.at_arrival;
+    const peak = model?.window_peak;
+    if (!arrival || !peak) return '';
+    const occupied = new Set((arrival.belts || []).map(Number));
+    const beltFlights = arrival.belt_flights || {};
+    const beltCells = Array.from({length:8}, (_,index) => {
+      const belt = index + 1;
+      const flights = Array.isArray(beltFlights[belt]) ? beltFlights[belt] : [];
+      const official = flights.length > 0 && flights.every(item => item.assignment_source === 'oficial');
+      const title = flights.length
+        ? flights.map(item => `${item.flight} · ${item.origin} · ${time(item.arrival)} · ${item.assignment_source}`).join(' | ')
+        : `Cinta ${belt} libre en la ETA`;
+      return `<span class="occupancy-belt ${occupied.has(belt)?'occupied':''} ${belt >= 7?'red':''} ${occupied.has(belt) && !official?'estimated':''}" title="${esc(title)}"><b>${belt}</b><small>${occupied.has(belt)?(official?'Aena':'prev.'):'libre'}</small></span>`;
+    }).join('');
+    const redStatus = [7,8].map(belt => `C${belt} ${occupied.has(belt)?'ocupada':'libre'}`).join(' · ');
+    const confidence = ({alta:'alta',media:'media',baja:'baja'}[model.confidence] || 'pendiente');
+    const unknown = Number(model.unknown_belt_flights || 0);
+    return `<section class="canary-occupancy ${Number(arrival.red_occupied_count || 0)>0?'has-red':''} ${detailed?'detailed':''}">
+      <header><span>Ocupación al aterrizar</span><strong>${Number(arrival.percentage || 0).toLocaleString('es-ES',{maximumFractionDigits:1})}%</strong><b>${Number(arrival.occupied_count || 0)}/8</b></header>
+      <div class="occupancy-belts" aria-label="Cintas ocupadas en la ETA">${beltCells}</div>
+      <div class="occupancy-red"><span>Bloque 7–8</span><strong>${Number(arrival.red_percentage || 0).toLocaleString('es-ES',{maximumFractionDigits:1})}%</strong><small>${redStatus}</small></div>
+      <footer><span>Pico ±30 min: <b>${Number(peak.percentage || 0).toLocaleString('es-ES',{maximumFractionDigits:1})}% · ${Number(peak.occupied_count || 0)}/8</b> a las ${time(peak.at)}</span><span>${Number(model.nearby_flights || 0)} vuelos coincidentes${unknown?` · ${unknown} sin cinta`:''} · confianza ${confidence}</span></footer>
+      ${detailed?'<p>Modelo v1: cada llegada reserva su cinta durante 30 minutos. Aena prevalece; “prev.” identifica una cinta provisional o predicha.</p>':''}
+    </section>`;
+  };
   const predictionMarkup = flight => {
     if (!flight.predicted_belt) return '';
     const evaluated = flight.prediction_correct === null || flight.prediction_correct === undefined
@@ -702,6 +729,7 @@
           <div class="canary-belt-line canary-belt-predicted"><span>Predicción matriz</span><b>${esc(predictedBelt || 'sin predicción')}</b><small>${predictedBelt ? `${Number(f.prediction_score || 0)}% · ${esc(f.prediction_confidence || 'baja')}` : 'histórico insuficiente'}</small></div>
           <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Confirmada Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b><small>${confirmedBelt ? 'dato oficial prevalente' : 'todavía no publicada'}</small></div>
         </div>
+        ${beltOccupancyMarkup(f)}
         ${f.belt_attention ? `<div class="canary-important"><b>IMPORTANTE</b><span>${esc(f.belt_attention_reason)}</span></div>` : ''}
         ${f.secondary_belt_state === 'candidate' ? `<small class="canary-proposal">● ${esc((f.secondary_belt_source||'API').toUpperCase())}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}</small>` : ''}
         ${flightAwareLink(f, true)}
@@ -1375,6 +1403,7 @@
               ? `✓ Acierto operativo de bloque; la cinta concreta fue distinta dentro del mismo bloque y Aena publicó ${beltPosition(flight)}.`
               : `✕ Fallo crítico de bloque; la predicción quedó en el bloque ${Number(flight.predicted_belt)<=6?'1–6':'7–8'} y Aena publicó ${beltPosition(flight)}.`}</p>
       </aside>` : ''}
+      ${beltOccupancyMarkup(flight, true)}
       ${beltDistributionMarkup(flight.belt_distribution_flight, `Mismo vuelo ${flight.physical_flight}`, flight.belt)}
       ${Number(flight.is_canary)===1 ? beltDistributionMarkup(flight.belt_distribution_origin, `Origen canario ${flight.origin_name}`, flight.belt) : ''}
       <div class="belt-event-list">${eventMarkup}</div>

@@ -144,14 +144,24 @@ LEFT JOIN predictions latest_prediction ON latest_prediction.id = (
     ORDER BY p.predicted_at,p.id
     LIMIT 1
 )
-WHERE f.flight_date = :date
+WHERE f.flight_date BETWEEN :context_from AND :context_to
 ORDER BY effective_arrival, f.physical_flight
 SQL;
         $stmt = $this->pdo->prepare($sql);
-        $stmt->execute(['date' => $date]);
+        $day = new \DateTimeImmutable($date);
+        $stmt->execute([
+            'context_from' => $day->modify('-1 day')->format('Y-m-d'),
+            'context_to' => $day->modify('+1 day')->format('Y-m-d'),
+        ]);
         $rows = $stmt->fetchAll();
         $this->suppressCodeshareDuplicates($rows);
         $rows = (new MatrixEngine())->decorate($rows);
+        // MatrixEngine necesita el día anterior y el siguiente para que una
+        // ventana de ±30 minutos sea correcta también alrededor de medianoche.
+        $rows = array_values(array_filter(
+            $rows,
+            static fn(array $row): bool => (string)($row['flight_date'] ?? '') === $date
+        ));
         if (!$rows) return [];
         foreach ($rows as &$row) {
             if (is_string($row['prediction_features'] ?? null)) {
