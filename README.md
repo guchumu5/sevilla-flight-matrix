@@ -7,6 +7,26 @@ sintaxis, creación del esquema, dos capturas consecutivas y repetición
 idempotente. El ensayo exige un único vuelo físico, dos observaciones y un solo
 evento `belt_changed`.
 
+## Ocupación matemática para vuelos de Canarias
+
+Las tarjetas de LPA, TFN, TFS, ACE y FUE calculan dos índices distintos con el
+modelo `belt_occupancy_v1`:
+
+- **Ocupación al aterrizar:** número de cintas ocupadas simultáneamente en la
+  ETA del vuelo canario, dividido entre las ocho cintas. Una llegada mantiene
+  ocupada su cinta durante 30 minutos en este primer modelo: `3/8 = 37,5 %`.
+- **Pico ±30 minutos:** máximo número simultáneo de cintas ocupadas en cualquier
+  instante comprendido entre ETA−30 y ETA+30.
+- **Bloque 7–8:** se calcula de forma independiente: ninguna ocupada es 0 %,
+  una de las dos es 50 % y ambas son 100 %.
+
+Cada una de las ocho celdas indica si el dato procede de Aena o es una
+previsión. La prioridad es cinta oficial Aena, cinta secundaria provisional y,
+por último, predicción histórica. Los vuelos sin cinta se contabilizan como
+incertidumbre y reducen la confianza; nunca se asignan por suposición. El
+contexto incluye el día anterior y el siguiente para no perder coincidencias
+alrededor de medianoche.
+
 ## Requisitos
 
 - PHP 8.1 o superior con extensiones `pdo_mysql`, `curl` y `json`.
