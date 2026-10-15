@@ -7,6 +7,10 @@ use DateTimeImmutable;
 
 final class MatrixEngine
 {
+    private const BELT_COUNT = 8;
+    private const RED_BELTS = [7, 8];
+    private const OCCUPANCY_WINDOW_MINUTES = 30;
+
     public function decorate(array $flights): array
     {
         usort($flights, fn(array $a, array $b) => strcmp($a['effective_arrival'], $b['effective_arrival']));
@@ -49,7 +53,8 @@ final class MatrixEngine
         }
         unset($flight);
 
-        return $this->addHallLoad($flights);
+        $flights = $this->addHallLoad($flights);
+        return $this->addBeltOccupancy($flights);
     }
 
     private function pressure(array $flight): string
@@ -123,6 +128,193 @@ final class MatrixEngine
         }
         unset($flight);
         return $flights;
+    }
+
+    /**
+     * Estimación matemática de ocupación para cada llegada.
+     *
+     * Una cinta se considera ocupada desde la llegada efectiva del vuelo
+     * hasta 30 minutos después. Para cada vuelo se calcula:
+     *  - ocupación simultánea en el instante de su ETA/real;
+     *  - pico de cintas ocupadas dentro de la ventana ETA ±30 minutos;
+     *  - ocupación separada del bloque 7/8.
+     *
+     * Aena prevalece. Si aún no existe cinta oficial se utiliza, por orden,
+     * una cinta secundaria publicada y la predicción histórica. La fuente se
+     * conserva en el resultado para que la interfaz no presente una previsión
+     * como confirmación.
+     *
+     * @param array<int,array<string,mixed>> $flights
+     * @return array<int,array<string,mixed>>
+     */
+    private function addBeltOccupancy(array $flights): array
+    {
+        $serviceSeconds = self::OCCUPANCY_WINDOW_MINUTES * 60;
+        $resolved = [];
+        foreach ($flights as $candidate) {
+            $arrival = strtotime((string)($candidate['effective_arrival'] ?? ''));
+            if ($arrival === false) continue;
+            $assignment = $this->resolvedBelt($candidate);
+            $resolved[] = [
+                'id' => (int)($candidate['id'] ?? 0),
+                'flight' => (string)($candidate['physical_flight'] ?? ''),
+                'origin' => (string)($candidate['origin_name'] ?? $candidate['origin_iata'] ?? ''),
+                'arrival' => $arrival,
+                'arrival_text' => date('Y-m-d H:i:s', $arrival),
+                'end' => $arrival + $serviceSeconds,
+                'belt' => $assignment['belt'],
+                'hall' => $assignment['hall'],
+                'assignment_source' => $assignment['source'],
+            ];
+        }
+
+        foreach ($flights as &$flight) {
+            $target = strtotime((string)($flight['effective_arrival'] ?? ''));
+            if ($target === false) {
+                $flight['belt_occupancy_30m'] = null;
+                continue;
+            }
+
+            $windowFrom = $target - $serviceSeconds;
+            $windowTo = $target + $serviceSeconds;
+            $events = [$windowFrom, $target, $windowTo];
+            $nearbyFlights = [];
+            $unknown = 0;
+            $context = [];
+
+            foreach ($resolved as $candidate) {
+                if (abs($candidate['arrival'] - $target) <= $serviceSeconds) {
+                    $nearbyFlights[] = $candidate;
+                    if ($candidate['belt'] === null) $unknown++;
+                }
+                if ($candidate['end'] < $windowFrom || $candidate['arrival'] > $windowTo) continue;
+                $context[] = $candidate;
+                $events[] = max($windowFrom, $candidate['arrival']);
+                $events[] = min($windowTo, $candidate['end']);
+            }
+
+            $atArrival = $this->occupancyAt($context, $target);
+            $peak = $atArrival;
+            $peakAt = $target;
+            foreach (array_values(array_unique($events)) as $eventAt) {
+                $snapshot = $this->occupancyAt($context, (int)$eventAt);
+                if ($snapshot['occupied_count'] > $peak['occupied_count']) {
+                    $peak = $snapshot;
+                    $peakAt = (int)$eventAt;
+                }
+            }
+
+            $redInWindow = [];
+            foreach ($context as $candidate) {
+                if (in_array($candidate['belt'], self::RED_BELTS, true)) {
+                    $redInWindow[$candidate['belt']] = true;
+                }
+            }
+
+            $sources = array_values(array_unique(array_filter(array_column($nearbyFlights, 'assignment_source'))));
+            $confidence = $unknown > 0 ? 'baja'
+                : (array_diff($sources, ['oficial']) === [] ? 'alta' : 'media');
+
+            $flight['belt_occupancy_30m'] = [
+                'model' => 'belt_occupancy_v1',
+                'target_time' => date('Y-m-d H:i:s', $target),
+                'window_from' => date('Y-m-d H:i:s', $windowFrom),
+                'window_to' => date('Y-m-d H:i:s', $windowTo),
+                'assumed_service_minutes' => self::OCCUPANCY_WINDOW_MINUTES,
+                'at_arrival' => $atArrival,
+                'window_peak' => array_merge($peak, [
+                    'at' => date('Y-m-d H:i:s', $peakAt),
+                ]),
+                'red_belts_in_window' => array_values(array_map('intval', array_keys($redInWindow))),
+                'red_window_percentage' => round((count($redInWindow) / count(self::RED_BELTS)) * 100, 1),
+                'nearby_flights' => count($nearbyFlights),
+                'unknown_belt_flights' => $unknown,
+                'confidence' => $confidence,
+            ];
+        }
+        unset($flight);
+        return $flights;
+    }
+
+    /** @param array<string,mixed> $flight @return array{belt:?int,hall:?string,source:?string} */
+    private function resolvedBelt(array $flight): array
+    {
+        $belt = $this->beltNumber($flight['belt'] ?? null);
+        if ($belt !== null) {
+            return [
+                'belt' => $belt,
+                'hall' => $this->resolvedHall($flight['hall'] ?? null, $belt),
+                'source' => ($flight['source'] ?? null) === 'aena' ? 'oficial' : 'provisional',
+            ];
+        }
+
+        $belt = $this->beltNumber($flight['secondary_belt'] ?? null);
+        if ($belt !== null) {
+            return [
+                'belt' => $belt,
+                'hall' => $this->resolvedHall($flight['secondary_hall'] ?? null, $belt),
+                'source' => 'provisional',
+            ];
+        }
+
+        $belt = $this->beltNumber($flight['predicted_belt'] ?? null);
+        return [
+            'belt' => $belt,
+            'hall' => $belt === null ? null : $this->resolvedHall($flight['predicted_hall'] ?? null, $belt),
+            'source' => $belt === null ? null : 'prediccion',
+        ];
+    }
+
+    private function resolvedHall(mixed $hall, int $belt): string
+    {
+        $value = strtoupper(trim((string)$hall));
+        if ($value === 'A' || $value === 'B') return $value;
+        return $belt >= 7 ? 'B' : 'A';
+    }
+
+    /**
+     * @param array<int,array<string,mixed>> $context
+     * @return array<string,mixed>
+     */
+    private function occupancyAt(array $context, int $timestamp): array
+    {
+        $byBelt = [];
+        foreach ($context as $candidate) {
+            if ($candidate['belt'] === null) continue;
+            if ($candidate['arrival'] > $timestamp || $candidate['end'] < $timestamp) continue;
+            $belt = (int)$candidate['belt'];
+            $byBelt[$belt][] = [
+                'id' => $candidate['id'],
+                'flight' => $candidate['flight'],
+                'origin' => $candidate['origin'],
+                'arrival' => $candidate['arrival_text'],
+                'hall' => $candidate['hall'],
+                'belt' => $belt,
+                'assignment_source' => $candidate['assignment_source'],
+            ];
+        }
+        ksort($byBelt);
+        $belts = array_values(array_map('intval', array_keys($byBelt)));
+        $redBelts = array_values(array_intersect(self::RED_BELTS, $belts));
+        return [
+            'occupied_count' => count($belts),
+            'total_belts' => self::BELT_COUNT,
+            'percentage' => round((count($belts) / self::BELT_COUNT) * 100, 1),
+            'belts' => $belts,
+            'belt_flights' => $byBelt,
+            'red_occupied_count' => count($redBelts),
+            'red_total_belts' => count(self::RED_BELTS),
+            'red_percentage' => round((count($redBelts) / count(self::RED_BELTS)) * 100, 1),
+            'belt_7_occupied' => in_array(7, $redBelts, true),
+            'belt_8_occupied' => in_array(8, $redBelts, true),
+        ];
+    }
+
+    private function beltNumber(mixed $value): ?int
+    {
+        if ($value === null || $value === '') return null;
+        if (!preg_match('/(?:^|\\D)([1-8])$/', trim((string)$value), $match)) return null;
+        return (int)$match[1];
     }
 
     private function minutesBetween(string $from, string $to): int
