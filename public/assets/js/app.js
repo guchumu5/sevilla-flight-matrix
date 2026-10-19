@@ -54,7 +54,7 @@
   if (/^\d{4}-\d{2}-\d{2}$/.test(deepLink.get('date') || '')) els.date.value = deepLink.get('date');
 
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  const parseDate = value => value ? new Date(String(value).replace(' ', 'T')) : null;
+  const parseDate = value => value instanceof Date ? value : value ? new Date(String(value).replace(' ', 'T')) : null;
   const time = value => value ? new Intl.DateTimeFormat('es-ES',{hour:'2-digit',minute:'2-digit'}).format(parseDate(value)) : '—';
   const dateTime = value => value ? new Intl.DateTimeFormat('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(parseDate(value)) : '—';
   const updateMobileDateLabel = () => {
@@ -218,6 +218,10 @@
     if (minutes === 0) return 'misma hora';
     return minutes < 0 ? `${Math.abs(minutes)} min antes` : `${minutes} min después`;
   };
+  const relativeMinuteCompact = value => {
+    const minutes = Math.round(Number(value || 0));
+    return minutes > 0 ? `+${minutes}` : String(minutes);
+  };
 
   function focusWindowMarkup(flight) {
     const model = flight?.belt_occupancy_30m;
@@ -240,8 +244,7 @@
         const selected = Number(item.id) === Number(flight.id);
         const source = item.assignment_source === 'oficial' ? 'Aena' : item.assignment_source === 'prediccion' ? 'predicción' : 'provisional';
         return `<li class="${selected?'selected':''} ${item.occupies_at_target?'active':''}">
-          <span><b>${esc(item.origin)}</b><small>${esc(item.flight)} · ${esc(source)}</small></span>
-          <em>${relativeMinuteLabel(item.offset_minutes)}</em>
+          <span><b>${esc(item.origin)}</b><small>${esc(item.flight)} · ${esc(source)} · ${relativeMinuteCompact(item.offset_minutes)}</small></span>
         </li>`;
       }).join('') : '<li class="empty">Sin llegadas en ±30 min</li>';
       return `<article class="focus-belt ${belt >= 7?'red':''} ${active?'occupied':''}">
@@ -277,6 +280,31 @@
     </section>`;
   }
 
+  const latestFlightUpdateAt = flight => [
+    flight.authoritative_seen_at,
+    flight.observed_at,
+    flight.telemetry_observed_at,
+    flight.secondary_belt_at,
+    flight.flightaware?.observed_at,
+  ].map(parseDate).filter(Boolean).sort((a,b) => b.getTime() - a.getTime())[0] || null;
+
+  function watchUpdateScheduleMarkup(flight) {
+    const last = latestFlightUpdateAt(flight);
+    const arrival = parseDate(effectiveArrival(flight));
+    const now = Date.now();
+    let nextLabel = 'pendiente';
+    if (flightIsFinished(flight)) {
+      nextLabel = 'seguimiento resuelto';
+    } else if (arrival) {
+      const minutesToArrival = Math.round((arrival.getTime() - now) / 60000);
+      const next = minutesToArrival > 60
+        ? new Date(arrival.getTime() - 60 * 60000)
+        : new Date((last ? last.getTime() : now) + (minutesToArrival <= 20 ? 5 : 15) * 60000);
+      nextLabel = next.getTime() <= now ? 'ahora' : time(next);
+    }
+    return `<small class="focus-update-schedule"><span>Últimos datos <b>${esc(last ? time(last) : 'sin datos')}</b></span><span>Próxima revisión <b>${esc(nextLabel)}</b></span></small>`;
+  }
+
   function focusHeroMarkup(flight, focus = null, allowExpand = false) {
     const admin = appMain?.dataset.focusAdmin === '1';
     const deviceAuthorized = Boolean(localStorage.getItem('matrix.pushDevice'));
@@ -297,7 +325,6 @@
       : !authorized ? 'Activa avisos o inicia sesión'
         : cooldown > 0 ? `Nueva consulta en ${Math.ceil(cooldown / 60)} min`
           : needsAircraft ? 'Buscar matrícula y telemetría' : 'Actualizar telemetría y estado';
-    const notice = state.focusNotice || (focus?.last_result ? String(focus.last_result) : 'La ficha se mantiene con las capturas automáticas; el botón fuerza una revisión dirigida.');
     return `<section class="flight-focus-hero ${Number(flight.is_canary)===1?'canary':''}" data-focus-surface>
       <div class="focus-flight-title"><span>${Number(flight.is_canary)===1?'🌴':'✈️'}</span><div><small>Vuelo bajo foco</small><h3>${esc(flight.physical_flight)} · ${esc(flight.origin_name)}</h3><p>${esc(flight.status || 'Estado pendiente')} · ${trend.label}</p></div></div>
       <div class="focus-primary-values">
@@ -310,8 +337,8 @@
         <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${disabled?'disabled':''}>↻ ${esc(buttonLabel)}</button>
         ${allowExpand ? `<button class="btn btn-outline-light w-100" type="button" data-open-flight="${Number(flight.id)}">Ampliar vuelo</button>` : ''}
       </div>
-      <small class="focus-refresh-status" data-focus-refresh-status>${esc(notice)}</small>
-      <footer>OpenSky: máximo una consulta por vuelo cada 3 min y 90 s entre consultas globales · FlightAware: 5 min · Aena: cada 15 min en la última hora y cada 5 min desde T‑20 hasta resolver equipaje.</footer>
+      ${watchUpdateScheduleMarkup(flight)}
+      <small class="focus-refresh-status" data-focus-refresh-status></small>
     </section>`;
   }
   const predictionMarkup = flight => {
@@ -1007,7 +1034,6 @@
       <aside class="tracked-focus-summary">
         ${focusHeroMarkup(flight, Number(state.detailFlightId) === Number(flight.id) ? state.focusStatus : null, true)}
         ${dailyRedUsageMarkup(flight)}
-        ${telemetrySummary(flight, true)}
       </aside>
       <div class="tracked-focus-belts">${focusWindowMarkup(flight)}</div>
       </div>`;
