@@ -32,7 +32,20 @@ final class FlightFocusService
         }
 
         $stmt = $this->pdo->prepare(
-            'SELECT requested_at,expires_at,last_opensky_at,request_count,last_result,status
+            'SELECT requested_at,
+                    expires_at,
+                    last_opensky_at,
+                    request_count,
+                    last_result,
+                    status,
+                    CASE
+                        WHEN status=\'active\' AND expires_at>=NOW() THEN 1
+                        ELSE 0
+                    END AS active_now,
+                    CASE
+                        WHEN last_opensky_at IS NULL THEN 0
+                        ELSE GREATEST(0,' . self::PER_FLIGHT_COOLDOWN_SECONDS . ' - TIMESTAMPDIFF(SECOND,last_opensky_at,NOW()))
+                    END AS retry_after_seconds
              FROM flight_focus_requests WHERE flight_id=:flight_id'
         );
         $stmt->execute(['flight_id' => $flightId]);
@@ -46,18 +59,15 @@ final class FlightFocusService
             ];
         }
 
-        $last = strtotime((string)($row['last_opensky_at'] ?? '')) ?: 0;
-        $retry = max(0, self::PER_FLIGHT_COOLDOWN_SECONDS - (time() - $last));
         return [
             'ready' => true,
-            'active' => (string)$row['status'] === 'active'
-                && (strtotime((string)$row['expires_at']) ?: 0) >= time(),
+            'active' => (int)($row['active_now'] ?? 0) === 1,
             'requested_at' => $row['requested_at'],
             'expires_at' => $row['expires_at'],
             'last_opensky_at' => $row['last_opensky_at'],
             'request_count' => (int)$row['request_count'],
             'last_result' => $row['last_result'],
-            'retry_after_seconds' => $retry,
+            'retry_after_seconds' => (int)($row['retry_after_seconds'] ?? 0),
             'policy' => $this->policy(),
         ];
     }
@@ -133,17 +143,23 @@ final class FlightFocusService
         }
 
         $focusStmt = $this->pdo->prepare(
-            'SELECT last_opensky_at FROM flight_focus_requests WHERE flight_id=:flight_id'
+            'SELECT CASE
+                        WHEN last_opensky_at IS NULL THEN 0
+                        ELSE GREATEST(0,' . self::PER_FLIGHT_COOLDOWN_SECONDS . ' - TIMESTAMPDIFF(SECOND,last_opensky_at,NOW()))
+                    END AS retry_after_seconds
+             FROM flight_focus_requests WHERE flight_id=:flight_id'
         );
         $focusStmt->execute(['flight_id' => (int)$flight['id']]);
-        $lastFlight = strtotime((string)$focusStmt->fetchColumn()) ?: 0;
-        $flightRemaining = max(0, self::PER_FLIGHT_COOLDOWN_SECONDS - (time() - $lastFlight));
+        $flightRemaining = (int)($focusStmt->fetchColumn() ?: 0);
 
         $lastGlobal = $this->pdo->query(
-            "SELECT MAX(started_at) FROM fetch_runs WHERE provider IN ('opensky','opensky_focus')"
+            "SELECT COALESCE(
+                        GREATEST(0," . self::GLOBAL_COOLDOWN_SECONDS . " - TIMESTAMPDIFF(SECOND,MAX(started_at),NOW())),
+                        0
+                    )
+             FROM fetch_runs WHERE provider IN ('opensky','opensky_focus')"
         )->fetchColumn();
-        $globalTimestamp = strtotime((string)$lastGlobal) ?: 0;
-        $globalRemaining = max(0, self::GLOBAL_COOLDOWN_SECONDS - (time() - $globalTimestamp));
+        $globalRemaining = (int)($lastGlobal ?: 0);
         $remaining = max($flightRemaining, $globalRemaining);
         if ($remaining > 0) {
             return [
