@@ -244,6 +244,12 @@ aplicarla desde **Actualizar MySQL**, existen dos niveles independientes:
 - **Activar avisos Canarias** suscribe el dispositivo a todos los vuelos de
   LPA, TFN, TFS, ACE y FUE; el mismo botón permite desactivarlos.
 
+La actualización `20261019_011_push_canary_default` mantiene intacta la
+migración 005 ya aplicada y cambia únicamente el valor predeterminado para que
+los avisos globales de Canarias siempre se activen de forma voluntaria. Si la
+005 apareció anteriormente como **Modificada**, al desplegar esta versión
+volverá a figurar **Aplicada** y la 011 será la única pendiente.
+
 Los avisos incluyen despegue, publicación/cambio/retirada de cinta, ETA con
 adelanto o retraso, cambio de sala/puerta/posición, cancelación o retirada,
 aterrizaje e inicio/final de equipaje. Las variaciones de ETA inferiores a cinco
