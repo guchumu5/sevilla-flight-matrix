@@ -28,6 +28,7 @@ final class WebOperationsService
             'flights', 'observations', 'weather_observations', 'fetch_runs',
             'sync_runs', 'flight_source_state', 'flight_events',
             'push_subscriptions', 'flight_watches', 'push_outbox',
+            'flight_focus_requests',
         ];
         $existing = [];
         $stmt = $this->pdo->query('SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()');
