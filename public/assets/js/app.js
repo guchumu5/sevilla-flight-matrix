@@ -12,6 +12,7 @@
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
     canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushPending: 0, pushWatches: 0,
+    watchedFlightIds: [],
     detailFlightId: null, flightAwarePollTimer: null,
     focusStatus: null, focusNotice: '', pinnedFlightId: Number(localStorage.getItem('matrix.focusFlightId') || 0)
   };
@@ -44,6 +45,8 @@
     predictionExactAccuracy: document.querySelector('#predictionExactAccuracy'),
     predictionCanaryAccuracy: document.querySelector('#predictionCanaryAccuracy'), predictionEvaluated: document.querySelector('#predictionEvaluated'),
     trackedFocusPanel: document.querySelector('#trackedFocusPanel'), trackedFocusBody: document.querySelector('#trackedFocusBody'),
+    trackedFocusTabs: document.querySelector('#trackedFocusTabs'), mobileDateLabel: document.querySelector('#mobileDateLabel'),
+    mobileBeltWatchLabel: document.querySelector('#mobileBeltWatchLabel'),
     clearTrackedFocus: document.querySelector('#clearTrackedFocus'), pushStatusLine: document.querySelector('#pushStatusLine'),
     testPushNotification: document.querySelector('#testPushNotification'), dailyBeltModalBody: document.querySelector('#dailyBeltModalBody'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
@@ -54,6 +57,13 @@
   const parseDate = value => value ? new Date(String(value).replace(' ', 'T')) : null;
   const time = value => value ? new Intl.DateTimeFormat('es-ES',{hour:'2-digit',minute:'2-digit'}).format(parseDate(value)) : '—';
   const dateTime = value => value ? new Intl.DateTimeFormat('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(parseDate(value)) : '—';
+  const updateMobileDateLabel = () => {
+    if (!els.mobileDateLabel) return;
+    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(els.date?.value || '') ? new Date(`${els.date.value}T12:00:00`) : null;
+    els.mobileDateLabel.textContent = parsed
+      ? new Intl.DateTimeFormat('es-ES',{weekday:'short',day:'2-digit',month:'2-digit'}).format(parsed).replace('.', '')
+      : 'Elegir día';
+  };
   const signed = value => Number(value) > 0 ? `+${value} min` : `${value} min`;
   const timingMarkup = (flight, className = 'flight-timing') => {
     const deviation = Number(flight.deviation_minutes || 0);
@@ -267,7 +277,7 @@
     </section>`;
   }
 
-  function focusHeroMarkup(flight, focus = null) {
+  function focusHeroMarkup(flight, focus = null, allowExpand = false) {
     const admin = appMain?.dataset.focusAdmin === '1';
     const deviceAuthorized = Boolean(localStorage.getItem('matrix.pushDevice'));
     const authorized = admin || deviceAuthorized;
@@ -296,7 +306,10 @@
         <span><small>Cinta confirmada</small><b>${esc(official)}</b></span>
         <span><small>Predicción</small><b>${esc(predicted)}</b></span>
       </div>
-      <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${disabled?'disabled':''}>↻ ${esc(buttonLabel)}</button>
+      <div class="focus-hero-actions">
+        <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${disabled?'disabled':''}>↻ ${esc(buttonLabel)}</button>
+        ${allowExpand ? `<button class="btn btn-outline-light w-100" type="button" data-open-flight="${Number(flight.id)}">Ampliar vuelo</button>` : ''}
+      </div>
       <small class="focus-refresh-status" data-focus-refresh-status>${esc(notice)}</small>
       <footer>OpenSky: máximo una consulta por vuelo cada 3 min y 90 s entre consultas globales · FlightAware: 5 min · Aena: cada 15 min en la última hora y cada 5 min desde T‑20 hasta resolver equipaje.</footer>
     </section>`;
@@ -516,6 +529,7 @@
     }
     if (!token) {
       state.canaryWatchEnabled = false;
+      state.watchedFlightIds = [];
       updateNotificationButton();
       return;
     }
@@ -535,6 +549,13 @@
       state.pushLastAt = data.last_push_at || null;
       state.pushPending = Number(data.pending_notifications || 0);
       state.pushWatches = Number(data.individual_watches || 0);
+      state.watchedFlightIds = Array.isArray(data.watched_flight_ids)
+        ? data.watched_flight_ids.map(Number).filter(Number.isFinite)
+        : [];
+      if (!state.pinnedFlightId && state.watchedFlightIds.length) {
+        state.pinnedFlightId = state.watchedFlightIds[0];
+        localStorage.setItem('matrix.focusFlightId', String(state.pinnedFlightId));
+      }
       if (Notification.permission === 'granted') await ensureServiceWorker(token);
     } catch (error) {
       state.pushLastError = error.message || 'No se pudo comprobar Web Push';
@@ -705,6 +726,35 @@
     }
   }
 
+  const flightIsWatched = flightId => state.watchedFlightIds.some(id => Number(id) === Number(flightId));
+
+  function setWatchButtonState(button, enabled) {
+    if (!button) return;
+    const compact = button.dataset.watchCompact === '1';
+    button.dataset.watching = enabled ? '1' : '0';
+    if (compact) {
+      button.className = `canary-quick-watch ${enabled ? 'active' : ''}`;
+      button.innerHTML = enabled ? '<span aria-hidden="true">🔔</span> Vigilando' : '<span aria-hidden="true">🔕</span> Vigilar';
+      button.setAttribute('aria-pressed', enabled ? 'true' : 'false');
+      return;
+    }
+    button.className = enabled ? 'btn btn-warning w-100' : 'btn btn-outline-warning w-100';
+    button.textContent = enabled ? '🔔 Vuelo vigilado · desactivar' : '🔔 Vigilar este vuelo';
+  }
+
+  function bindWatchButtons(root = document) {
+    root.querySelectorAll('[data-watch-flight]').forEach(button => {
+      if (button.dataset.watchBound === '1') return;
+      button.dataset.watchBound = '1';
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        watchFlight(button.dataset.watchFlight, button).catch(error => window.alert(error.message));
+      });
+      button.addEventListener('keydown', event => event.stopPropagation());
+    });
+  }
+
   async function watchFlight(flightId, button) {
     let token = localStorage.getItem('matrix.pushDevice');
     const enabled = button.dataset.watching !== '1';
@@ -718,19 +768,23 @@
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'No se pudo cambiar la vigilancia.');
-      button.dataset.watching = enabled ? '1' : '0';
-      button.className = enabled ? 'btn btn-warning w-100 mb-4' : 'btn btn-outline-warning w-100 mb-4';
-      button.textContent = enabled ? '🔔 Vuelo vigilado · desactivar' : '🔔 Vigilar este vuelo';
+      setWatchButtonState(button, enabled);
       state.pushWatches = Math.max(0, state.pushWatches + (enabled ? 1 : -1));
       if (enabled) {
+        state.watchedFlightIds = [Number(flightId), ...state.watchedFlightIds.filter(id => Number(id) !== Number(flightId))];
         state.pinnedFlightId = Number(flightId);
         localStorage.setItem('matrix.focusFlightId', String(flightId));
         await showPushConfirmation();
-      } else if (Number(state.pinnedFlightId) === Number(flightId)) {
-        state.pinnedFlightId = 0;
-        localStorage.removeItem('matrix.focusFlightId');
+      } else {
+        state.watchedFlightIds = state.watchedFlightIds.filter(id => Number(id) !== Number(flightId));
+        if (Number(state.pinnedFlightId) === Number(flightId)) {
+          state.pinnedFlightId = Number(state.watchedFlightIds[0] || 0);
+          if (state.pinnedFlightId) localStorage.setItem('matrix.focusFlightId', String(state.pinnedFlightId));
+          else localStorage.removeItem('matrix.focusFlightId');
+        }
       }
       renderTrackedFocus();
+      renderCanaryWatch();
       updateNotificationButton();
     } finally { button.disabled = false; }
   }
@@ -746,10 +800,12 @@
       if (response.ok) {
         state.pushWatches = Number(data.individual_watches || state.pushWatches || 0);
         state.pushPending = Number(data.pending_notifications || state.pushPending || 0);
+        state.watchedFlightIds = Array.isArray(data.watched_flight_ids)
+          ? data.watched_flight_ids.map(Number).filter(Number.isFinite)
+          : state.watchedFlightIds;
+        setWatchButtonState(button, Boolean(data.watching));
       }
       if (response.ok && data.watching) {
-        button.dataset.watching = '1'; button.className = 'btn btn-warning w-100 mb-4';
-        button.textContent = '🔔 Vuelo vigilado · desactivar';
         state.pinnedFlightId = Number(flightId);
         localStorage.setItem('matrix.focusFlightId', String(flightId));
         renderTrackedFocus();
@@ -771,6 +827,13 @@
       state.flights = incoming;
       const important = incoming.filter(f => Boolean(f.belt_attention));
       const daily = payload.belt_analysis_daily;
+      if (els.mobileBeltWatchLabel) {
+        const total = important.length + Number(daily?.changes_found || 0);
+        els.mobileBeltWatchLabel.textContent = total
+          ? `${total} aviso${total===1?'':'s'}`
+          : 'Sin avisos';
+        els.mobileBeltWatchLabel.closest('.mobile-command')?.classList.toggle('has-alert', total > 0);
+      }
       if (els.dailyBeltAlert && (important.length || Number(daily?.changes_found || 0) > 0)) {
         const parts=[];
         if (important.length) parts.push(`${important.length} vuelo${important.length===1?'':'s'} requiere${important.length===1?'':'n'} atención de cinta ahora`);
@@ -785,7 +848,7 @@
         }
       } else if (els.dailyBeltAlert) {
         els.dailyBeltAlert.classList.add('d-none');
-        if (els.dailyBeltModalBody) els.dailyBeltModalBody.innerHTML='';
+        if (els.dailyBeltModalBody) els.dailyBeltModalBody.innerHTML='<p class="text-secondary mb-0">No hay vuelos con atención de cinta ni cambios pendientes de revisión.</p>';
       }
       renderPredictionSummary(payload.prediction_summary || null);
       els.updated.textContent = `Actualizado ${time(payload.generated_at)} · ${payload.authority_note}`;
@@ -926,18 +989,28 @@
     if (!flight) {
       els.trackedFocusPanel.classList.add('d-none');
       els.trackedFocusBody.innerHTML = '';
+      if (els.trackedFocusTabs) {
+        els.trackedFocusTabs.classList.add('d-none');
+        els.trackedFocusTabs.innerHTML = '';
+      }
       return;
+    }
+    const watchedFlights = state.watchedFlightIds
+      .map(id => state.flights.find(item => Number(item.id) === Number(id)))
+      .filter(Boolean);
+    if (els.trackedFocusTabs) {
+      els.trackedFocusTabs.classList.toggle('d-none', watchedFlights.length < 2);
+      els.trackedFocusTabs.innerHTML = watchedFlights.map(item => `<button type="button" class="tracked-focus-tab ${Number(item.id)===Number(flight.id)?'active':''}" data-focus-tab="${Number(item.id)}" aria-pressed="${Number(item.id)===Number(flight.id)?'true':'false'}"><strong>${esc(item.physical_flight)}</strong><span>${esc(item.origin_name)} · ${time(effectiveArrival(item))}</span></button>`).join('');
     }
     els.trackedFocusPanel.classList.remove('d-none');
     els.trackedFocusBody.innerHTML = `<div class="tracked-focus-layout">
       <aside class="tracked-focus-summary">
-        ${focusHeroMarkup(flight, Number(state.detailFlightId) === Number(flight.id) ? state.focusStatus : null)}
+        ${focusHeroMarkup(flight, Number(state.detailFlightId) === Number(flight.id) ? state.focusStatus : null, true)}
         ${dailyRedUsageMarkup(flight)}
         ${telemetrySummary(flight, true)}
       </aside>
       <div class="tracked-focus-belts">${focusWindowMarkup(flight)}</div>
-      </div>
-      <button class="btn btn-outline-light w-100" type="button" data-open-flight="${Number(flight.id)}">Abrir análisis, histórico y probabilidades</button>`;
+      </div>`;
     bindFocusRefreshButtons(els.trackedFocusBody);
   }
 
@@ -955,6 +1028,7 @@
       const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
       const beltClass = ['7','8'].includes(String(f.belt)) || ['7','8'].includes(String(f.predicted_belt)) || f.belt_attention ? 'danger' : '';
       const sharedCodes = codeshareCodes(f);
+      const watched = flightIsWatched(f.id);
       return `<article class="canary-card ${past?'past':''} ${beltClass}" data-flight-id="${Number(f.id)}" tabindex="0">
         <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${esc(f.indicator)}</span></div>
         ${timingMarkup(f, 'canary-card-timing')}
@@ -967,9 +1041,13 @@
         ${beltOccupancyMarkup(f)}
         ${f.belt_attention ? `<div class="canary-important"><b>IMPORTANTE</b><span>${esc(f.belt_attention_reason)}</span></div>` : ''}
         ${f.secondary_belt_state === 'candidate' ? `<small class="canary-proposal">● ${esc((f.secondary_belt_source||'API').toUpperCase())}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}</small>` : ''}
-        ${flightAwareLink(f, true)}
+        <div class="canary-card-actions">
+          <button class="canary-quick-watch ${watched?'active':''}" type="button" data-watch-flight="${Number(f.id)}" data-watch-compact="1" data-watching="${watched?'1':'0'}" aria-pressed="${watched?'true':'false'}"><span aria-hidden="true">${watched?'🔔':'🔕'}</span> ${watched?'Vigilando':'Vigilar'}</button>
+          ${flightAwareLink(f, true)}
+        </div>
       </article>`;
     }).join('');
+    bindWatchButtons(els.canaryWatch);
   }
 
   function renderUpcomingLine() {
@@ -1833,10 +1911,11 @@
           <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
         </article>`;
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
-      const watch = `<button class="btn btn-outline-warning w-100 mb-2" type="button" data-watch-flight="${Number(id)}" data-watching="0">🔔 Vigilar este vuelo</button>
-        <p class="watch-explanation mb-3">Durante la última hora: Aena cada 15 min; desde 20 min antes, cada 5 min hasta resolver el equipaje. Incluye avisos de despegue, ETA, cinta, incidencias, aterrizaje y aproximadamente 40 min antes de llegar.</p>
+      const watched = flightIsWatched(id);
+      const watch = `<div class="detail-watch-quick"><button class="btn ${watched?'btn-warning':'btn-outline-warning'} w-100" type="button" data-watch-flight="${Number(id)}" data-watching="${watched?'1':'0'}">${watched?'🔔 Vuelo vigilado · desactivar':'🔔 Vigilar este vuelo'}</button></div>`;
+      const watchSupport = `<p class="watch-explanation mb-3">Durante la última hora: Aena cada 15 min; desde 20 min antes, cada 5 min hasta resolver el equipaje. Incluye avisos de despegue, ETA, cinta, incidencias, aterrizaje y aproximadamente 40 min antes de llegar.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita únicamente al abrir este vuelo.</small></div>`;
-      els.detailBody.innerHTML = `<div class="tracked-focus-layout detail-focus-layout">
+      els.detailBody.innerHTML = watch + `<div class="tracked-focus-layout detail-focus-layout">
         <aside class="tracked-focus-summary">
           <div data-focus-hero>${focusHeroMarkup(flight, state.focusStatus)}</div>
           <div data-focus-red-day>${dailyRedUsageMarkup(flight)}</div>
@@ -1844,12 +1923,11 @@
         </aside>
         <div class="tracked-focus-belts" data-focus-window>${focusWindowMarkup(flight)}</div>
       </div>`
-        + summary + watch + beltIntelligence(flight)
+        + summary + watchSupport + beltIntelligence(flight)
         + `<div data-flightaware-snapshot>${flightAwareSnapshotMarkup(payload.flightaware)}</div>`
         + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
       bindFocusRefreshButtons(els.detailBody);
-      const watchButton = els.detailBody.querySelector('[data-watch-flight]');
-      watchButton?.addEventListener('click', () => watchFlight(id, watchButton).catch(error => window.alert(error.message)));
+      bindWatchButtons(els.detailBody);
       renderWatchButton(id);
       requestFlightAwareSnapshot(id, payload.flightaware?.observed_at || null);
     } catch (error) {
@@ -1873,6 +1951,13 @@
   }
 
   document.addEventListener('click', event => {
+    const focusTab = event.target.closest('[data-focus-tab]');
+    if (focusTab) {
+      state.pinnedFlightId = Number(focusTab.dataset.focusTab);
+      localStorage.setItem('matrix.focusFlightId', String(state.pinnedFlightId));
+      renderTrackedFocus();
+      return;
+    }
     const button = event.target.closest('[data-open-flight]');
     if (button) openDetail(button.dataset.openFlight);
   });
@@ -1887,6 +1972,7 @@
   }));
   els.search.addEventListener('input', render);
   els.date.addEventListener('change', () => {
+    updateMobileDateLabel();
     state.autoScrolledDate = null;
     state.mapHasFitted = false;
     loadBoard(true);
@@ -1935,6 +2021,7 @@
     if (els.arrivalsToggleLabel) els.arrivalsToggleLabel.textContent = els.arrivalsToggleLabel.textContent.replace('visible','plegado');
   });
 
+  updateMobileDateLabel();
   updateNotificationButton();
   updateSceneClock();
   setInterval(updateSceneClock, 1000);

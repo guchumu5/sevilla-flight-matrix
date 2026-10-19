@@ -37,18 +37,27 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
   <div class="container-fluid px-lg-4">
     <a class="navbar-brand d-flex align-items-center gap-2" href="#">
       <span class="brand-mark">SVQ</span>
-      <span><strong>Matriz de Cintas</strong><small class="d-block text-secondary">Llegadas · Sevilla</small></span>
+      <span class="brand-copy"><strong>Matriz de Cintas</strong><small class="d-block text-secondary">Llegadas · Sevilla</small></span>
     </a>
     <div class="d-flex align-items-center gap-2 ms-auto">
       <span id="connectionBadge" class="badge text-bg-secondary">Conectando</span>
-      <a class="btn btn-sm btn-outline-light" href="admin.php">Aena / Admin</a>
+      <a class="btn btn-sm btn-outline-light admin-link" href="admin.php" aria-label="Administración Aena" title="Administración Aena"><span class="admin-icon" aria-hidden="true">⚙</span><span class="admin-label">Aena / Admin</span></a>
     </div>
   </div>
 </nav>
 
 <main class="container-fluid px-lg-4 py-3" data-poll-seconds="<?= $pollSeconds ?>"
       data-focus-admin="<?= $focusAdmin ? '1' : '0' ?>" data-focus-csrf="<?= e($focusCsrf) ?>">
-  <section class="panel mb-3 overflow-hidden radar-collapsed-panel" aria-label="Filtros del tablero">
+  <div class="mobile-command-grid d-md-none mb-2" aria-label="Accesos rápidos">
+    <button class="mobile-command mobile-date-command" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-controls="filtersCollapse">
+      <span aria-hidden="true">▣</span><span><small>Fecha</small><strong id="mobileDateLabel"><?= e($today) ?></strong></span>
+    </button>
+    <button class="mobile-command mobile-belt-command" type="button" data-bs-toggle="modal" data-bs-target="#beltDailyModal">
+      <span aria-hidden="true">⚠</span><span><small>Vigilancia de cintas</small><strong id="mobileBeltWatchLabel">Comprobando</strong></span>
+    </button>
+  </div>
+
+  <section class="panel mb-3 overflow-hidden radar-collapsed-panel filters-panel" aria-label="Filtros del tablero">
     <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
       <span><strong>Fecha, sala y búsqueda</strong><small>Día operativo hasta las 02:00 · pulsa para desplegar filtros</small></span><b aria-hidden="true">⌄</b>
     </button>
@@ -100,6 +109,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <div><small class="tracked-focus-kicker">PRIORIDAD 1</small><h2 class="h5 mb-1" id="trackedFocusTitle">Vuelo en seguimiento</h2><p class="mb-0 text-secondary small">Es el centro operativo: entorno de cintas, telemetría y actualización dirigida.</p></div>
       <button class="btn btn-sm btn-outline-light" type="button" id="clearTrackedFocus">Dejar de fijar</button>
     </header>
+    <nav class="tracked-focus-tabs d-none" id="trackedFocusTabs" aria-label="Vuelos vigilados"></nav>
     <div class="tracked-focus-body" id="trackedFocusBody"></div>
   </section>
 
