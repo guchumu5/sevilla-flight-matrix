@@ -10,7 +10,7 @@ evento `belt_changed`.
 ## Ocupación matemática para vuelos de Canarias
 
 Las tarjetas de LPA, TFN, TFS, ACE y FUE calculan dos índices distintos con el
-modelo `belt_occupancy_v1`:
+modelo `belt_occupancy_v2`:
 
 - **Ocupación al aterrizar:** número de cintas ocupadas simultáneamente en la
   ETA del vuelo canario, dividido entre las ocho cintas. Una llegada mantiene
@@ -26,6 +26,27 @@ por último, predicción histórica. Los vuelos sin cinta se contabilizan como
 incertidumbre y reducen la confianza; nunca se asignan por suposición. El
 contexto incluye el día anterior y el siguiente para no perder coincidencias
 alrededor de medianoche.
+
+## Centro de atención por vuelo
+
+Al abrir cualquier llegada, la versión 1.23.0 convierte el lateral en una mesa
+de control del vuelo seleccionado. Las ocho cintas muestran las llegadas desde
+30 minutos antes hasta 30 minutos después, el desfase respecto de la ETA del
+vuelo central y si cada cinta continúa ocupada exactamente en ese instante.
+También se separan los usos oficiales acumulados de C7 y C8 durante la jornada.
+
+El botón **Actualizar este vuelo ahora** requiere una sesión de administrador
+o un dispositivo con Web Push registrado. Activa prioridad Aena durante 30
+minutos y realiza una consulta OpenSky dirigida cuando existe ICAO24. Para proteger las cuotas se permite una
+consulta ADS-B por vuelo cada tres minutos y un intervalo global mínimo de 90
+segundos. FlightAware conserva su límite de cinco minutos. El refresco normal
+del tablero solo lee MySQL y no consume APIs externas.
+
+Antes de usar el botón en una instalación existente hay que aplicar desde
+**Administración → Actualizar MySQL** el paquete
+`20261019_010_flight_focus`. La ficha muestra altitud, velocidad, rumbo,
+coordenadas y tendencia vertical (ascenso, descenso o nivelado), distinguiendo
+si no existe una señal ADS-B verificable.
 
 ## Requisitos
 
