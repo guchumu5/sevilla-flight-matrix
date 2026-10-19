@@ -3,11 +3,14 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/src/bootstrap.php';
 
 use SevillaMatrix\Env;
+use SevillaMatrix\Auth;
 
 $pollSeconds = max(5, (int)Env::get('POLL_SECONDS', '15'));
 $today = date('Y-m-d');
 $cssVersion = (string)(@filemtime(__DIR__ . '/assets/css/app.css') ?: '1');
 $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
+$focusAdmin = Auth::check();
+$focusCsrf = $focusAdmin ? Auth::csrf() : '';
 ?>
 <!doctype html>
 <html lang="es" data-bs-theme="dark">
@@ -39,7 +42,8 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
   </div>
 </nav>
 
-<main class="container-fluid px-lg-4 py-3" data-poll-seconds="<?= $pollSeconds ?>">
+<main class="container-fluid px-lg-4 py-3" data-poll-seconds="<?= $pollSeconds ?>"
+      data-focus-admin="<?= $focusAdmin ? '1' : '0' ?>" data-focus-csrf="<?= e($focusCsrf) ?>">
   <section class="toolbar panel mb-3" aria-label="Filtros del tablero">
     <div class="row g-2 align-items-end">
       <div class="col-6 col-md-2">
@@ -226,7 +230,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
 
 <div class="offcanvas offcanvas-end detail-drawer" tabindex="-1" id="flightDetail" aria-labelledby="flightDetailLabel">
   <div class="offcanvas-header border-bottom">
-    <div><small class="text-secondary">Histórico del vuelo</small><h2 class="offcanvas-title h5" id="flightDetailLabel">Detalle</h2></div>
+    <div><small class="text-secondary">Centro de atención del vuelo</small><h2 class="offcanvas-title h5" id="flightDetailLabel">Detalle</h2></div>
     <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
   </div>
   <div class="offcanvas-body" id="detailBody"><div class="loading-state"><div class="spinner-border spinner-border-sm"></div></div></div>
