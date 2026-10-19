@@ -33,4 +33,12 @@ assert.equal(parsed.distance_mi, 895);
 assert.equal(parsed.duration_text, '1h 49m');
 assert.match(parsed.departure_text, /09:35AM WEST/);
 assert.match(parsed.arrival_text, /12:24PM CEST/);
+
+const bootstrap = `<script>var trackpollBootstrap = {"flights":{"VLG3257-test":{"flightId":"VLG3257-test","displayIdent":"VLG3257","aircraft":{"type":"A320","friendlyType":"Airbus A320neo","tail":"EC-NCF"},"activityLog":{"flights":[]}}}};</script>`;
+const assigned = parseFlightAwarePublicPage('Aircraft Type Airbus A320neo Photos', bootstrap);
+assert.equal(assigned.aircraft_registration, 'EC-NCF');
+assert.equal(assigned.aircraft_type, 'Airbus A320neo');
+
+const pending = parseFlightAwarePublicPage('Aircraft Type Airbus A320 Photos', bootstrap.replace('"EC-NCF"', 'null'));
+assert.equal(pending.aircraft_registration, null);
 console.log('Parser FlightAware público: OK');

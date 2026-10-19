@@ -1506,6 +1506,7 @@
       <header><div><strong>FlightAware web</strong><span class="badge text-bg-warning">secundario</span></div><time>${dateTime(snapshot.observed_at)}</time></header>
       <p>${esc(snapshot.status_text || 'Estado público sin descripción')}</p>
       <div class="telemetry-values">
+        <div><small>Matrícula</small><strong>${esc(snapshot.aircraft_registration || 'Todavía no publicada')}</strong></div>
         <div><small>Aeronave</small><strong>${esc(snapshot.aircraft_type || '—')}</strong></div>
         <div><small>Altitud visible</small><strong>${value(snapshot.altitude_ft,'ft')}</strong></div>
         <div><small>Velocidad visible</small><strong>${value(snapshot.speed_mph,'mph')}</strong></div>
@@ -1530,23 +1531,68 @@
       if (!response.ok) throw new Error(payload.error || 'No se pudo comprobar la lectura.');
       if (Number(state.detailFlightId) !== Number(flightId)) return;
       const snapshot = payload.flightaware || null;
+      const aircraft = payload.aircraft || null;
+      const flight = state.flights.find(item => Number(item.id) === Number(flightId));
+      if (flight && aircraft) {
+        flight.aircraft_registration = aircraft.aircraft_registration || flight.aircraft_registration;
+        flight.aircraft_icao24 = aircraft.aircraft_icao24 || flight.aircraft_icao24;
+        flight.aircraft_type = aircraft.aircraft_type || flight.aircraft_type;
+      }
+      if (snapshot && aircraft?.aircraft_registration) {
+        snapshot.aircraft_registration = aircraft.aircraft_registration;
+      }
       const observedAt = String(snapshot?.observed_at || '');
+      const requestFinished = payload.flightaware_request?.status === 'processed';
+      if (requestFinished && aircraft?.aircraft_registration) {
+        const target = els.detailBody.querySelector('[data-flightaware-snapshot]');
+        const status = els.detailBody.querySelector('[data-flightaware-request-status]');
+        const hero = els.detailBody.querySelector('[data-focus-hero]');
+        const telemetry = els.detailBody.querySelector('[data-focus-telemetry]');
+        if (target) target.innerHTML = flightAwareSnapshotMarkup(snapshot || {
+          aircraft_registration:aircraft.aircraft_registration,
+          aircraft_type:aircraft.aircraft_type,
+        });
+        if (hero && flight) hero.innerHTML = focusHeroMarkup(flight, state.focusStatus);
+        if (telemetry && flight) telemetry.innerHTML = telemetrySummary(flight, true);
+        bindFocusRefreshButtons(els.detailBody);
+        if (status) {
+          status.className = 'd-block mt-2 text-success';
+          status.textContent = `Matrícula ${aircraft.aircraft_registration} localizada en la ficha pública de FlightAware.`;
+        }
+        stopFlightAwarePolling();
+        return;
+      }
       if (snapshot && observedAt && observedAt !== String(baselineObservedAt || '')) {
         const target = els.detailBody.querySelector('[data-flightaware-snapshot]');
         const status = els.detailBody.querySelector('[data-flightaware-request-status]');
         if (target) target.innerHTML = flightAwareSnapshotMarkup(snapshot);
         if (status) {
-          status.className = 'd-block mt-2 text-success';
-          status.textContent = `Datos del avión cargados automáticamente · ${dateTime(snapshot.observed_at)}.`;
+          status.className = requestFinished && !aircraft?.aircraft_registration
+            ? 'd-block mt-2 text-warning'
+            : 'd-block mt-2 text-success';
+          status.textContent = requestFinished && !aircraft?.aircraft_registration
+            ? `FlightAware consultado · todavía no publica la matrícula (${snapshot.aircraft_type || 'tipo pendiente'}).`
+            : `Datos del avión cargados automáticamente · ${dateTime(snapshot.observed_at)}.`;
         }
-        stopFlightAwarePolling();
-        return;
+        if (!requestFinished || aircraft?.aircraft_registration) {
+          stopFlightAwarePolling();
+          return;
+        }
+      }
+      if (requestFinished && !aircraft?.aircraft_registration) {
+        const status = els.detailBody.querySelector('[data-flightaware-request-status]');
+        if (status) {
+          status.className = 'd-block mt-2 text-warning';
+          status.textContent = `FlightAware consultado · todavía no publica la matrícula (${snapshot?.aircraft_type || aircraft?.aircraft_type || 'tipo pendiente'}). Se volverá a comprobar al solicitar otra lectura.`;
+        }
       }
       if (attempt >= 24) {
         const status = els.detailBody.querySelector('[data-flightaware-request-status]');
         if (status) {
           status.className = 'd-block mt-2 text-secondary';
-          status.textContent = snapshot
+          status.textContent = requestFinished && !aircraft?.aircraft_registration
+            ? `FlightAware terminó la consulta sin publicar matrícula (${snapshot?.aircraft_type || aircraft?.aircraft_type || 'tipo pendiente'}).`
+            : snapshot
             ? 'La lectura terminó sin publicar datos diferentes; se conserva la última ficha disponible.'
             : 'FlightAware no publicó datos utilizables en esta ventana. Puedes mantener el panel abierto o intentarlo más tarde.';
         }

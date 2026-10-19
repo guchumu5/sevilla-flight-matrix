@@ -1,5 +1,15 @@
 # Matriz Operativa de Cintas · Sevilla
 
+## Versión 1.22.1 · matrícula FlightAware bajo demanda
+
+La lectura pública bajo demanda analiza también el bloque de datos que
+FlightAware entrega a su propia ficha. Si allí aparece la matrícula, se guarda
+en el vuelo y se refleja automáticamente en el panel abierto. Si FlightAware
+todavía devuelve `tail: null`, el usuario ve que la fuente fue consultada pero
+que la matrícula aún no ha sido publicada; no se confunde con un fallo del
+buscador. La consulta sigue ejecutándose únicamente para vuelos abiertos o
+solicitados y conserva el límite de cinco minutos.
+
 Aplicación web PHP/MySQL para vigilar las llegadas físicas a Sevilla, registrar el historial de sala/cinta y aplicar la matriz operativa acordada.
 
 Cada subida a `main` ejecuta una comprobación automática con PHP y MySQL 8:
