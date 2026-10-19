@@ -86,7 +86,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     </div></div></div>
   </section>
 
-  <div class="alert belt-daily-alert d-none" id="dailyBeltAlert" role="alert"></div>
+  <div class="belt-daily-alert d-none" id="dailyBeltAlert" role="status"></div>
 
   <section class="row g-3 mb-3 d-none" aria-label="Resumen operativo" hidden>
     <div class="col-6 col-xl-3"><article class="metric-card"><span>Vuelos</span><strong id="metricFlights">—</strong><small>en el tablero</small></article></div>
@@ -110,6 +110,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
         <p class="mb-0 text-secondary small">Todos los vuelos canarios del día. «Activar avisos» cubre despegue, ETA, cinta, incidencias, aterrizaje y equipaje.</p>
       </div>
       <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-sm btn-outline-info d-none" id="testPushNotification" type="button">Probar aviso real</button>
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>
         <span class="canary-watch-mark" aria-hidden="true">🌴</span>
       </div>
@@ -258,6 +259,22 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
   </div>
   <div class="offcanvas-body" id="detailBody"><div class="loading-state"><div class="spinner-border spinner-border-sm"></div></div></div>
+</div>
+
+<div class="modal fade" id="beltDailyModal" tabindex="-1" aria-labelledby="beltDailyModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-content belt-daily-modal">
+      <div class="modal-header">
+        <div><small class="text-warning">VIGILANCIA OPERATIVA</small><h2 class="modal-title h5" id="beltDailyModalLabel">Atención de cintas</h2></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body" id="dailyBeltModalBody"></div>
+      <div class="modal-footer">
+        <a class="btn btn-warning" href="belt-analysis.php">Consultar motivos e histórico</a>
+        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cerrar</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

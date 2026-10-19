@@ -640,6 +640,21 @@ El colector Aena exige además la respuesta de conciliación `201`: una página
 informativa obtenida accidentalmente por redirección ya no puede contarse como
 una captura correcta.
 
+La versión 1.22.0 compacta el vuelo vigilado para móvil en una composición
+**1/3 información + 2/3 entorno de cintas**. El uso diario de C7/C8 queda bajo
+la columna del vuelo y la telemetría se resume sin alargar toda la portada. Si
+falta matrícula o ICAO24, el botón dirigido hace una única búsqueda AirLabs y,
+si obtiene el identificador, consulta inmediatamente OpenSky. Los avisos de
+atención de cintas quedan reducidos a una línea y abren sus resultados en un
+modal.
+
+El botón **Probar aviso real** valida la ruta completa Web Push: navegador,
+suscripción guardada, servidor VAPID, proveedor Push y *service worker*. No es
+un globo interno ni una notificación local. La línea de estado muestra también
+cuántos vuelos individuales vigila ese dispositivo, la cola pendiente, el
+último envío y el error exacto. Esto permite separar un problema del iPhone de
+un fallo del cron `dispatch-push.php`.
+
 La versión 1.16.3 oculta además del tablero cualquier duplicado histórico IBE
 cuando ya existe la llegada física VLG, IBS o ANE enlazada por código, origen y
 proximidad horaria. El registro y sus evidencias no se borran de la base.
