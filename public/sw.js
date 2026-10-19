@@ -12,7 +12,15 @@ self.addEventListener('push', event => {
       const cache = await caches.open(CONFIG_CACHE);
       const stored = await cache.match('/matrix-device-token');
       const token = stored ? await stored.text() : '';
-      if (!token) return;
+      if (!token) {
+        await self.registration.showNotification('Matriz Sevilla · vuelve a abrir la app', {
+          body: 'El aviso llegó, pero el iPhone perdió la vinculación local. Abre la app una vez para repararla.',
+          tag: 'matrix-push-repair',
+          renotify: false,
+          data: {url: 'index.php'}
+        });
+        return;
+      }
       const endpoint = new URL('api/push.php', self.registration.scope);
       endpoint.searchParams.set('action', 'pending');
       endpoint.searchParams.set('device_token', token);
