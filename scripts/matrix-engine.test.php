@@ -51,7 +51,7 @@ $target = array_values(array_filter($decorated, static fn(array $flight): bool =
 $model = $target['belt_occupancy_30m'] ?? null;
 
 if (!is_array($model)) throw new RuntimeException('No se generó belt_occupancy_30m.');
-if (($model['model'] ?? null) !== 'belt_occupancy_v1') throw new RuntimeException('Versión de modelo incorrecta.');
+if (($model['model'] ?? null) !== 'belt_occupancy_v2') throw new RuntimeException('Versión de modelo incorrecta.');
 if (($model['at_arrival']['occupied_count'] ?? null) !== 3) throw new RuntimeException('La ETA debía tener 3/8 cintas ocupadas.');
 if ((float)($model['at_arrival']['percentage'] ?? -1) !== 37.5) throw new RuntimeException('El porcentaje ETA debía ser 37,5 %.');
 if ((float)($model['at_arrival']['red_percentage'] ?? -1) !== 50.0) throw new RuntimeException('El bloque 7/8 debía estar al 50 %.');
@@ -61,5 +61,15 @@ if ((float)($model['window_peak']['percentage'] ?? -1) !== 50.0) throw new Runti
 if ((float)($model['red_window_percentage'] ?? -1) !== 100.0) throw new RuntimeException('Las cintas 7 y 8 aparecen en la ventana completa.');
 if (($model['nearby_flights'] ?? null) !== 6 || ($model['unknown_belt_flights'] ?? null) !== 1) throw new RuntimeException('El recuento de coincidencias o incógnitas es incorrecto.');
 if (($model['confidence'] ?? null) !== 'baja') throw new RuntimeException('Una cinta desconocida debe reducir la confianza a baja.');
+$windowFlights = $model['window_flights'] ?? [];
+if (count($windowFlights) !== 6) throw new RuntimeException('La ventana detallada debe conservar los seis vuelos cercanos.');
+$redBefore = array_values(array_filter($windowFlights, static fn(array $item): bool => ($item['flight'] ?? '') === 'RED0007'))[0] ?? [];
+if (($redBefore['offset_minutes'] ?? null) !== -10 || empty($redBefore['occupies_at_target'])) {
+    throw new RuntimeException('El vuelo rojo de diez minutos antes debe seguir ocupando C7 en la ETA objetivo.');
+}
+$redAfter = array_values(array_filter($windowFlights, static fn(array $item): bool => ($item['flight'] ?? '') === 'NEXT008'))[0] ?? [];
+if (($redAfter['offset_minutes'] ?? null) !== 20 || !empty($redAfter['occupies_at_target'])) {
+    throw new RuntimeException('El vuelo de C8 debe constar veinte minutos después, pero no activo en la ETA objetivo.');
+}
 
-fwrite(STDOUT, "MatrixEngine belt_occupancy_v1 OK\n");
+fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 OK\n");

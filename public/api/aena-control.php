@@ -22,6 +22,7 @@ try {
     $pdo = Database::connection();
     $flights = (new FlightRepository($pdo))->board(date('Y-m-d'));
     $watchedIds = [];
+    $focusedIds = [];
     $canaryGlobal = false;
     $watchTables = (int)$pdo->query(
         "SELECT COUNT(*) FROM information_schema.tables
@@ -38,19 +39,34 @@ try {
         )->fetchAll(PDO::FETCH_COLUMN);
         $watchedIds = array_fill_keys(array_map('intval', $watchRows), true);
     }
+    $focusTable = (int)$pdo->query(
+        "SELECT COUNT(*) FROM information_schema.tables
+         WHERE table_schema=DATABASE() AND table_name='flight_focus_requests'"
+    )->fetchColumn() === 1;
+    if ($focusTable) {
+        $focusRows = $pdo->query(
+            "SELECT flight_id FROM flight_focus_requests
+             WHERE status='active' AND expires_at>=NOW()"
+        )->fetchAll(PDO::FETCH_COLUMN);
+        $focusedIds = array_fill_keys(array_map('intval', $focusRows), true);
+    }
     $critical = [];
     foreach ($flights as $flight) {
         $arrival = strtotime((string)($flight['effective_arrival'] ?? $flight['scheduled_arrival'] ?? '')) ?: 0;
         $status = strtolower((string)(($flight['status'] ?? '') . ' ' . ($flight['baggage_state'] ?? '')));
         $finished = preg_match('/final|cancel|completed|equipaje entregado/', $status) === 1;
         $priorityWatch = !$finished && $arrival >= time() - 7200 && $arrival <= time() + 21600
-            && (isset($watchedIds[(int)$flight['id']]) || ($canaryGlobal && (int)$flight['is_canary'] === 1));
+            && (isset($watchedIds[(int)$flight['id']])
+                || isset($focusedIds[(int)$flight['id']])
+                || ($canaryGlobal && (int)$flight['is_canary'] === 1));
         if (empty($flight['belt_attention']) && !$priorityWatch) continue;
         $reason = !empty($flight['belt_attention_reason'])
             ? (string)$flight['belt_attention_reason']
-            : ((int)$flight['is_canary'] === 1 && $canaryGlobal
+            : (isset($focusedIds[(int)$flight['id']])
+                ? 'Centro de atención activo: comprobación Aena prioritaria solicitada desde la ficha del vuelo.'
+                : ((int)$flight['is_canary'] === 1 && $canaryGlobal
                 ? 'Avisos de Canarias activos: comprobación Aena reforzada.'
-                : 'Vuelo vigilado individualmente: comprobación Aena reforzada.');
+                : 'Vuelo vigilado individualmente: comprobación Aena reforzada.'));
         $critical[] = [
             'id' => (int)$flight['id'],
             'flight' => (string)$flight['physical_flight'],
@@ -79,6 +95,7 @@ try {
         'critical_count' => count($critical),
         'critical_flights' => $critical,
         'individual_watches' => count($watchedIds),
+        'focused_flights' => count($focusedIds),
         'canary_watch_active' => $canaryGlobal,
         'last_aena_success_at' => $last ?: null,
         'last_aena_age_minutes' => $ageMinutes,

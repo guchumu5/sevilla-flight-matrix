@@ -215,8 +215,29 @@ final class MatrixEngine
             $confidence = $unknown > 0 ? 'baja'
                 : (array_diff($sources, ['oficial']) === [] ? 'alta' : 'media');
 
+            $windowFlights = array_map(static function (array $candidate) use ($target): array {
+                $offsetMinutes = (int)round(($candidate['arrival'] - $target) / 60);
+                return [
+                    'id' => $candidate['id'],
+                    'flight' => $candidate['flight'],
+                    'origin' => $candidate['origin'],
+                    'arrival' => $candidate['arrival_text'],
+                    'service_end' => date('Y-m-d H:i:s', $candidate['end']),
+                    'offset_minutes' => $offsetMinutes,
+                    'belt' => $candidate['belt'],
+                    'hall' => $candidate['hall'],
+                    'assignment_source' => $candidate['assignment_source'],
+                    'occupies_at_target' => $candidate['belt'] !== null
+                        && $candidate['arrival'] <= $target
+                        && $candidate['end'] >= $target,
+                ];
+            }, $nearbyFlights);
+            usort($windowFlights, static fn(array $a, array $b): int =>
+                ($a['offset_minutes'] <=> $b['offset_minutes']) ?: ($a['id'] <=> $b['id'])
+            );
+
             $flight['belt_occupancy_30m'] = [
-                'model' => 'belt_occupancy_v1',
+                'model' => 'belt_occupancy_v2',
                 'target_time' => date('Y-m-d H:i:s', $target),
                 'window_from' => date('Y-m-d H:i:s', $windowFrom),
                 'window_to' => date('Y-m-d H:i:s', $windowTo),
@@ -228,6 +249,7 @@ final class MatrixEngine
                 'red_belts_in_window' => array_values(array_map('intval', array_keys($redInWindow))),
                 'red_window_percentage' => round((count($redInWindow) / count(self::RED_BELTS)) * 100, 1),
                 'nearby_flights' => count($nearbyFlights),
+                'window_flights' => $windowFlights,
                 'unknown_belt_flights' => $unknown,
                 'confidence' => $confidence,
             ];
