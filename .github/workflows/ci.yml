@@ -79,6 +79,11 @@ jobs:
         run: |
           php -r 'require "src/bootstrap.php"; $svc=new SevillaMatrix\Notifications\WebPushService(SevillaMatrix\Database::connection()); $sub=$svc->subscribe(["endpoint"=>"https://push.example.invalid/ci","keys"=>["p256dh"=>"ci-p256dh","auth"=>"ci-auth"]],"CI"); $token=$sub["device_token"]; $flight=(int)SevillaMatrix\Database::connection()->query("SELECT id FROM flights LIMIT 1")->fetchColumn(); $svc->setWatch($token,$flight,true); $svc->setCanaryWatch($token,true); $status=$svc->status($token,$flight); if (empty($status["watching"]) || empty($status["watch_canary_all"])) exit(1); $svc->setCanaryWatch($token,false); if (!empty($svc->status($token)["watch_canary_all"])) exit(1); $renewed=$svc->subscribe(["endpoint"=>"https://push.example.invalid/ci-renewed","keys"=>["p256dh"=>"ci-new-p256dh","auth"=>"ci-new-auth"]],"CI renewed",$token); if (($renewed["device_token"]??"")!==$token || empty($svc->status($token,$flight)["watching"])) exit(1);'
 
+      - name: Comprobar centro de atención por vuelo
+        run: |
+          mysql -h127.0.0.1 -uroot -proot sevilla_matrix -e 'INSERT INTO flight_focus_requests (flight_id,requested_at,expires_at,status,last_result) SELECT id,NOW(),DATE_ADD(NOW(),INTERVAL 30 MINUTE),"active","CI" FROM flights LIMIT 1'
+          php -r 'require "src/bootstrap.php"; $id=(int)SevillaMatrix\Database::connection()->query("SELECT id FROM flights LIMIT 1")->fetchColumn(); $status=(new SevillaMatrix\Operations\FlightFocusService(SevillaMatrix\Database::connection()))->status($id); if (empty($status["ready"]) || empty($status["active"]) || (int)($status["policy"]["opensky_per_flight_seconds"]??0)!==180) { fwrite(STDERR,json_encode($status)); exit(1); }'
+
       - name: Comprobar instantánea FlightAware separada
         run: |
           mysql -h127.0.0.1 -uroot -proot sevilla_matrix -e 'INSERT INTO flightaware_snapshots (flight_id,observed_at,public_url,status_text,aircraft_type,speed_mph,distance_mi) SELECT id,NOW(),"https://www.flightaware.com/live/flight/VLG3051","EN ROUTE","Airbus A320 (A320)",448,895 FROM flights LIMIT 1'
