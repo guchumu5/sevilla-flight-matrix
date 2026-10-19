@@ -50,6 +50,7 @@ jobs:
           find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
           php scripts/matrix-engine.test.php
           php scripts/operational-policy.test.php
+          php scripts/migration-integrity.test.php
 
       - name: Validar recolector Aena
         run: |
