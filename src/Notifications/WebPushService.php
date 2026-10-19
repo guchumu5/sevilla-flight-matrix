@@ -104,6 +104,10 @@ final class WebPushService
         }
         $watches = $this->pdo->prepare('SELECT COUNT(*) FROM flight_watches WHERE subscription_id=:subscription_id AND enabled=1');
         $watches->execute(['subscription_id' => $subscription['id']]);
+        $watchIds = $this->pdo->prepare(
+            'SELECT flight_id FROM flight_watches WHERE subscription_id=:subscription_id AND enabled=1 ORDER BY updated_at DESC'
+        );
+        $watchIds->execute(['subscription_id' => $subscription['id']]);
         $pending = $this->pdo->prepare('SELECT COUNT(*) FROM push_outbox WHERE subscription_id=:subscription_id AND pushed_at IS NULL AND attempts<4');
         $pending->execute(['subscription_id' => $subscription['id']]);
         return [
@@ -113,6 +117,7 @@ final class WebPushService
             'last_push_at' => $subscription['last_push_at'],
             'last_error' => $subscription['last_error'],
             'individual_watches' => (int)$watches->fetchColumn(),
+            'watched_flight_ids' => array_map('intval', $watchIds->fetchAll(PDO::FETCH_COLUMN)),
             'pending_notifications' => (int)$pending->fetchColumn(),
         ];
     }
