@@ -11,8 +11,8 @@
     scenePositions: new Map(), sceneRemovalTimers: new Map(), alertDate: null,
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
-    canaryWatchEnabled: false, pushLastError: '', detailFlightId: null, flightAwarePollTimer: null,
-    focusStatus: null, focusNotice: ''
+    canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, detailFlightId: null, flightAwarePollTimer: null,
+    focusStatus: null, focusNotice: '', pinnedFlightId: Number(localStorage.getItem('matrix.focusFlightId') || 0)
   };
   const appMain = document.querySelector('main');
   const CANARY_ALERT_DEFAULT_MS = 60_000;
@@ -42,6 +42,8 @@
     predictionSummary: document.querySelector('#predictionSummary'), predictionAccuracy: document.querySelector('#predictionAccuracy'),
     predictionExactAccuracy: document.querySelector('#predictionExactAccuracy'),
     predictionCanaryAccuracy: document.querySelector('#predictionCanaryAccuracy'), predictionEvaluated: document.querySelector('#predictionEvaluated'),
+    trackedFocusPanel: document.querySelector('#trackedFocusPanel'), trackedFocusBody: document.querySelector('#trackedFocusBody'),
+    clearTrackedFocus: document.querySelector('#clearTrackedFocus'), pushStatusLine: document.querySelector('#pushStatusLine'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
   };
   if (/^\d{4}-\d{2}-\d{2}$/.test(deepLink.get('date') || '')) els.date.value = deepLink.get('date');
@@ -88,7 +90,11 @@
       timeZone:'Europe/Madrid', year:'numeric', month:'2-digit', day:'2-digit',
       hour:'2-digit', minute:'2-digit', hourCycle:'h23'
     }).formatToParts(new Date()).filter(p => p.type !== 'literal').map(p => [p.type, p.value]));
-    return {date:`${parts.year}-${parts.month}-${parts.day}`, minutes:Number(parts.hour) * 60 + Number(parts.minute)};
+    const date = `${parts.year}-${parts.month}-${parts.day}`;
+    const minutes = Number(parts.hour) * 60 + Number(parts.minute);
+    const pivot = new Date(`${date}T12:00:00Z`);
+    if (minutes < 120) pivot.setUTCDate(pivot.getUTCDate() - 1);
+    return {date, operationalDate:pivot.toISOString().slice(0,10), minutes, nowMs:Date.now()};
   };
   const telemetryAgeMinutes = f => {
     const observed = parseDate(f.telemetry_observed_at);
@@ -242,18 +248,17 @@
 
   function dailyRedUsageMarkup(flight) {
     const now = madridNow();
-    const selectedDate = String(flight.flight_date || els.date.value);
-    const cutoffMinutes = selectedDate < now.date ? 24 * 60 : selectedDate > now.date ? -1 : now.minutes;
+    const selectedDate = String(els.date.value);
     const red = state.flights.filter(item => {
-      if (String(item.flight_date || els.date.value) !== selectedDate) return false;
       if (item.source !== 'aena' || !['7','8'].includes(String(item.belt))) return false;
-      const minute = minuteOfDay(effectiveArrival(item));
-      return minute !== null && minute <= cutoffMinutes;
+      const arrival = parseDate(effectiveArrival(item))?.getTime();
+      return selectedDate < now.operationalDate
+        || (selectedDate === now.operationalDate && arrival !== undefined && arrival <= now.nowMs);
     });
     const belt7 = red.filter(item => String(item.belt) === '7').length;
     const belt8 = red.filter(item => String(item.belt) === '8').length;
     const used = Number(belt7 > 0) + Number(belt8 > 0);
-    const label = selectedDate === now.date ? 'en lo que llevamos de día' : selectedDate < now.date ? 'en toda la jornada' : 'hasta ahora';
+    const label = selectedDate === now.operationalDate ? 'en lo que llevamos de día operativo' : selectedDate < now.operationalDate ? 'en toda la jornada' : 'hasta ahora';
     return `<section class="focus-red-day ${red.length?'has-red':''}">
       <div><small>Histórico rojo ${esc(label)}</small><strong>${red.length} uso${red.length===1?'':'s'} oficial${red.length===1?'':'es'}</strong><span>${used}/2 cintas rojas utilizadas · ${(used/2*100).toLocaleString('es-ES')}%</span></div>
       <div class="focus-red-split"><span><b>C7</b>${belt7} vuelo${belt7===1?'':'s'}</span><span><b>C8</b>${belt8} vuelo${belt8===1?'':'s'}</span></div>
@@ -279,7 +284,7 @@
       : !authorized ? 'Activa avisos o inicia sesión'
         : cooldown > 0 ? `Nueva consulta en ${Math.ceil(cooldown / 60)} min` : 'Actualizar este vuelo ahora';
     const notice = state.focusNotice || (focus?.last_result ? String(focus.last_result) : 'La ficha se mantiene con las capturas automáticas; el botón fuerza una revisión dirigida.');
-    return `<section class="flight-focus-hero ${Number(flight.is_canary)===1?'canary':''}">
+    return `<section class="flight-focus-hero ${Number(flight.is_canary)===1?'canary':''}" data-focus-surface>
       <div class="focus-flight-title"><span>${Number(flight.is_canary)===1?'🌴':'✈️'}</span><div><small>Vuelo bajo foco</small><h3>${esc(flight.physical_flight)} · ${esc(flight.origin_name)}</h3><p>${esc(flight.status || 'Estado pendiente')} · ${trend.label}</p></div></div>
       <div class="focus-primary-values">
         <span><small>Programada</small><b>${time(flight.scheduled_arrival)}</b></span>
@@ -289,7 +294,7 @@
       </div>
       <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${disabled?'disabled':''}>↻ ${esc(buttonLabel)}</button>
       <small class="focus-refresh-status" data-focus-refresh-status>${esc(notice)}</small>
-      <footer>OpenSky: máximo una consulta por vuelo cada 3 min y 90 s entre consultas globales · FlightAware: 5 min · Aena: prioridad de 30 min con revisión aproximada cada 5 min.</footer>
+      <footer>OpenSky: máximo una consulta por vuelo cada 3 min y 90 s entre consultas globales · FlightAware: 5 min · Aena: cada 15 min en la última hora y cada 5 min desde T‑20 hasta resolver equipaje.</footer>
     </section>`;
   }
   const predictionMarkup = flight => {
@@ -458,8 +463,13 @@
 
   function updateNotificationButton() {
     if (!els.enableNotifications) return;
-    if (!window.isSecureContext || !('Notification' in window)) {
+    const capabilityError = pushCapabilityError();
+    if (capabilityError) {
       els.enableNotifications.classList.add('d-none');
+      if (els.pushStatusLine) {
+        els.pushStatusLine.className = 'push-status-line push-status-warning';
+        els.pushStatusLine.textContent = capabilityError;
+      }
       return;
     }
     const pushReady = Notification.permission === 'granted' && !!localStorage.getItem('matrix.pushDevice');
@@ -475,6 +485,14 @@
       ? `El último envío falló: ${state.pushLastError}. Pulsa para reparar la suscripción.`
       : '';
     els.enableNotifications.disabled = false;
+    if (els.pushStatusLine) {
+      els.pushStatusLine.className = `push-status-line ${state.pushLastError?'push-status-error':pushReady?'push-status-ready':''}`;
+      els.pushStatusLine.textContent = state.pushLastError
+        ? `El servidor intentó avisar, pero falló: ${state.pushLastError}`
+        : pushReady
+          ? `Web Push del iPhone preparado${state.pushLastAt ? ` · último envío del servidor ${dateTime(state.pushLastAt)}` : ' · todavía sin envíos registrados'}.`
+          : 'Los globos de la web no son avisos de iOS. Activa Web Push desde la app instalada en la pantalla de inicio.';
+    }
   }
 
   async function refreshNotificationStatus() {
@@ -504,6 +522,7 @@
       }
       state.canaryWatchEnabled = Boolean(data.watch_canary_all);
       state.pushLastError = data.last_error || '';
+      state.pushLastAt = data.last_push_at || null;
       if (Notification.permission === 'granted') await ensureServiceWorker(token);
     } catch (error) {
       state.pushLastError = error.message || 'No se pudo comprobar Web Push';
@@ -527,6 +546,7 @@
       state.canaryWatchEnabled = Boolean(data.watch_canary_all);
       state.pushLastError = '';
       if (!state.canaryWatchEnabled) clearCanaryAlerts();
+      if (enabled) await showPushConfirmation();
       updateNotificationButton();
     } finally {
       els.enableNotifications.disabled = false;
@@ -627,6 +647,19 @@
     return data.device_token;
   }
 
+  async function showPushConfirmation() {
+    try {
+      const registration = await ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '');
+      await registration.showNotification('Matriz Sevilla · avisos activados', {
+        body:'Este aviso confirma que iOS permite notificaciones de la aplicación. Los siguientes llegarán aunque la web esté cerrada.',
+        tag:'matrix-push-ready',
+        data:{url:'index.php'}
+      });
+    } catch (error) {
+      state.pushLastError = `iOS no mostró la prueba local: ${error.message || 'permiso no disponible'}`;
+    }
+  }
+
   async function watchFlight(flightId, button) {
     let token = localStorage.getItem('matrix.pushDevice');
     const enabled = button.dataset.watching !== '1';
@@ -643,6 +676,16 @@
       button.dataset.watching = enabled ? '1' : '0';
       button.className = enabled ? 'btn btn-warning w-100 mb-4' : 'btn btn-outline-warning w-100 mb-4';
       button.textContent = enabled ? '🔔 Vuelo vigilado · desactivar' : '🔔 Vigilar este vuelo';
+      if (enabled) {
+        state.pinnedFlightId = Number(flightId);
+        localStorage.setItem('matrix.focusFlightId', String(flightId));
+        await showPushConfirmation();
+      } else if (Number(state.pinnedFlightId) === Number(flightId)) {
+        state.pinnedFlightId = 0;
+        localStorage.removeItem('matrix.focusFlightId');
+      }
+      renderTrackedFocus();
+      updateNotificationButton();
     } finally { button.disabled = false; }
   }
 
@@ -657,6 +700,9 @@
       if (response.ok && data.watching) {
         button.dataset.watching = '1'; button.className = 'btn btn-warning w-100 mb-4';
         button.textContent = '🔔 Vuelo vigilado · desactivar';
+        state.pinnedFlightId = Number(flightId);
+        localStorage.setItem('matrix.focusFlightId', String(flightId));
+        renderTrackedFocus();
       }
     } catch (_) {}
   }
@@ -733,18 +779,18 @@
     const now = madridNow();
     const ordered = [...flights].sort((a,b) => (parseDate(effectiveArrival(a))?.getTime() || 0) - (parseDate(effectiveArrival(b))?.getTime() || 0));
     const isPast = flight => {
-      if (els.date.value < now.date) return true;
-      if (els.date.value > now.date) return false;
-      const minute = minuteOfDay(effectiveArrival(flight));
-      if (minute === null || minute >= now.minutes) return false;
+      if (els.date.value < now.operationalDate) return true;
+      if (els.date.value > now.operationalDate) return false;
+      const arrival = parseDate(effectiveArrival(flight))?.getTime();
+      if (arrival === undefined || arrival >= now.nowMs) return false;
       if (!flightIsFinished(flight) && ['enroute','approach','ground','baggage'].includes(flowStage(flight))) return false;
       return true;
     };
     const past = ordered.filter(isPast);
     const remaining = ordered.filter(flight => !isPast(flight));
     const current = remaining.filter(flight => {
-      const minute = minuteOfDay(effectiveArrival(flight));
-      return minute !== null && Math.abs(minute - now.minutes) <= 60;
+      const arrival = parseDate(effectiveArrival(flight))?.getTime();
+      return arrival !== undefined && Math.abs(arrival - now.nowMs) <= 60 * 60 * 1000;
     });
     return {past, remaining, current};
   }
@@ -752,7 +798,7 @@
   function flightRowMarkup(f, currentIds, pastIds) {
     const beltClass = !f.belt ? 'standby' : (['7','8'].includes(String(f.belt)) ? 'red' : '');
     const interval = [f.previous_same_belt_minutes, f.next_same_belt_minutes].filter(v => v !== null).sort((a,b)=>a-b)[0];
-    return `<tr class="flight-row ${Number(f.is_canary)===1?'canary':''} ${f.belt_attention?'belt-attention-row':''} ${currentIds.has(Number(f.id))?'current-flight':''} ${pastIds.has(Number(f.id))?'past-flight':''}" data-flight-id="${Number(f.id)}" data-effective-minute="${minuteOfDay(effectiveArrival(f)) ?? ''}" tabindex="0">
+    return `<tr class="flight-row ${Number(f.is_canary)===1?'canary':''} ${f.belt_attention?'belt-attention-row':''} ${currentIds.has(Number(f.id))?'current-flight':''} ${pastIds.has(Number(f.id))?'past-flight':''}" data-flight-id="${Number(f.id)}" data-effective-time="${parseDate(effectiveArrival(f))?.getTime() || ''}" tabindex="0">
       <td><span class="indicator" title="${esc(pressureText(f.pressure))}">${esc(f.indicator)}</span></td>
       <td><span class="time-primary">${time(f.scheduled_arrival)}</span></td>
       <td><span class="belt ${beltClass}">${esc(f.belt_label)}</span>${f.belt_attention?`<span class="belt-important" title="${esc(f.belt_attention_reason)}">IMPORTANTE · ${esc(f.belt_attention_reason)}</span>`:''}${secondaryBeltMarkup(f)}${predictionMarkup(f)}${beltAverageMarkup(f)}</td>
@@ -787,6 +833,7 @@
     els.table.classList.toggle('d-none', flights.length === 0);
     els.empty.classList.toggle('d-none', flights.length !== 0);
     metrics(flights);
+    renderTrackedFocus();
     renderCanaryWatch();
     renderUpcomingLine();
     renderMap();
@@ -816,6 +863,26 @@
     });
   }
 
+  function renderTrackedFocus() {
+    if (!els.trackedFocusPanel || !els.trackedFocusBody) return;
+    const flight = state.flights.find(item => Number(item.id) === Number(state.pinnedFlightId));
+    if (!flight) {
+      els.trackedFocusPanel.classList.add('d-none');
+      els.trackedFocusBody.innerHTML = '';
+      return;
+    }
+    els.trackedFocusPanel.classList.remove('d-none');
+    els.trackedFocusBody.innerHTML = `${focusHeroMarkup(flight, Number(state.detailFlightId) === Number(flight.id) ? state.focusStatus : null)}
+      <div class="tracked-focus-grid">
+        <div>${dailyRedUsageMarkup(flight)}</div>
+        <div>${telemetrySummary(flight)}</div>
+      </div>
+      ${focusWindowMarkup(flight)}
+      <button class="btn btn-outline-light w-100" type="button" data-open-flight="${Number(flight.id)}">Abrir análisis, histórico y probabilidades</button>`;
+    const refresh = els.trackedFocusBody.querySelector('[data-focus-refresh]');
+    if (refresh) refresh.addEventListener('click', () => refreshFocusedFlight(refresh.dataset.focusRefresh, refresh));
+  }
+
   function renderCanaryWatch() {
     const flights = state.flights.filter(f => Number(f.is_canary) === 1);
     if (!flights.length) {
@@ -824,8 +891,8 @@
     }
     const now = madridNow();
     els.canaryWatch.innerHTML = flights.map(f => {
-      const minutes = minuteOfDay(effectiveArrival(f));
-      const past = els.date.value === now.date && minutes !== null && minutes < now.minutes - 45;
+      const arrival = parseDate(effectiveArrival(f))?.getTime();
+      const past = els.date.value === now.operationalDate && arrival !== undefined && arrival < now.nowMs - 45 * 60 * 1000;
       const confirmedBelt = f.source === 'aena' && f.belt ? beltPosition(f) : null;
       const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
       const beltClass = ['7','8'].includes(String(f.belt)) || ['7','8'].includes(String(f.predicted_belt)) || f.belt_attention ? 'danger' : '';
@@ -849,11 +916,11 @@
 
   function renderUpcomingLine() {
     const now = madridNow();
-    const isToday = els.date.value === now.date;
+    const isToday = els.date.value === now.operationalDate;
     const flights = state.flights.filter(f => {
       if (flightIsFinished(f) || !['waiting','enroute','approach'].includes(flowStage(f))) return false;
-      const minute = minuteOfDay(effectiveArrival(f));
-      return !isToday || minute === null || minute >= now.minutes - 10;
+      const arrival = parseDate(effectiveArrival(f))?.getTime();
+      return !isToday || arrival === undefined || arrival >= now.nowMs - 10 * 60 * 1000;
     }).sort((a,b) => (parseDate(effectiveArrival(a))?.getTime() || 0) - (parseDate(effectiveArrival(b))?.getTime() || 0)).slice(0, 5);
     if (!flights.length) {
       els.upcomingStrip.innerHTML = '<div class="upcoming-empty">No quedan llegadas activas para esta fecha.</div>';
@@ -997,9 +1064,12 @@
   function renderAirportFlow() {
     const now = madridNow();
     const windowFlights = state.flights.filter(f => {
-      const minute = minuteOfDay(effectiveArrival(f));
-      if (els.date.value !== now.date) return !flightIsFinished(f);
-      return minute !== null && minute >= now.minutes - 45 && minute <= now.minutes + 150 && !flightIsFinished(f);
+      const arrival = parseDate(effectiveArrival(f))?.getTime();
+      if (els.date.value !== now.operationalDate) return !flightIsFinished(f);
+      return arrival !== undefined
+        && arrival >= now.nowMs - 45 * 60 * 1000
+        && arrival <= now.nowMs + 150 * 60 * 1000
+        && !flightIsFinished(f);
     });
     const airborne = windowFlights.filter(f => ['enroute','approach'].includes(flowStage(f))).sort((a,b) => {
       const freshness = Number(telemetryIsFresh(b)) - Number(telemetryIsFresh(a));
@@ -1307,10 +1377,10 @@
 
   function scrollToCurrent(force = false) {
     const now = madridNow();
-    if (els.date.value !== now.date) return false;
+    if (els.date.value !== now.operationalDate) return false;
     const rows = [...els.body.querySelectorAll('.flight-row')];
     if (!rows.length) return false;
-    const target = rows.find(row => Number(row.dataset.effectiveMinute) >= now.minutes - 5) || rows[rows.length - 1];
+    const target = rows.find(row => Number(row.dataset.effectiveTime) >= now.nowMs - 5 * 60 * 1000) || rows[rows.length - 1];
     if (!target) return false;
     target.scrollIntoView({behavior:force?'smooth':'auto', block:'start'});
     target.classList.add('current-flight');
@@ -1319,7 +1389,7 @@
 
   function maybeScrollToNow() {
     const now = madridNow();
-    if (state.autoScrolledDate === els.date.value || els.date.value !== now.date) return;
+    if (state.autoScrolledDate === els.date.value || els.date.value !== now.operationalDate) return;
     if (els.search.value || els.hall.value || els.canary.checked || els.secondary.checked) return;
     if (els.arrivalsCollapse && !els.arrivalsCollapse.classList.contains('show')) return;
     state.autoScrolledDate = els.date.value;
@@ -1548,7 +1618,9 @@
   async function refreshFocusedFlight(id, button) {
     const csrf = appMain?.dataset.focusCsrf || '';
     const deviceToken = localStorage.getItem('matrix.pushDevice') || '';
-    const status = els.detailBody.querySelector('[data-focus-refresh-status]');
+    const surface = button.closest('[data-focus-surface]') || els.detailBody;
+    const status = surface.querySelector('[data-focus-refresh-status]');
+    const openedFromDetail = Boolean(button.closest('#detailBody'));
     if (!csrf && !deviceToken) {
       if (status) status.textContent = 'Activa las notificaciones de este dispositivo o inicia sesión en Aena / Admin.';
       return;
@@ -1573,7 +1645,11 @@
       if (state.focusStatus) state.focusStatus.cooldown_started_at = Date.now();
       const openSkyMessage = data.opensky?.message || 'Telemetría sin cambios.';
       state.focusNotice = `${openSkyMessage} ${data.aena_message || ''}`.trim();
-      await openDetail(id);
+      if (openedFromDetail) {
+        await openDetail(id);
+      } else {
+        renderTrackedFocus();
+      }
     } catch (error) {
       state.focusNotice = error.message || 'No se pudo actualizar el vuelo.';
       if (status) {
@@ -1587,6 +1663,9 @@
   async function openDetail(id) {
     const flight = state.flights.find(f => Number(f.id) === Number(id));
     if (!flight) return;
+    state.pinnedFlightId = Number(id);
+    localStorage.setItem('matrix.focusFlightId', String(id));
+    renderTrackedFocus();
     if (Number(state.detailFlightId) !== Number(id)) {
       state.focusNotice = '';
       state.focusStatus = null;
@@ -1632,7 +1711,7 @@
         </article>`;
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
       const watch = `<button class="btn btn-outline-warning w-100 mb-2" type="button" data-watch-flight="${Number(id)}" data-watching="0">🔔 Vigilar este vuelo</button>
-        <p class="watch-explanation mb-3">Seguimiento Aena reforzado cada 5 min y avisos de despegue, ETA, cinta, incidencias, aterrizaje, equipaje y aproximadamente 40 min antes de llegar.</p>
+        <p class="watch-explanation mb-3">Durante la última hora: Aena cada 15 min; desde 20 min antes, cada 5 min hasta resolver el equipaje. Incluye avisos de despegue, ETA, cinta, incidencias, aterrizaje y aproximadamente 40 min antes de llegar.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita únicamente al abrir este vuelo.</small></div>`;
       els.detailBody.innerHTML = `<div data-focus-hero>${focusHeroMarkup(flight, state.focusStatus)}</div>
         <div data-focus-red-day>${dailyRedUsageMarkup(flight)}</div>
@@ -1699,6 +1778,11 @@
       await toggleCanaryNotifications();
     } catch (error) { window.alert(error.message); }
     updateNotificationButton();
+  });
+  if (els.clearTrackedFocus) els.clearTrackedFocus.addEventListener('click', () => {
+    state.pinnedFlightId = 0;
+    localStorage.removeItem('matrix.focusFlightId');
+    renderTrackedFocus();
   });
   if (els.radarCollapse) els.radarCollapse.addEventListener('shown.bs.collapse', () => {
     if (state.map) {

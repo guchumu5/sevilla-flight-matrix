@@ -114,7 +114,7 @@ final class FlightFocusService
             'flight' => (string)$flight['physical_flight'],
             'flight_date' => (string)$flight['flight_date'],
             'aena_priority_minutes' => self::AENA_PRIORITY_MINUTES,
-            'aena_message' => 'Aena queda en comprobación prioritaria durante 30 minutos; el recolector revisará Infovuelos en el siguiente ciclo de 5 min.',
+            'aena_message' => 'Aena queda marcado para seguimiento: cada 15 min durante la última hora y cada 5 min desde T-20 hasta finalizar el equipaje.',
             'opensky' => $openSky,
             'focus' => $this->status($flightId),
         ];
@@ -263,6 +263,9 @@ final class FlightFocusService
             'opensky_per_flight_seconds' => self::PER_FLIGHT_COOLDOWN_SECONDS,
             'opensky_global_seconds' => self::GLOBAL_COOLDOWN_SECONDS,
             'aena_priority_minutes' => self::AENA_PRIORITY_MINUTES,
+            'aena_last_hour_interval_minutes' => 15,
+            'aena_final_interval_minutes' => 5,
+            'aena_final_threshold_minutes' => 20,
             'flightaware_seconds' => 300,
         ];
     }
