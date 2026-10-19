@@ -102,12 +102,18 @@ final class WebPushService
             $watch->execute(['subscription_id' => $subscription['id'], 'flight_id' => $flightId]);
             $watching = (int)$watch->fetchColumn() === 1;
         }
+        $watches = $this->pdo->prepare('SELECT COUNT(*) FROM flight_watches WHERE subscription_id=:subscription_id AND enabled=1');
+        $watches->execute(['subscription_id' => $subscription['id']]);
+        $pending = $this->pdo->prepare('SELECT COUNT(*) FROM push_outbox WHERE subscription_id=:subscription_id AND pushed_at IS NULL AND attempts<4');
+        $pending->execute(['subscription_id' => $subscription['id']]);
         return [
             'subscribed' => (int)$subscription['active'] === 1,
             'watching' => $watching,
             'watch_canary_all' => (int)$subscription['watch_canary_all'] === 1,
             'last_push_at' => $subscription['last_push_at'],
             'last_error' => $subscription['last_error'],
+            'individual_watches' => (int)$watches->fetchColumn(),
+            'pending_notifications' => (int)$pending->fetchColumn(),
         ];
     }
 
@@ -115,6 +121,8 @@ final class WebPushService
     public function pending(string $deviceToken): ?array
     {
         $subscriptionId = $this->subscriptionId($deviceToken);
+        $test = $this->takeTestNotice($deviceToken);
+        if ($test !== null) return $test;
         $stmt = $this->pdo->prepare(
             'SELECT id,title,body,target_url FROM push_outbox
              WHERE subscription_id=:subscription_id AND pushed_at IS NOT NULL AND displayed_at IS NULL
@@ -126,6 +134,74 @@ final class WebPushService
         $this->pdo->prepare('UPDATE push_outbox SET displayed_at=NOW() WHERE id=:id')->execute(['id' => $row['id']]);
         unset($row['id']);
         return $row;
+    }
+
+    /** @return array<string,mixed> */
+    public function test(string $deviceToken): array
+    {
+        $subscriptionId = $this->subscriptionId($deviceToken);
+        $stmt = $this->pdo->prepare('SELECT endpoint FROM push_subscriptions WHERE id=:id AND active=1');
+        $stmt->execute(['id' => $subscriptionId]);
+        $endpoint = (string)($stmt->fetchColumn() ?: '');
+        if ($endpoint === '') throw new RuntimeException('La suscripción de este dispositivo no está activa.');
+
+        $notice = [
+            'title' => 'Matriz Sevilla · prueba real',
+            'body' => 'Web Push funciona: este aviso ha viajado desde el servidor hasta el teléfono.',
+            'target_url' => 'index.php',
+        ];
+        $path = $this->testNoticePath($deviceToken);
+        $directory = dirname($path);
+        if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
+            throw new RuntimeException('No se pudo preparar la prueba Web Push.');
+        }
+        $temporary = $path . '.' . bin2hex(random_bytes(4)) . '.tmp';
+        if (file_put_contents($temporary, json_encode($notice, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX) === false
+            || !rename($temporary, $path)) {
+            @unlink($temporary);
+            throw new RuntimeException('No se pudo guardar el aviso de prueba.');
+        }
+
+        try {
+            $status = $this->sendEmpty($endpoint);
+            if (in_array($status, [404, 410], true)) {
+                $this->pdo->prepare('UPDATE push_subscriptions SET active=0,last_error=:error WHERE id=:id')
+                    ->execute(['error' => "Push HTTP {$status}", 'id' => $subscriptionId]);
+                throw new RuntimeException('La suscripción del teléfono ha caducado. Pulsa de nuevo «Activar avisos» para renovarla.');
+            }
+            if ($status < 200 || $status >= 300) throw new RuntimeException("Push HTTP {$status}");
+            $this->pdo->prepare('UPDATE push_subscriptions SET last_push_at=NOW(),last_error=NULL WHERE id=:id')
+                ->execute(['id' => $subscriptionId]);
+            return ['ok' => true, 'http_status' => $status, 'sent_at' => date('Y-m-d H:i:s')];
+        } catch (\Throwable $error) {
+            @unlink($path);
+            $this->pdo->prepare('UPDATE push_subscriptions SET last_error=:error WHERE id=:id')
+                ->execute(['error' => substr($error->getMessage(), 0, 500), 'id' => $subscriptionId]);
+            throw $error;
+        }
+    }
+
+    /** @return array<string,mixed>|null */
+    private function takeTestNotice(string $deviceToken): ?array
+    {
+        $path = $this->testNoticePath($deviceToken);
+        if (!is_file($path)) return null;
+        $handle = @fopen($path, 'r');
+        if ($handle === false) return null;
+        try {
+            if (!flock($handle, LOCK_EX)) return null;
+            $data = json_decode(stream_get_contents($handle) ?: '', true);
+            flock($handle, LOCK_UN);
+        } finally {
+            fclose($handle);
+        }
+        @unlink($path);
+        return is_array($data) ? $data : null;
+    }
+
+    private function testNoticePath(string $deviceToken): string
+    {
+        return PROJECT_ROOT . '/storage/cache/push-tests/' . hash('sha256', $deviceToken) . '.json';
     }
 
     /** @return array<string,int> */

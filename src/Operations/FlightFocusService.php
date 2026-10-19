@@ -5,6 +5,7 @@ namespace SevillaMatrix\Operations;
 
 use PDO;
 use RuntimeException;
+use SevillaMatrix\Api\AirLabsClient;
 use SevillaMatrix\Api\OpenSkyClient;
 use SevillaMatrix\Env;
 use Throwable;
@@ -80,7 +81,7 @@ final class FlightFocusService
         }
 
         $flightStmt = $this->pdo->prepare(
-            'SELECT id,flight_date,physical_flight,aircraft_icao24
+            'SELECT id,flight_date,physical_flight,aircraft_registration,aircraft_icao24,aircraft_type
              FROM flights WHERE id=:id
              AND scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 1 DAY) AND DATE_ADD(NOW(),INTERVAL 2 DAY)'
         );
@@ -99,8 +100,14 @@ final class FlightFocusService
                request_count=request_count+1,status='active',last_result='Solicitud recibida'"
         )->execute(['flight_id' => $flightId]);
 
+        $aircraft = $this->resolveAircraft($flight);
+        if (!empty($aircraft['updated'])) {
+            $flight['aircraft_registration'] = $aircraft['aircraft_registration'] ?? $flight['aircraft_registration'];
+            $flight['aircraft_icao24'] = $aircraft['aircraft_icao24'] ?? $flight['aircraft_icao24'];
+            $flight['aircraft_type'] = $aircraft['aircraft_type'] ?? $flight['aircraft_type'];
+        }
         $openSky = $this->refreshOpenSky($flight);
-        $message = (string)($openSky['message'] ?? 'Seguimiento focalizado activado.');
+        $message = trim((string)($aircraft['message'] ?? '') . ' ' . (string)($openSky['message'] ?? 'Seguimiento focalizado activado.'));
         $this->pdo->prepare(
             'UPDATE flight_focus_requests SET last_result=:last_result WHERE flight_id=:flight_id'
         )->execute([
@@ -115,9 +122,107 @@ final class FlightFocusService
             'flight_date' => (string)$flight['flight_date'],
             'aena_priority_minutes' => self::AENA_PRIORITY_MINUTES,
             'aena_message' => 'Aena queda marcado para seguimiento: cada 15 min durante la última hora y cada 5 min desde T-20 hasta finalizar el equipaje.',
+            'aircraft' => $aircraft,
             'opensky' => $openSky,
             'focus' => $this->status($flightId),
         ];
+    }
+
+    /** @param array<string,mixed> $flight @return array<string,mixed> */
+    private function resolveAircraft(array $flight): array
+    {
+        $icao24 = strtolower(trim((string)($flight['aircraft_icao24'] ?? '')));
+        if (preg_match('/^[0-9a-f]{6}$/', $icao24)) {
+            return [
+                'state' => 'known',
+                'updated' => false,
+                'aircraft_registration' => $flight['aircraft_registration'] ?? null,
+                'aircraft_icao24' => $icao24,
+                'aircraft_type' => $flight['aircraft_type'] ?? null,
+                'message' => 'Aeronave ya identificada; se consulta directamente su señal ADS-B.',
+            ];
+        }
+
+        $keys = $this->airLabsKeys();
+        if ($keys === []) {
+            return [
+                'state' => 'unconfigured',
+                'updated' => false,
+                'message' => 'Falta ICAO24 y AirLabs no está configurado para buscar la matrícula.',
+            ];
+        }
+
+        $run = $this->pdo->prepare(
+            "INSERT INTO fetch_runs (provider,started_at,ok,records_count) VALUES ('airlabs_focus',NOW(),0,0)"
+        );
+        $run->execute();
+        $runId = (int)$this->pdo->lastInsertId();
+        try {
+            $client = new AirLabsClient($keys, PROJECT_ROOT . '/storage/cache/airlabs-key-slot.txt');
+            $data = $client->flight((string)$flight['physical_flight']);
+            if (!is_array($data)) {
+                $this->finishAircraftRun($runId, true, 0, 'AirLabs no publicó una aeronave para este vuelo.');
+                $this->markFocusedLookup((int)$flight['id']);
+                return ['state' => 'not_found', 'updated' => false, 'message' => 'AirLabs no publicó todavía la matrícula de este vuelo.'];
+            }
+
+            $registration = strtoupper(trim((string)($data['reg_number'] ?? '')));
+            $resolvedIcao24 = strtolower(trim((string)($data['hex'] ?? '')));
+            $type = strtoupper(trim((string)($data['aircraft_icao'] ?? $data['aircraft_model'] ?? '')));
+            if (!preg_match('/^[0-9a-f]{6}$/', $resolvedIcao24)) $resolvedIcao24 = '';
+            if ($registration !== '' && !preg_match('/^[A-Z0-9-]{3,15}$/', $registration)) $registration = '';
+            if ($type !== '') $type = substr($type, 0, 50);
+            if ($registration === '' && $resolvedIcao24 === '' && $type === '') {
+                $this->finishAircraftRun($runId, true, 0, 'AirLabs respondió sin matrícula ni ICAO24.');
+                $this->markFocusedLookup((int)$flight['id']);
+                return ['state' => 'not_found', 'updated' => false, 'message' => 'AirLabs respondió, pero aún no identifica la aeronave.'];
+            }
+
+            $update = $this->pdo->prepare(
+                'UPDATE flights SET
+                   aircraft_registration=COALESCE(NULLIF(:registration,\'\'),aircraft_registration),
+                   aircraft_icao24=COALESCE(NULLIF(:icao24,\'\'),aircraft_icao24),
+                   aircraft_type=COALESCE(NULLIF(:aircraft_type,\'\'),aircraft_type)
+                 WHERE id=:id'
+            );
+            $update->execute([
+                'registration' => $registration,
+                'icao24' => $resolvedIcao24,
+                'aircraft_type' => $type,
+                'id' => (int)$flight['id'],
+            ]);
+            $this->finishAircraftRun($runId, true, 1, null);
+            if ($resolvedIcao24 === '') $this->markFocusedLookup((int)$flight['id']);
+            return [
+                'state' => $resolvedIcao24 !== '' ? 'resolved' : 'partial',
+                'updated' => true,
+                'aircraft_registration' => $registration !== '' ? $registration : null,
+                'aircraft_icao24' => $resolvedIcao24 !== '' ? $resolvedIcao24 : null,
+                'aircraft_type' => $type !== '' ? $type : null,
+                'message' => $resolvedIcao24 !== ''
+                    ? 'AirLabs identificó la aeronave; a continuación se consulta su telemetría ADS-B.'
+                    : 'AirLabs aportó datos parciales de la aeronave, pero todavía falta el ICAO24 necesario para ADS-B.',
+            ];
+        } catch (Throwable $error) {
+            $message = substr($error->getMessage(), 0, 500);
+            $this->finishAircraftRun($runId, false, 0, $message);
+            $this->markFocusedLookup((int)$flight['id']);
+            return ['state' => 'error', 'updated' => false, 'message' => 'No se pudo identificar la aeronave: ' . $message];
+        }
+    }
+
+    private function markFocusedLookup(int $flightId): void
+    {
+        $this->pdo->prepare('UPDATE flight_focus_requests SET last_opensky_at=NOW() WHERE flight_id=:flight_id')
+            ->execute(['flight_id' => $flightId]);
+    }
+
+    private function finishAircraftRun(int $runId, bool $ok, int $records, ?string $error): void
+    {
+        $stmt = $this->pdo->prepare(
+            'UPDATE fetch_runs SET finished_at=NOW(),ok=:ok,records_count=:records,error_message=:error WHERE id=:id'
+        );
+        $stmt->execute(['ok' => $ok ? 1 : 0, 'records' => $records, 'error' => $error, 'id' => $runId]);
     }
 
     /** @param array<string,mixed> $flight @return array<string,mixed> */
@@ -254,6 +359,21 @@ final class FlightFocusService
         } catch (Throwable) {
             return false;
         }
+    }
+
+    /** @return list<string> */
+    private function airLabsKeys(): array
+    {
+        $combined = trim((string)Env::get('AIRLABS_API_KEYS', ''));
+        $keys = $combined === '' ? [] : (preg_split('/[,;\r\n]+/', $combined) ?: []);
+        foreach (['AIRLABS_API_KEY_1', 'AIRLABS_API_KEY_2', 'AIRLABS_API_KEY_3', 'AIRLABS_API_KEY'] as $name) {
+            $value = trim((string)Env::get($name, ''));
+            if ($value !== '') $keys[] = $value;
+        }
+        return array_values(array_unique(array_filter(array_map(
+            static fn(mixed $key): string => trim((string)$key),
+            $keys
+        ))));
     }
 
     /** @return array<string,int> */
