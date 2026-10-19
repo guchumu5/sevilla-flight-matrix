@@ -47,9 +47,15 @@ function bootstrapAircraft(html) {
       || current.activityLog.flights[0]
     : null;
   const fallback = activity?.aircraft || {};
+  const icao24 = [
+    primary.icao24, primary.hex, primary.hexId, primary.modeS, primary.modeSCode,
+    fallback.icao24, fallback.hex, fallback.hexId, fallback.modeS, fallback.modeSCode,
+  ].map(value => String(value || '').trim().toLowerCase().replace(/^0x/, ''))
+    .find(value => /^[0-9a-f]{6}$/.test(value)) || null;
   return {
     registration: primary.tail || fallback.tail || null,
     type: primary.friendlyType || fallback.friendlyType || primary.type || fallback.type || null,
+    icao24,
   };
 }
 
@@ -72,6 +78,7 @@ export function parseFlightAwarePublicPage(text, html = '') {
   return {
     status_text: oneLine(statusText),
     aircraft_registration: oneLine(aircraft.registration)?.toUpperCase() || null,
+    aircraft_icao24: aircraft.icao24,
     aircraft_type: aircraftType,
     altitude_ft: integer(point?.[1]),
     speed_mph: integer(point?.[2] || filedSpeed),

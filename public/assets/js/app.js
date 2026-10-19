@@ -1844,8 +1844,9 @@
       }
       if (state.focusStatus) state.focusStatus.cooldown_started_at = Date.now();
       const aircraftMessage = data.aircraft?.message || '';
+      const flightAwareMessage = data.flightaware?.message || '';
       const openSkyMessage = data.opensky?.message || 'Telemetría sin cambios.';
-      state.focusNotice = `${aircraftMessage} ${openSkyMessage} ${data.aena_message || ''}`.trim();
+      state.focusNotice = `${aircraftMessage} ${flightAwareMessage} ${openSkyMessage} ${data.aena_message || ''}`.trim();
       if (openedFromDetail) {
         await openDetail(id);
       } else {
@@ -1914,7 +1915,7 @@
       const watched = flightIsWatched(id);
       const watch = `<div class="detail-watch-quick"><button class="btn ${watched?'btn-warning':'btn-outline-warning'} w-100" type="button" data-watch-flight="${Number(id)}" data-watching="${watched?'1':'0'}">${watched?'🔔 Vuelo vigilado · desactivar':'🔔 Vigilar este vuelo'}</button></div>`;
       const watchSupport = `<p class="watch-explanation mb-3">Durante la última hora: Aena cada 15 min; desde 20 min antes, cada 5 min hasta resolver el equipaje. Incluye avisos de despegue, ETA, cinta, incidencias, aterrizaje y aproximadamente 40 min antes de llegar.</p>
-        <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita únicamente al abrir este vuelo.</small></div>`;
+        <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita al abrir la ficha o al buscar matrícula y telemetría.</small></div>`;
       els.detailBody.innerHTML = watch + `<div class="tracked-focus-layout detail-focus-layout">
         <aside class="tracked-focus-summary">
           <div data-focus-hero>${focusHeroMarkup(flight, state.focusStatus)}</div>
