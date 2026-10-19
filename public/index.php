@@ -4,9 +4,13 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 
 use SevillaMatrix\Env;
 use SevillaMatrix\Auth;
+use SevillaMatrix\OperationalDay;
 
 $pollSeconds = max(5, (int)Env::get('POLL_SECONDS', '15'));
-$today = date('Y-m-d');
+$requestedDate = trim((string)($_GET['date'] ?? ''));
+$today = preg_match('/^\d{4}-\d{2}-\d{2}$/', $requestedDate)
+    ? $requestedDate
+    : OperationalDay::current();
 $cssVersion = (string)(@filemtime(__DIR__ . '/assets/css/app.css') ?: '1');
 $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/app.js') ?: '1');
 $focusAdmin = Auth::check();
@@ -44,8 +48,11 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
 
 <main class="container-fluid px-lg-4 py-3" data-poll-seconds="<?= $pollSeconds ?>"
       data-focus-admin="<?= $focusAdmin ? '1' : '0' ?>" data-focus-csrf="<?= e($focusCsrf) ?>">
-  <section class="toolbar panel mb-3" aria-label="Filtros del tablero">
-    <div class="row g-2 align-items-end">
+  <section class="panel mb-3 overflow-hidden radar-collapsed-panel" aria-label="Filtros del tablero">
+    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
+      <span><strong>Fecha, sala y búsqueda</strong><small>Día operativo hasta las 02:00 · pulsa para desplegar filtros</small></span><b aria-hidden="true">⌄</b>
+    </button>
+    <div class="collapse" id="filtersCollapse"><div class="toolbar"><div class="row g-2 align-items-end">
       <div class="col-6 col-md-2">
         <label class="form-label" for="flightDate">Fecha</label>
         <input class="form-control" type="date" id="flightDate" value="<?= e($today) ?>">
@@ -76,26 +83,24 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
         <button class="btn btn-outline-light flex-fill flex-md-grow-0" id="nowButton" type="button">Ir a ahora</button>
         <button class="btn btn-success flex-fill flex-md-grow-0" id="refreshButton" type="button">Actualizar</button>
       </div>
-    </div>
+    </div></div></div>
   </section>
 
   <div class="alert belt-daily-alert d-none" id="dailyBeltAlert" role="alert"></div>
 
-  <section class="row g-3 mb-3" aria-label="Resumen operativo">
+  <section class="row g-3 mb-3 d-none" aria-label="Resumen operativo" hidden>
     <div class="col-6 col-xl-3"><article class="metric-card"><span>Vuelos</span><strong id="metricFlights">—</strong><small>en el tablero</small></article></div>
     <div class="col-6 col-xl-3"><article class="metric-card metric-orange"><span>En revisión</span><strong id="metricOrange">—</strong><small>presión, desviación o propuesta</small></article></div>
     <div class="col-6 col-xl-3"><article class="metric-card metric-red"><span>Cintas 7/8</span><strong id="metricRed">—</strong><small>ubicación operativa</small></article></div>
     <div class="col-6 col-xl-3"><article class="metric-card metric-blue"><span>Afluencia máxima</span><strong id="metricHall">—</strong><small>plazas teóricas ±30 min</small></article></div>
   </section>
 
-  <section class="prediction-summary panel mb-3 d-none" id="predictionSummary" aria-live="polite">
-    <div><span class="prediction-orb">◎</span><div><strong>Cerebro predictivo</strong><small>Predicción guardada antes de la cinta oficial; Aena prevalece siempre.</small></div></div>
-    <div class="prediction-summary-values">
-      <span><small>Bloque general</small><strong id="predictionAccuracy">—</strong></span>
-      <span><small>Bloque Canarias</small><strong id="predictionCanaryAccuracy">—</strong></span>
-      <span><small>Cinta exacta</small><strong id="predictionExactAccuracy">—</strong></span>
-      <span><small>Evaluadas</small><strong id="predictionEvaluated">0</strong></span>
-    </div>
+  <section class="panel tracked-focus-panel mb-3 d-none" id="trackedFocusPanel" aria-labelledby="trackedFocusTitle">
+    <header class="panel-header d-flex align-items-center justify-content-between gap-2">
+      <div><small class="tracked-focus-kicker">PRIORIDAD 1</small><h2 class="h5 mb-1" id="trackedFocusTitle">Vuelo en seguimiento</h2><p class="mb-0 text-secondary small">Es el centro operativo: entorno de cintas, telemetría y actualización dirigida.</p></div>
+      <button class="btn btn-sm btn-outline-light" type="button" id="clearTrackedFocus">Dejar de fijar</button>
+    </header>
+    <div class="tracked-focus-body" id="trackedFocusBody"></div>
   </section>
 
   <section class="panel canary-watch-panel mb-3" aria-labelledby="canaryWatchTitle">
@@ -109,25 +114,43 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
         <span class="canary-watch-mark" aria-hidden="true">🌴</span>
       </div>
     </header>
+    <div class="push-status-line" id="pushStatusLine" aria-live="polite">Comprobando avisos del dispositivo…</div>
     <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
   </section>
 
-  <section class="panel upcoming-panel mb-3" aria-labelledby="upcomingTitle">
-    <header class="panel-header d-flex align-items-center justify-content-between gap-2">
-      <div><h2 class="h6 mb-1" id="upcomingTitle">Próximas 5 llegadas</h2><p class="mb-0 text-secondary small">La cola se repone automáticamente cuando un vuelo aterriza.</p></div>
-      <span class="badge text-bg-primary">línea operativa</span>
-    </header>
-    <div class="upcoming-strip" id="upcomingStrip" aria-live="polite"></div>
+  <section class="panel mb-3 overflow-hidden radar-collapsed-panel">
+    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#predictionCollapse" aria-expanded="false" aria-controls="predictionCollapse">
+      <span><strong>Cerebro predictivo</strong><small>plegado · precisión histórica del modelo</small></span><b aria-hidden="true">⌄</b>
+    </button>
+    <div class="collapse" id="predictionCollapse">
+      <div class="prediction-summary d-none" id="predictionSummary" aria-live="polite">
+        <div><span class="prediction-orb">◎</span><div><strong>Predicción previa</strong><small>Aena prevalece siempre.</small></div></div>
+        <div class="prediction-summary-values">
+          <span><small>Bloque general</small><strong id="predictionAccuracy">—</strong></span>
+          <span><small>Bloque Canarias</small><strong id="predictionCanaryAccuracy">—</strong></span>
+          <span><small>Cinta exacta</small><strong id="predictionExactAccuracy">—</strong></span>
+          <span><small>Evaluadas</small><strong id="predictionEvaluated">0</strong></span>
+        </div>
+      </div>
+    </div>
   </section>
 
-  <section class="panel mb-3 overflow-hidden" aria-label="Aeropuerto de Sevilla en movimiento">
-    <header class="panel-header d-flex align-items-start justify-content-between gap-2">
-      <div>
-        <h2 class="h5 mb-1">Aeropuerto de Sevilla en movimiento</h2>
+  <section class="panel upcoming-panel mb-3 overflow-hidden radar-collapsed-panel" aria-labelledby="upcomingTitle">
+    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#upcomingCollapse" aria-expanded="false" aria-controls="upcomingCollapse">
+      <span><strong id="upcomingTitle">Próximas 5 llegadas</strong><small>plegado · la cola se repone automáticamente</small></span><b aria-hidden="true">⌄</b>
+    </button>
+    <div class="collapse" id="upcomingCollapse"><div class="upcoming-strip" id="upcomingStrip" aria-live="polite"></div></div>
+  </section>
+
+  <section class="panel mb-3 overflow-hidden radar-collapsed-panel" aria-label="Aeropuerto de Sevilla en movimiento">
+    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#airportMovementCollapse" aria-expanded="false" aria-controls="airportMovementCollapse">
+      <span><strong>Aeropuerto de Sevilla en movimiento</strong><small>plegado · abre la infografía solo cuando la necesites</small></span><b aria-hidden="true">⌄</b>
+    </button>
+    <div class="collapse" id="airportMovementCollapse">
+      <header class="panel-header d-flex align-items-start justify-content-between gap-2">
         <p class="mb-0 text-secondary small">Posición GPS real cuando existe ADS‑B; sin señal, el vuelo queda en cola prevista. La ruta hacia la cinta representa el equipaje, no el rodaje del avión.</p>
-      </div>
-      <time class="scene-clock" id="sceneClock">--:--</time>
-    </header>
+        <time class="scene-clock" id="sceneClock">--:--</time>
+      </header>
     <div class="airport-scene airport-scene-large" id="airportScene" aria-label="Infografía dinámica del flujo de llegadas">
           <svg class="scene-aerodrome" viewBox="0 0 1000 650" preserveAspectRatio="none" aria-hidden="true">
             <defs>
@@ -179,6 +202,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <summary>Ver desglose por fase</summary>
       <div class="airport-flow airport-flow-wide" id="airportFlow" aria-live="polite"></div>
     </details>
+    </div>
   </section>
 
   <section class="panel mb-3 overflow-hidden radar-collapsed-panel">

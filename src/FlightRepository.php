@@ -160,7 +160,10 @@ SQL;
         // ventana de ±30 minutos sea correcta también alrededor de medianoche.
         $rows = array_values(array_filter(
             $rows,
-            static fn(array $row): bool => (string)($row['flight_date'] ?? '') === $date
+            static fn(array $row): bool => OperationalDay::contains(
+                (string)($row['scheduled_arrival'] ?? ''),
+                $date
+            )
         ));
         if (!$rows) return [];
         foreach ($rows as &$row) {

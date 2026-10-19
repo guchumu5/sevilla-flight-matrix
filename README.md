@@ -27,17 +27,28 @@ incertidumbre y reducen la confianza; nunca se asignan por suposición. El
 contexto incluye el día anterior y el siguiente para no perder coincidencias
 alrededor de medianoche.
 
-## Centro de atención por vuelo
+## Centro de atención por vuelo y día operativo
 
-Al abrir cualquier llegada, la versión 1.23.0 convierte el lateral en una mesa
-de control del vuelo seleccionado. Las ocho cintas muestran las llegadas desde
-30 minutos antes hasta 30 minutos después, el desfase respecto de la ETA del
-vuelo central y si cada cinta continúa ocupada exactamente en ese instante.
-También se separan los usos oficiales acumulados de C7 y C8 durante la jornada.
+Al abrir cualquier llegada, la versión 1.24.0 fija ese vuelo como prioridad en
+la parte superior de la portada. Debajo se mantienen siempre visibles los
+vuelos de Canarias; filtros, predicción, próximas llegadas, infografía, radar y
+listado completo permanecen plegados hasta que se necesiten. Las ocho cintas
+muestran las llegadas desde 30 minutos antes hasta 30 minutos después, el
+desfase respecto de la ETA del vuelo central y si cada cinta continúa ocupada
+exactamente en ese instante. También se separan los usos oficiales acumulados
+de C7 y C8 durante la jornada.
+
+El día operativo no termina a medianoche: comprende desde las **02:00 del día
+seleccionado hasta las 01:59 del siguiente**. Por eso una llegada de madrugada,
+por ejemplo a las 00:15, continúa en la jornada en la que salió el vuelo.
 
 El botón **Actualizar este vuelo ahora** requiere una sesión de administrador
-o un dispositivo con Web Push registrado. Activa prioridad Aena durante 30
-minutos y realiza una consulta OpenSky dirigida cuando existe ICAO24. Para proteger las cuotas se permite una
+o un dispositivo con Web Push registrado. Marca la prioridad Aena y realiza una
+consulta OpenSky dirigida cuando existe ICAO24. La captura Aena del vuelo
+vigilado se mantiene cada 15 minutos durante la última hora; desde **T−20** y
+hasta que el equipaje quede resuelto pasa a **cada 5 minutos**. Antes de T−60
+el vuelo continúa visible, sin aumentar las consultas externas. Para proteger
+las cuotas se permite una
 consulta ADS-B por vuelo cada tres minutos y un intervalo global mínimo de 90
 segundos. FlightAware conserva su límite de cinco minutos. El refresco normal
 del tablero solo lee MySQL y no consume APIs externas.
@@ -226,9 +237,10 @@ página permanezca abierta o en segundo plano. No repite eventos ya vistos.
 La actualización `20260929_005_push_watch` añade avisos Web Push reales. Tras
 aplicarla desde **Actualizar MySQL**, existen dos niveles independientes:
 
-- **Vigilar este vuelo** refuerza su consulta Aena cada 5 minutos, avisa de sus
-  cambios operativos y genera una alerta aproximadamente 40 minutos antes de
-  la llegada para salir a recoger al pasajero.
+- **Vigilar este vuelo** mantiene Aena cada 15 minutos durante la última hora,
+  refuerza a 5 minutos desde T−20 hasta resolver el equipaje, avisa de cambios
+  operativos y genera una alerta aproximadamente 40 minutos antes de la llegada
+  para salir a recoger al pasajero.
 - **Activar avisos Canarias** suscribe el dispositivo a todos los vuelos de
   LPA, TFN, TFS, ACE y FUE; el mismo botón permite desactivarlos.
 
@@ -573,7 +585,11 @@ Los avisos del sistema son Web Push reales y pueden aparecer con la web
 cerrada. En Android se autorizan desde Chrome/Edge/Firefox. En iPhone/iPad hay
 que abrir la URL directamente en Safari, usar **Compartir → Añadir a pantalla
 de inicio**, abrir la app instalada y activar **Vigilar este vuelo** o **Avisos
-Canarias**. El proceso de entrega debe ejecutarse cada minuto en Plesk:
+Canarias**. Al activarlos, la aplicación lanza una notificación local de prueba:
+si aparece, iOS está bien configurado; si los avisos posteriores no llegan, hay
+que revisar el despacho del servidor. La portada diferencia además los globos
+internos de la web de Web Push e indica el último envío o su error. El proceso
+de entrega debe ejecutarse cada minuto en Plesk:
 
 ```cron
 * * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/dispatch-push.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/push.log 2>&1

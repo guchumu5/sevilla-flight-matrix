@@ -6,7 +6,9 @@ require dirname(__DIR__, 2) . '/src/bootstrap.php';
 use SevillaMatrix\Database;
 use SevillaMatrix\Env;
 use SevillaMatrix\FlightRepository;
+use SevillaMatrix\OperationalDay;
 use SevillaMatrix\Response;
+use SevillaMatrix\TrackingCadence;
 
 $configuredToken = trim((string)Env::get('AENA_INGEST_TOKEN', ''));
 $authorization = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
@@ -20,7 +22,7 @@ if (strlen($configuredToken) < 24 || $providedToken === '' || !hash_equals($conf
 
 try {
     $pdo = Database::connection();
-    $flights = (new FlightRepository($pdo))->board(date('Y-m-d'));
+    $flights = (new FlightRepository($pdo))->board(OperationalDay::current());
     $watchedIds = [];
     $focusedIds = [];
     $canaryGlobal = false;
@@ -55,10 +57,18 @@ try {
         $arrival = strtotime((string)($flight['effective_arrival'] ?? $flight['scheduled_arrival'] ?? '')) ?: 0;
         $status = strtolower((string)(($flight['status'] ?? '') . ' ' . ($flight['baggage_state'] ?? '')));
         $finished = preg_match('/final|cancel|completed|equipaje entregado/', $status) === 1;
-        $priorityWatch = !$finished && $arrival >= time() - 7200 && $arrival <= time() + 21600
-            && (isset($watchedIds[(int)$flight['id']])
-                || isset($focusedIds[(int)$flight['id']])
-                || ($canaryGlobal && (int)$flight['is_canary'] === 1));
+        $minutesToArrival = $arrival > 0 ? (int)floor(($arrival - time()) / 60) : null;
+        $monitored = isset($watchedIds[(int)$flight['id']])
+            || isset($focusedIds[(int)$flight['id']])
+            || ($canaryGlobal && (int)$flight['is_canary'] === 1);
+        // La captura general ya se ejecuta aproximadamente cada 15 min. Solo
+        // se eleva a 5 min durante los 20 min finales y hasta resolver equipaje.
+        $priorityWatch = TrackingCadence::intervalMinutes(
+            $minutesToArrival,
+            $monitored,
+            $finished,
+            !empty($flight['belt_attention'])
+        ) === TrackingCadence::FINAL_MINUTES;
         if (empty($flight['belt_attention']) && !$priorityWatch) continue;
         $reason = !empty($flight['belt_attention_reason'])
             ? (string)$flight['belt_attention_reason']
@@ -78,6 +88,8 @@ try {
             'level' => (string)($flight['belt_attention'] ?: 'watched'),
             'reason' => $reason,
             'watch_priority' => $priorityWatch,
+            'minutes_to_arrival' => $minutesToArrival,
+            'tracking_phase' => TrackingCadence::phase($minutesToArrival, $monitored, $finished),
         ];
     }
 
@@ -101,7 +113,7 @@ try {
         'last_aena_age_minutes' => $ageMinutes,
         'normal_due' => $ageMinutes === null || $ageMinutes >= 12,
         'recommended_interval_minutes' => $critical !== [] ? 5 : 15,
-        'policy' => 'Cada 5 min para vuelos vigilados, Canarias con avisos o casos críticos; cada 15 min en situación normal.',
+        'policy' => 'Vuelo vigilado: cada 15 min durante la última hora; cada 5 min desde T-20 hasta finalizar equipaje. Los casos críticos de cinta mantienen 5 min.',
     ]);
 } catch (Throwable $error) {
     Response::json(['error' => $error->getMessage()], 500);
