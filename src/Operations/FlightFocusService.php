@@ -106,8 +106,13 @@ final class FlightFocusService
             $flight['aircraft_icao24'] = $aircraft['aircraft_icao24'] ?? $flight['aircraft_icao24'];
             $flight['aircraft_type'] = $aircraft['aircraft_type'] ?? $flight['aircraft_type'];
         }
+        $flightAware = $this->queueFlightAwareLookup($flight);
         $openSky = $this->refreshOpenSky($flight);
-        $message = trim((string)($aircraft['message'] ?? '') . ' ' . (string)($openSky['message'] ?? 'Seguimiento focalizado activado.'));
+        $message = trim(
+            (string)($aircraft['message'] ?? '') . ' ' .
+            (string)($flightAware['message'] ?? '') . ' ' .
+            (string)($openSky['message'] ?? 'Seguimiento focalizado activado.')
+        );
         $this->pdo->prepare(
             'UPDATE flight_focus_requests SET last_result=:last_result WHERE flight_id=:flight_id'
         )->execute([
@@ -123,6 +128,7 @@ final class FlightFocusService
             'aena_priority_minutes' => self::AENA_PRIORITY_MINUTES,
             'aena_message' => 'Aena queda marcado para seguimiento: cada 15 min durante la última hora y cada 5 min desde T-20 hasta finalizar el equipaje.',
             'aircraft' => $aircraft,
+            'flightaware' => $flightAware,
             'opensky' => $openSky,
             'focus' => $this->status($flightId),
         ];
@@ -141,6 +147,30 @@ final class FlightFocusService
                 'aircraft_type' => $flight['aircraft_type'] ?? null,
                 'message' => 'Aeronave ya identificada; se consulta directamente su señal ADS-B.',
             ];
+        }
+
+        $registration = strtoupper(trim((string)($flight['aircraft_registration'] ?? '')));
+        if (preg_match('/^[A-Z0-9-]{3,15}$/', $registration)) {
+            $known = $this->pdo->prepare(
+                "SELECT aircraft_icao24 FROM flights
+                 WHERE id<>:id AND aircraft_registration=:registration
+                   AND aircraft_icao24 REGEXP '^[0-9a-fA-F]{6}$'
+                 ORDER BY updated_at DESC,id DESC LIMIT 1"
+            );
+            $known->execute(['id' => (int)$flight['id'], 'registration' => $registration]);
+            $knownIcao24 = strtolower(trim((string)($known->fetchColumn() ?: '')));
+            if (preg_match('/^[0-9a-f]{6}$/', $knownIcao24)) {
+                $this->pdo->prepare('UPDATE flights SET aircraft_icao24=:icao24 WHERE id=:id')
+                    ->execute(['icao24' => $knownIcao24, 'id' => (int)$flight['id']]);
+                return [
+                    'state' => 'resolved_from_history',
+                    'updated' => true,
+                    'aircraft_registration' => $registration,
+                    'aircraft_icao24' => $knownIcao24,
+                    'aircraft_type' => $flight['aircraft_type'] ?? null,
+                    'message' => 'La matrícula ya estaba publicada y el ICAO24 se recuperó del histórico de esa misma aeronave.',
+                ];
+            }
         }
 
         $keys = $this->airLabsKeys();
@@ -208,6 +238,61 @@ final class FlightFocusService
             $this->finishAircraftRun($runId, false, 0, $message);
             $this->markFocusedLookup((int)$flight['id']);
             return ['state' => 'error', 'updated' => false, 'message' => 'No se pudo identificar la aeronave: ' . $message];
+        }
+    }
+
+    /** @param array<string,mixed> $flight @return array<string,mixed> */
+    private function queueFlightAwareLookup(array $flight): array
+    {
+        $icao24 = strtolower(trim((string)($flight['aircraft_icao24'] ?? '')));
+        if (preg_match('/^[0-9a-f]{6}$/', $icao24)) {
+            return [
+                'state' => 'not_needed',
+                'queued' => false,
+                'message' => 'FlightAware no necesita otra búsqueda de matrícula: el ICAO24 ya está verificado.',
+            ];
+        }
+
+        try {
+            $tables = (int)$this->pdo->query(
+                "SELECT COUNT(*) FROM information_schema.tables
+                 WHERE table_schema=DATABASE()
+                   AND table_name IN ('flightaware_snapshots','flightaware_requests')"
+            )->fetchColumn();
+            if ($tables < 2) {
+                return [
+                    'state' => 'unconfigured',
+                    'queued' => false,
+                    'message' => 'FlightAware no está preparado: faltan las actualizaciones MySQL 007 y 008.',
+                ];
+            }
+
+            $previous = $this->pdo->prepare('SELECT requested_at,status FROM flightaware_requests WHERE flight_id=:id');
+            $previous->execute(['id' => (int)$flight['id']]);
+            $before = $previous->fetch();
+            $recent = is_array($before) && strtotime((string)$before['requested_at']) >= time() - 300;
+            if (!$recent) {
+                $this->pdo->prepare(
+                    "INSERT INTO flightaware_requests (flight_id,requested_at,processed_at,request_count,status,last_error)
+                     VALUES (:id,NOW(),NULL,1,'queued',NULL)
+                     ON DUPLICATE KEY UPDATE requested_at=NOW(),processed_at=NULL,
+                       request_count=request_count+1,status='queued',last_error=NULL"
+                )->execute(['id' => (int)$flight['id']]);
+            }
+
+            return [
+                'state' => $recent ? 'cooldown' : 'queued',
+                'queued' => !$recent,
+                'message' => $recent
+                    ? 'FlightAware ya fue consultado o solicitado en los últimos 5 minutos; se respeta su intervalo.'
+                    : 'FlightAware queda solicitado automáticamente; el recolector comprobará su ficha pública en el siguiente ciclo.',
+            ];
+        } catch (Throwable $error) {
+            return [
+                'state' => 'error',
+                'queued' => false,
+                'message' => 'No se pudo solicitar FlightAware: ' . substr($error->getMessage(), 0, 300),
+            ];
         }
     }
 
