@@ -102,7 +102,7 @@ try {
         Response::json(['error' => 'snapshots debe ser una lista de hasta 8 registros.'], 422);
     }
 
-    $lookup = $pdo->prepare('SELECT physical_flight,aircraft_registration FROM flights WHERE id=:id');
+    $lookup = $pdo->prepare('SELECT physical_flight,aircraft_registration,aircraft_icao24 FROM flights WHERE id=:id');
     $latest = $pdo->prepare(
         'SELECT status_text,aircraft_type,altitude_ft,speed_mph,distance_mi,duration_text,departure_text,arrival_text
          FROM flightaware_snapshots WHERE flight_id=:flight_id ORDER BY observed_at DESC,id DESC LIMIT 1'
@@ -118,6 +118,7 @@ try {
     $aircraft = $pdo->prepare(
         'UPDATE flights SET
            aircraft_registration=COALESCE(NULLIF(:aircraft_registration,\'\'),aircraft_registration),
+           aircraft_icao24=COALESCE(NULLIF(:aircraft_icao24,\'\'),aircraft_icao24),
            aircraft_type=COALESCE(aircraft_type,NULLIF(:aircraft_type,\'\'))
          WHERE id=:id'
     );
@@ -141,8 +142,12 @@ try {
         $observed = new DateTimeImmutable((string)($record['observed_at'] ?? 'now'));
         $registration = strtoupper((string)($value('aircraft_registration', 15) ?? ''));
         if ($registration !== '' && !preg_match('/^[A-Z0-9-]{3,15}$/', $registration)) $registration = '';
+        $icao24 = strtolower((string)($value('aircraft_icao24', 6) ?? ''));
+        if ($icao24 !== '' && !preg_match('/^[0-9a-f]{6}$/', $icao24)) $icao24 = '';
         $registrationChanged = $registration !== ''
             && strtoupper(trim((string)($flightRow['aircraft_registration'] ?? ''))) !== $registration;
+        $icao24Changed = $icao24 !== ''
+            && strtolower(trim((string)($flightRow['aircraft_icao24'] ?? ''))) !== $icao24;
         $normalized = [
             'status_text' => $value('status_text'),
             'aircraft_type' => $value('aircraft_type'),
@@ -164,10 +169,11 @@ try {
         }
         $aircraft->execute([
             'aircraft_registration' => $registration,
+            'aircraft_icao24' => $icao24,
             'aircraft_type' => (string)($normalized['aircraft_type'] ?? ''),
             'id' => $flightId,
         ]);
-        if ($registrationChanged) $aircraftUpdated++;
+        if ($registrationChanged || $icao24Changed) $aircraftUpdated++;
         if ($same) {
             $completed->execute(['id' => $flightId]);
             $unchanged++;
