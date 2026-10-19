@@ -617,6 +617,9 @@
     let token = localStorage.getItem('matrix.pushDevice');
     if (!token) token = await enablePushNotifications();
     if (!token) throw new Error('No existe una suscripción Web Push válida en este dispositivo.');
+    // Rebind and persist the token before asking the server to wake the device.
+    // This is especially important after iOS has restarted the installed PWA.
+    await ensureServiceWorker(token);
     const button = els.testPushNotification;
     if (button) {
       button.disabled = true;
@@ -660,6 +663,28 @@
     return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   };
 
+  const PUSH_CONFIG_CACHE = 'matrix-push-config-v1';
+  const PUSH_TOKEN_CACHE_KEY = '/matrix-device-token';
+
+  async function persistPushDeviceToken(token, registration = null) {
+    if (!token) return;
+    // Cache Storage is shared by the page and its service worker. Awaiting this
+    // write prevents a real push from reaching a freshly restarted iPhone before
+    // the asynchronous postMessage handler has persisted the device token.
+    try {
+      if ('caches' in window) {
+        const cache = await caches.open(PUSH_CONFIG_CACHE);
+        await cache.put(PUSH_TOKEN_CACHE_KEY, new Response(String(token), {
+          headers:{'Content-Type':'text/plain; charset=utf-8'}
+        }));
+      }
+    } catch (_) {
+      // postMessage remains as a fallback for browsers that restrict Cache API.
+    }
+    const worker = registration?.active || navigator.serviceWorker.controller;
+    worker?.postMessage({type:'matrix-device-token',token});
+  }
+
   async function ensureServiceWorker(token = '') {
     let registration;
     try {
@@ -669,10 +694,7 @@
     }
     try { await registration.update(); } catch (_) {}
     const ready = await navigator.serviceWorker.ready;
-    if (token) {
-      const worker = ready.active || registration.active || navigator.serviceWorker.controller;
-      worker?.postMessage({type:'matrix-device-token',token});
-    }
+    if (token) await persistPushDeviceToken(token, ready);
     return ready;
   }
 
@@ -736,7 +758,7 @@
     localStorage.setItem('matrix.pushDevice', data.device_token);
     state.canaryWatchEnabled = Boolean(data.watch_canary_all);
     state.pushLastError = '';
-    (registration.active || navigator.serviceWorker.controller)?.postMessage({type:'matrix-device-token',token:data.device_token});
+    await persistPushDeviceToken(data.device_token, registration);
     return data.device_token;
   }
 

@@ -306,6 +306,17 @@ final class WebPushService
         $stmt->execute();
         $sent = $failed = 0;
         foreach ($stmt->fetchAll() as $row) {
+            // Reserve the outbox row before waking the service worker. Safari can
+            // receive an empty Web Push immediately and request /pending while
+            // sendEmpty() is still waiting for Apple's HTTP response. Marking it
+            // afterwards left that request with an empty queue and lost the alert.
+            $reserve = $this->pdo->prepare(
+                'UPDATE push_outbox
+                 SET pushed_at=NOW(),attempts=attempts+1,last_error=NULL
+                 WHERE id=:id AND pushed_at IS NULL AND attempts<4'
+            );
+            $reserve->execute(['id' => $row['id']]);
+            if ($reserve->rowCount() !== 1) continue;
             try {
                 $status = $this->sendEmpty((string)$row['endpoint']);
                 if (in_array($status, [404, 410], true)) {
@@ -314,11 +325,12 @@ final class WebPushService
                     throw new RuntimeException("Suscripción caducada ({$status}).");
                 }
                 if ($status < 200 || $status >= 300) throw new RuntimeException("Push HTTP {$status}");
-                $this->pdo->prepare('UPDATE push_outbox SET pushed_at=NOW(),attempts=attempts+1,last_error=NULL WHERE id=:id')->execute(['id' => $row['id']]);
                 $this->pdo->prepare('UPDATE push_subscriptions SET last_push_at=NOW(),last_error=NULL WHERE id=:id')->execute(['id' => $row['subscription_id']]);
                 $sent++;
             } catch (\Throwable $error) {
-                $this->pdo->prepare('UPDATE push_outbox SET attempts=attempts+1,last_error=:error WHERE id=:id')
+                // Return the row to the retry queue. The attempt was already
+                // counted by the atomic reservation above.
+                $this->pdo->prepare('UPDATE push_outbox SET pushed_at=NULL,last_error=:error WHERE id=:id')
                     ->execute(['error' => substr($error->getMessage(), 0, 500), 'id' => $row['id']]);
                 $this->pdo->prepare('UPDATE push_subscriptions SET last_error=:error WHERE id=:id')
                     ->execute(['error' => substr($error->getMessage(), 0, 500), 'id' => $row['subscription_id']]);
