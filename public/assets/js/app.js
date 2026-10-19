@@ -264,12 +264,12 @@
     const admin = appMain?.dataset.focusAdmin === '1';
     const deviceAuthorized = Boolean(localStorage.getItem('matrix.pushDevice'));
     const authorized = admin || deviceAuthorized;
-    const lastOpenSky = parseDate(focus?.last_opensky_at);
-    const policySeconds = Number(focus?.policy?.opensky_per_flight_seconds || 180);
     const receivedAt = Number(focus?.cooldown_started_at || 0);
-    const cooldown = lastOpenSky
-      ? Math.max(0, policySeconds - Math.floor((Date.now() - lastOpenSky.getTime()) / 1000))
-      : Math.max(0, Number(focus?.retry_after_seconds || 0) - (receivedAt ? Math.floor((Date.now() - receivedAt) / 1000) : 0));
+    const cooldown = Math.max(
+      0,
+      Number(focus?.retry_after_seconds || 0)
+        - (receivedAt ? Math.floor((Date.now() - receivedAt) / 1000) : 0),
+    );
     const trend = verticalTrend(flight);
     const official = flight.source === 'aena' && flight.belt ? beltPosition(flight) : 'pendiente de Aena';
     const predicted = flight.predicted_belt ? `${flight.predicted_hall || (Number(flight.predicted_belt)>=7?'B':'A')}/${flight.predicted_belt}` : 'sin predicción';
@@ -1602,6 +1602,7 @@
       if (!response.ok) throw new Error(payload.error || 'No se pudo cargar el histórico.');
       if (Number(state.detailFlightId) !== Number(id)) return;
       state.focusStatus = payload.focus || state.focusStatus;
+      if (state.focusStatus) state.focusStatus.cooldown_started_at = Date.now();
       const summary = `<div class="detail-grid mb-4">
         <div class="detail-stat"><small>Programada</small><strong>${time(flight.scheduled_arrival)}</strong></div>
         <div class="detail-stat"><small>ETA / real</small><strong>${time(effectiveArrival(flight))}</strong></div>
