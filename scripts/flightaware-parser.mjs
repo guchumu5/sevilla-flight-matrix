@@ -2,9 +2,62 @@ const first = (text, pattern) => text.match(pattern)?.[1]?.trim() || null;
 const integer = value => value ? Number(String(value).replace(/,/g,'')) : null;
 const oneLine = value => value ? value.replace(/\s+/g,' ').trim() : null;
 
-export function parseFlightAwarePublicPage(text) {
+function bootstrapJson(html) {
+  const source = String(html || '');
+  const marker = 'var trackpollBootstrap =';
+  const markerAt = source.indexOf(marker);
+  if (markerAt < 0) return null;
+  const start = source.indexOf('{', markerAt + marker.length);
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < source.length; index++) {
+    const character = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === '{') depth++;
+    if (character === '}' && --depth === 0) {
+      try {
+        return JSON.parse(source.slice(start, index + 1));
+      } catch {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+function bootstrapAircraft(html) {
+  const flights = bootstrapJson(html)?.flights;
+  if (!flights || typeof flights !== 'object') return {};
+  const current = Object.values(flights)[0];
+  if (!current || typeof current !== 'object') return {};
+  const primary = current.aircraft || {};
+  const activity = Array.isArray(current.activityLog?.flights)
+    ? current.activityLog.flights.find(item => item?.flightId === current.flightId)
+      || current.activityLog.flights[0]
+    : null;
+  const fallback = activity?.aircraft || {};
+  return {
+    registration: primary.tail || fallback.tail || null,
+    type: primary.friendlyType || fallback.friendlyType || primary.type || fallback.type || null,
+  };
+}
+
+export function parseFlightAwarePublicPage(text, html = '') {
+  const aircraft = bootstrapAircraft(html);
   const statusText = first(text, /^(LANDED[^\n]*|EN ROUTE[^\n]*|DEPARTED[^\n]*|ARRIVED[^\n]*|SCHEDULED[^\n]*|CANCELLED[^\n]*)$/mi);
-  const aircraftType = oneLine(first(text, /Aircraft Type\s+(.+?)(?:\s+Photos\s|\nPhotos\s)/is));
+  const aircraftType = oneLine(first(text, /Aircraft Type\s+(.+?)(?:\s+Photos\s|\nPhotos\s)/is))
+    || oneLine(aircraft.type);
   const point = text.match(/(?:^|\n)([\d,]+)\s*ft\s*\n([\d,]+)\s*mph(?:\n|$)/i);
   const filedSpeed = first(text, /Speed\s+Filed:\s*([\d,]+)\s*mph/i);
   const distance = first(text, /Distance\s+Actual:\s*([\d,]+)\s*mi/i);
@@ -18,6 +71,7 @@ export function parseFlightAwarePublicPage(text) {
   const gateArrival = first(arrivalBlock, /Gate Arrival\s+([^\n]+)/i);
   return {
     status_text: oneLine(statusText),
+    aircraft_registration: oneLine(aircraft.registration)?.toUpperCase() || null,
     aircraft_type: aircraftType,
     altitude_ft: integer(point?.[1]),
     speed_mph: integer(point?.[2] || filedSpeed),

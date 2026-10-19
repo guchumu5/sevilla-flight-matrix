@@ -53,10 +53,11 @@ try {
       await page.goto(url, {waitUntil:'domcontentloaded', timeout:45000});
       await page.waitForTimeout(2500);
       const text = await page.locator('body').innerText({timeout:15000});
+      const html = await page.content();
       if (!text.includes(code) && !text.match(/Flight Details|Departure Times/i)) {
         throw new Error('La ficha pública no presentó datos del vuelo.');
       }
-      const parsed = parseFlightAwarePublicPage(text);
+      const parsed = parseFlightAwarePublicPage(text, html);
       if (!Object.values(parsed).some(value => value !== null)) {
         throw new Error('La estructura pública cambió o no contiene datos visibles.');
       }
@@ -67,7 +68,7 @@ try {
         ...parsed,
         raw_excerpt:text.slice(0,8000),
       });
-      console.log(`${code}: ${parsed.status_text || 'estado pendiente'} · ${parsed.aircraft_type || 'tipo pendiente'} · ${parsed.speed_mph ?? '—'} mph`);
+      console.log(`${code}: ${parsed.status_text || 'estado pendiente'} · ${parsed.aircraft_registration || 'matrícula aún no publicada'} · ${parsed.aircraft_type || 'tipo pendiente'} · ${parsed.speed_mph ?? '—'} mph`);
     } catch (error) {
       errors.push(`${code}: ${error.message}`);
       console.warn(`::warning::${code}: ${error.message}`);

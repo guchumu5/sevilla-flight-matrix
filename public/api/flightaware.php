@@ -102,7 +102,7 @@ try {
         Response::json(['error' => 'snapshots debe ser una lista de hasta 8 registros.'], 422);
     }
 
-    $lookup = $pdo->prepare('SELECT physical_flight FROM flights WHERE id=:id');
+    $lookup = $pdo->prepare('SELECT physical_flight,aircraft_registration FROM flights WHERE id=:id');
     $latest = $pdo->prepare(
         'SELECT status_text,aircraft_type,altitude_ft,speed_mph,distance_mi,duration_text,departure_text,arrival_text
          FROM flightaware_snapshots WHERE flight_id=:flight_id ORDER BY observed_at DESC,id DESC LIMIT 1'
@@ -115,24 +115,34 @@ try {
          (:flight_id,:observed_at,:public_url,:status_text,:aircraft_type,:altitude_ft,:speed_mph,:distance_mi,
           :duration_text,:departure_text,:arrival_text,:raw_excerpt)'
     );
-    $aircraft = $pdo->prepare('UPDATE flights SET aircraft_type=COALESCE(aircraft_type,:aircraft_type) WHERE id=:id');
+    $aircraft = $pdo->prepare(
+        'UPDATE flights SET
+           aircraft_registration=COALESCE(NULLIF(:aircraft_registration,\'\'),aircraft_registration),
+           aircraft_type=COALESCE(aircraft_type,NULLIF(:aircraft_type,\'\'))
+         WHERE id=:id'
+    );
     $completed = $pdo->prepare(
         "UPDATE flightaware_requests SET processed_at=NOW(),status='processed',last_error=NULL WHERE flight_id=:id"
     );
-    $saved = $unchanged = 0;
+    $saved = $unchanged = $aircraftUpdated = 0;
     foreach ($records as $record) {
         if (!is_array($record)) continue;
         $flightId = filter_var($record['flight_id'] ?? null, FILTER_VALIDATE_INT);
         $code = strtoupper(trim((string)($record['physical_flight'] ?? '')));
         if (!$flightId || !preg_match('/^[A-Z0-9]{2,8}$/', $code)) continue;
         $lookup->execute(['id' => $flightId]);
-        if (strtoupper((string)$lookup->fetchColumn()) !== $code) continue;
+        $flightRow = $lookup->fetch();
+        if (!is_array($flightRow) || strtoupper((string)$flightRow['physical_flight']) !== $code) continue;
 
         $value = static fn(string $key, int $max = 120): ?string => isset($record[$key]) && trim((string)$record[$key]) !== ''
             ? substr(trim((string)$record[$key]), 0, $max) : null;
         $number = static fn(string $key, int $min, int $max): ?int => isset($record[$key]) && is_numeric($record[$key])
             ? max($min, min($max, (int)round((float)$record[$key]))) : null;
         $observed = new DateTimeImmutable((string)($record['observed_at'] ?? 'now'));
+        $registration = strtoupper((string)($value('aircraft_registration', 15) ?? ''));
+        if ($registration !== '' && !preg_match('/^[A-Z0-9-]{3,15}$/', $registration)) $registration = '';
+        $registrationChanged = $registration !== ''
+            && strtoupper(trim((string)($flightRow['aircraft_registration'] ?? ''))) !== $registration;
         $normalized = [
             'status_text' => $value('status_text'),
             'aircraft_type' => $value('aircraft_type'),
@@ -152,6 +162,12 @@ try {
                 break;
             }
         }
+        $aircraft->execute([
+            'aircraft_registration' => $registration,
+            'aircraft_type' => (string)($normalized['aircraft_type'] ?? ''),
+            'id' => $flightId,
+        ]);
+        if ($registrationChanged) $aircraftUpdated++;
         if ($same) {
             $completed->execute(['id' => $flightId]);
             $unchanged++;
@@ -163,13 +179,10 @@ try {
             'public_url' => 'https://www.flightaware.com/live/flight/' . rawurlencode($code),
             'raw_excerpt' => $value('raw_excerpt', 8000),
         ]);
-        if ($normalized['aircraft_type']) {
-            $aircraft->execute(['aircraft_type' => $normalized['aircraft_type'], 'id' => $flightId]);
-        }
         $completed->execute(['id' => $flightId]);
         $saved++;
     }
-    Response::json(['ok' => true, 'saved' => $saved, 'unchanged' => $unchanged]);
+    Response::json(['ok' => true, 'saved' => $saved, 'unchanged' => $unchanged, 'aircraft_updated' => $aircraftUpdated]);
 } catch (Throwable $error) {
     Response::json(['error' => $error->getMessage()], 500);
 }

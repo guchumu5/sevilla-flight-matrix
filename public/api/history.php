@@ -12,9 +12,24 @@ try {
     if (!$flightId) Response::json(['error' => 'Vuelo no válido.'], 422);
     $pdo = Database::connection();
     $repository = new FlightRepository($pdo);
+    $aircraft = $pdo->prepare(
+        'SELECT aircraft_registration,aircraft_icao24,aircraft_type FROM flights WHERE id=:flight_id'
+    );
+    $aircraft->execute(['flight_id' => (int)$flightId]);
+    $request = null;
+    try {
+        $requestStmt = $pdo->prepare(
+            'SELECT status,requested_at,processed_at,last_error FROM flightaware_requests WHERE flight_id=:flight_id'
+        );
+        $requestStmt->execute(['flight_id' => (int)$flightId]);
+        $request = $requestStmt->fetch() ?: null;
+    } catch (Throwable) {
+    }
     Response::json([
         'history' => $repository->history((int)$flightId),
         'flightaware' => $repository->flightAwareSnapshot((int)$flightId),
+        'aircraft' => $aircraft->fetch() ?: null,
+        'flightaware_request' => $request,
         'focus' => (new FlightFocusService($pdo))->status((int)$flightId),
     ]);
 } catch (Throwable $error) {
