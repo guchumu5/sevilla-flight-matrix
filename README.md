@@ -16,7 +16,7 @@
   siete días de vuelos canarios. El panel permite cambiar de día y filtrar por
   origen (Tenerife Norte, Tenerife Sur, Lanzarote, Gran Canaria…).
 - **Coincidencia de cintas (`belt_coincidence_v1`).** Una cinta verde (1–6)
-  coincide con un vuelo si otra llegada cae a ±10 min; una roja (7–8), a
+  coincide con un vuelo si otra llegada cae a ±15 min; una roja (7–8), a
   ±20 min. El vuelo perfecto reúne dos o más verdes y las dos rojas; con una
   roja es «muy bueno». La hora usada es la real, la ETA publicada o, si no
   hay, la programada corregida con la mediana de adelanto/retraso de los

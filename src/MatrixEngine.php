@@ -10,8 +10,8 @@ final class MatrixEngine
     private const BELT_COUNT = 8;
     private const RED_BELTS = [7, 8];
     private const OCCUPANCY_WINDOW_MINUTES = 30;
-    /** Medido en operación: una cinta 1–6 se desaloja en unos 10 minutos. */
-    private const GREEN_COINCIDENCE_MINUTES = 10;
+    /** Ajustado en operación: una cinta 1–6 sigue activa unos 15 minutos. */
+    private const GREEN_COINCIDENCE_MINUTES = 15;
     /** Una cinta 7–8 permanece ocupada al menos 20 minutos. */
     private const RED_COINCIDENCE_MINUTES = 20;
     private const PERFECT_MIN_GREEN = 2;
@@ -119,7 +119,7 @@ final class MatrixEngine
     }
 
     /**
-     * Coincidencia operativa: cintas verdes (1–6) con una llegada a ±10 min
+     * Coincidencia operativa: cintas verdes (1–6) con una llegada a ±15 min
      * y cintas rojas (7–8) con una llegada a ±20 min de la llegada prevista.
      * El vuelo ideal coincide con al menos dos verdes y una o dos rojas.
      *

@@ -448,7 +448,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .scene-plane-time b { color:#fff; font-size:1rem; font-weight:900; font-variant-numeric:tabular-nums; }
 .scene-plane-time i { overflow:hidden; color:#ffd47d; font-size:.64rem; font-style:normal; font-weight:850; text-overflow:ellipsis; white-space:nowrap; }
 
-/* Coincidencia de cintas: verdes ±10 min, rojas ±20 min */
+/* Coincidencia de cintas: verdes ±15 min, rojas ±20 min */
 .coincidence-badge { display:inline-flex; align-items:center; align-self:flex-start; gap:.2rem; padding:.16rem .5rem; border:1px solid #36485d; border-radius:999px; background:rgba(255,255,255,.05); color:#b6c4d3; font-size:.74rem; font-weight:900; white-space:nowrap; }
 .coincidence-badge.perfecto { border-color:#e8b440; background:#e8b440; color:#1d1404; }
 .coincidence-badge.muy_bueno { border-color:#1f8a63; background:#123a2e; color:#7cf3c2; }
