@@ -76,10 +76,15 @@ $coincidence = $target['belt_coincidence'] ?? null;
 if (!is_array($coincidence) || ($coincidence['model'] ?? null) !== 'belt_coincidence_v1') throw new RuntimeException('No se generó belt_coincidence.');
 if (($coincidence['target_belt'] ?? null) !== 1 || ($coincidence['target_belt_source'] ?? null) !== 'oficial') throw new RuntimeException('La coincidencia debe incluir la cinta del propio vuelo.');
 if (($coincidence['green_window_minutes'] ?? null) !== 15) throw new RuntimeException('La ventana verde por defecto debe ser ±15 min.');
-if (($coincidence['green_belts'] ?? null) !== [3]) throw new RuntimeException('Solo C3 (+10) entra en la ventana verde de ±15 min; C2 (−25) queda fuera.');
+if (($coincidence['span_window_minutes'] ?? null) !== 30) throw new RuntimeException('La nube por defecto debe ser ±30 min.');
+if (($coincidence['green_belts'] ?? null) !== [3]) throw new RuntimeException('Solo C3 (+10) cuenta en verdes ±15 min; C2 (−25) no entra en el cálculo.');
 if (($coincidence['red_belts'] ?? null) !== [7, 8]) throw new RuntimeException('C7 (−10) y C8 (+20) entran en la ventana roja de ±20 min.');
 if (($coincidence['rating'] ?? null) !== 'parcial') throw new RuntimeException('Con una sola verde la coincidencia debe ser parcial.');
 if (($coincidence['unknown_belt_flights'] ?? null) !== 1) throw new RuntimeException('El vuelo sin cinta a +5 min debe constar como incógnita.');
+$nearbyGreen = array_values(array_filter($coincidence['flights'] ?? [], static fn(array $item): bool => ($item['flight'] ?? '') === 'OLD0001'))[0] ?? [];
+if (($nearbyGreen['offset_minutes'] ?? null) !== -25 || !empty($nearbyGreen['counts'])) {
+    throw new RuntimeException('C2 a −25 min debe verse en la nube ±30 y no contar para el cálculo.');
+}
 
 $wide = array_values(array_filter((new MatrixEngine())->decorate($flights, [], ['green_window_minutes' => 30]), static fn(array $flight): bool => $flight['id'] === 1))[0]['belt_coincidence'] ?? [];
 if (($wide['green_belts'] ?? null) !== [2, 3] || ($wide['green_window_minutes'] ?? null) !== 30) {

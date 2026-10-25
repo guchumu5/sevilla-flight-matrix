@@ -297,19 +297,28 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        <p class="text-secondary mb-3">Tiempo de acción de cada cinta alrededor de la llegada prevista. El valor se guarda en este teléfono.</p>
-        <label class="form-label" for="greenWindowInput">Cintas verdes 1–6</label>
+        <p class="text-secondary mb-3">La nube enseña las llegadas de la franja. Solo se colorean y cuentan las que caen en el tiempo operativo. Se guarda en este teléfono.</p>
+        <label class="form-label" for="spanWindowInput">Franja visible · nube</label>
         <div class="settings-window">
-          <input type="range" id="greenWindowRange" min="5" max="60" step="5" aria-label="Ventana de cintas verdes">
+          <input type="range" id="spanWindowRange" min="10" max="90" step="5" aria-label="Franja visible de la nube">
+          <div class="input-group">
+            <span class="input-group-text">±</span>
+            <input class="form-control" type="number" id="spanWindowInput" min="10" max="90" step="1" inputmode="numeric">
+            <span class="input-group-text">min</span>
+          </div>
+        </div>
+        <label class="form-label mt-3" for="greenWindowInput">Tiempo operativo · verdes 1–6</label>
+        <div class="settings-window">
+          <input type="range" id="greenWindowRange" min="5" max="60" step="5" aria-label="Tiempo operativo de cintas verdes">
           <div class="input-group">
             <span class="input-group-text">±</span>
             <input class="form-control" type="number" id="greenWindowInput" min="5" max="60" step="1" inputmode="numeric">
             <span class="input-group-text">min</span>
           </div>
         </div>
-        <label class="form-label mt-3" for="redWindowInput">Cintas rojas 7–8</label>
+        <label class="form-label mt-3" for="redWindowInput">Tiempo operativo · rojas 7–8</label>
         <div class="settings-window">
-          <input type="range" id="redWindowRange" min="5" max="60" step="5" aria-label="Ventana de cintas rojas">
+          <input type="range" id="redWindowRange" min="5" max="60" step="5" aria-label="Tiempo operativo de cintas rojas">
           <div class="input-group">
             <span class="input-group-text">±</span>
             <input class="form-control" type="number" id="redWindowInput" min="5" max="60" step="1" inputmode="numeric">

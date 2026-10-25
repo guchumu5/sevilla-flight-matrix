@@ -60,6 +60,7 @@
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody'),
     greenWindowInput: document.querySelector('#greenWindowInput'), redWindowInput: document.querySelector('#redWindowInput'),
     greenWindowRange: document.querySelector('#greenWindowRange'), redWindowRange: document.querySelector('#redWindowRange'),
+    spanWindowInput: document.querySelector('#spanWindowInput'), spanWindowRange: document.querySelector('#spanWindowRange'),
     resetCoincidenceWindows: document.querySelector('#resetCoincidenceWindows')
   };
   if (/^\d{4}-\d{2}-\d{2}$/.test(deepLink.get('date') || '')) els.date.value = deepLink.get('date');
@@ -269,14 +270,17 @@
     const rating = coincidenceRatings[model.rating] || coincidenceRatings.bajo;
     const beltCells = Array.from({length:8}, (_,index) => {
       const belt = index + 1;
-      const active = green.has(belt) || red.has(belt);
       const flights = entries.filter(item => Number(item.belt) === belt);
-      const official = flights.length > 0 && flights.every(item => item.assignment_source === 'oficial');
+      const counting = flights.filter(item => item.counts);
+      const nearby = flights.filter(item => !item.counts);
+      const active = green.has(belt) || red.has(belt) || counting.length > 0;
+      const official = counting.length > 0 && counting.every(item => item.assignment_source === 'oficial');
       const title = flights.length
-        ? flights.map(item => `${item.flight} · ${item.origin} · ${time(item.arrival)} (${relativeMinuteCompact(item.offset_minutes)}) · ${item.assignment_source}`).join(' | ')
-        : `Cinta ${belt} sin llegadas en ±${belt >= 7 ? model.red_window_minutes : model.green_window_minutes} min`;
-      const offset = flights.length ? relativeMinuteCompact(flights[0].offset_minutes) : '';
-      return `<span class="occupancy-belt ${active?'occupied':''} ${belt >= 7?'red':''} ${active && !official?'estimated':''}" title="${esc(title)}"><b>${belt}</b><small>${active ? `${offset}′` : 'libre'}</small></span>`;
+        ? flights.map(item => `${item.flight} · ${item.origin} · ${time(item.arrival)} (${relativeMinuteCompact(item.offset_minutes)}) · ${item.counts?'cuenta':'nube'} · ${item.assignment_source}`).join(' | ')
+        : `Cinta ${belt} sin llegadas en ±${Number(model.span_window_minutes || 30)} min`;
+      const shown = counting[0] || nearby[0];
+      const offset = shown ? relativeMinuteCompact(shown.offset_minutes) : '';
+      return `<span class="occupancy-belt ${active?'occupied':''} ${!active && nearby.length?'nearby':''} ${belt >= 7?'red':''} ${active && !official?'estimated':''}" title="${esc(title)}"><b>${belt}</b><small>${active ? `${offset}′` : nearby.length ? 'cerca' : 'libre'}</small></span>`;
     }).join('');
     const redStatus = [7,8].map(belt => `C${belt} ${red.has(belt)?'coincide':'libre'}`).join(' · ');
     const confidence = ({alta:'alta',media:'media',baja:'baja'}[model.confidence] || 'pendiente');
@@ -286,7 +290,7 @@
       <div class="occupancy-belts" aria-label="Cintas que coinciden con la llegada">${beltCells}</div>
       <div class="occupancy-red"><span>Rojas ±${Number(model.red_window_minutes)} min</span><strong>${red.size}/2</strong><small>${redStatus}</small></div>
       <footer><span>Verdes ±${Number(model.green_window_minutes)} min: <b>${green.size ? [...green].map(b => `C${b}`).join(' ') : 'ninguna'}</b></span><span>Llegada prevista ${time(model.target_time)} · ${esc(arrivalBasisText(flight))}${unknown?` · ${unknown} sin cinta`:''} · confianza ${confidence}</span></footer>
-      ${detailed?`<p>Una cinta verde coincide si otra llegada cae a ±${Number(model.green_window_minutes)} min y una roja a ±${Number(model.red_window_minutes)} min. Vuelo perfecto: ${Number(model.perfect_min_green)} o más verdes y las dos rojas.</p>`:''}
+      ${detailed?`<p>La nube muestra ±${Number(model.span_window_minutes || 30)} min. Solo cuentan las verdes a ±${Number(model.green_window_minutes)} min y las rojas a ±${Number(model.red_window_minutes)} min. Vuelo perfecto: ${Number(model.perfect_min_green)} o más verdes y las dos rojas.</p>`:''}
     </section>`;
   };
 
@@ -320,26 +324,28 @@
     const tiles = Array.from({length:8}, (_,index) => {
       const belt = index + 1;
       const flights = byBelt.get(belt) || [];
-      const active = activeBelts.has(belt);
+      const counting = flights.filter(item => item.counts);
+      const nearby = flights.filter(item => !item.counts);
+      const active = activeBelts.has(belt) || counting.length > 0;
       const own = ownBelt === belt;
-      const span = belt >= 7 ? model.red_window_minutes : model.green_window_minutes;
+      const span = Number(model.span_window_minutes || 30);
       const ownRow = own ? `<li class="selected">
           <span><b>Tu vuelo · ${esc(flight.origin_name)}</b><small>${time(model.target_time)} · ${esc(flight.physical_flight)} · ${esc(sourceLabel(ownSource))}</small></span>
         </li>` : '';
-      const rows = flights.map(item => `<li class="active">
-          <span><b>${esc(item.origin)}</b><small>${time(item.arrival)} · ${relativeMinuteCompact(item.offset_minutes)} min · ${esc(item.flight)} · ${esc(sourceLabel(item.assignment_source))}</small></span>
+      const rows = flights.map(item => `<li class="${item.counts?'active':'nearby'}">
+          <span><b>${esc(item.origin)}</b><small>${time(item.arrival)} · ${relativeMinuteCompact(item.offset_minutes)} min · ${esc(item.flight)} · ${item.counts?'cuenta':'nube'} · ${esc(sourceLabel(item.assignment_source))}</small></span>
         </li>`).join('');
-      const status = own && active ? 'TU CINTA · COINCIDE' : own ? 'TU CINTA' : active ? 'COINCIDE' : `libre ±${Number(span)}′`;
-      return `<article class="focus-belt ${belt >= 7?'red':''} ${active?'occupied':''} ${own?'own':''}">
+      const status = own && active ? 'TU CINTA · COINCIDE' : own ? 'TU CINTA' : active ? 'COINCIDE' : nearby.length ? `en nube ±${span}′` : `libre ±${span}′`;
+      return `<article class="focus-belt ${belt >= 7?'red':''} ${active?'occupied':''} ${!active && nearby.length?'nearby':''} ${own?'own':''}">
         <header><span>Cinta ${belt}</span><strong>${status}</strong></header>
-        <ul>${ownRow}${rows || (own ? '' : `<li class="empty">Sin llegadas en ±${Number(span)} min</li>`)}</ul>
+        <ul>${ownRow}${rows || (own ? '' : `<li class="empty">Sin llegadas en ±${span} min</li>`)}</ul>
       </article>`;
     }).join('');
     const unknown = entries.filter(item => item.belt === null || item.belt === undefined);
     const unknownMarkup = unknown.length ? `<aside class="focus-unknown"><strong>${unknown.length} vuelo${unknown.length===1?'':'s'} sin cinta conocida</strong>${unknown.map(item=>`<span>${esc(item.origin)} · ${esc(item.flight)} · ${relativeMinuteLabel(item.offset_minutes)}</span>`).join('')}</aside>` : '';
     return `<section class="focus-window coincidence-${esc(model.rating)}">
       <header><div><small>Coincidencia de cintas</small><h3>${esc(rating.label)} · llegada prevista ${time(model.target_time)}</h3></div><span>${Number(model.green_count)} verdes · ${Number(model.red_count)} rojas</span></header>
-      <p class="coincidence-basis">Hora usada: ${esc(arrivalBasisText(flight))}. Verdes a ±${Number(model.green_window_minutes)} min, rojas a ±${Number(model.red_window_minutes)} min. Perfecto: ${Number(model.perfect_min_green)}+ verdes y las dos rojas.</p>
+      <p class="coincidence-basis">Hora usada: ${esc(arrivalBasisText(flight))}. Nube ±${Number(model.span_window_minutes || 30)} min. Cuentan verdes ±${Number(model.green_window_minutes)} y rojas ±${Number(model.red_window_minutes)}. Perfecto: ${Number(model.perfect_min_green)}+ verdes y las dos rojas.</p>
       <div class="focus-belt-grid">${tiles}</div>${unknownMarkup}
     </section>`;
   }
@@ -349,15 +355,17 @@
     return match ? Number(match[1]) : null;
   };
 
-  const COINCIDENCE_DEFAULTS = {green:15, red:20};
-  const clampWindow = value => Math.max(5, Math.min(60, Math.round(Number(value) || 0)));
+  const COINCIDENCE_DEFAULTS = {green:15, red:20, span:30};
+  const clampWindow = (value, min = 5, max = 90) => Math.max(min, Math.min(max, Math.round(Number(value) || 0)));
   const readCoincidenceWindows = () => ({
-    green: clampWindow(localStorage.getItem('matrix.greenWindow') || COINCIDENCE_DEFAULTS.green),
-    red: clampWindow(localStorage.getItem('matrix.redWindow') || COINCIDENCE_DEFAULTS.red)
+    green: clampWindow(localStorage.getItem('matrix.greenWindow') || COINCIDENCE_DEFAULTS.green, 5, 60),
+    red: clampWindow(localStorage.getItem('matrix.redWindow') || COINCIDENCE_DEFAULTS.red, 5, 60),
+    span: clampWindow(localStorage.getItem('matrix.spanWindow') || COINCIDENCE_DEFAULTS.span, 10, 90)
   });
-  const saveCoincidenceWindows = (green, red) => {
-    localStorage.setItem('matrix.greenWindow', String(clampWindow(green)));
-    localStorage.setItem('matrix.redWindow', String(clampWindow(red)));
+  const saveCoincidenceWindows = (green, red, span) => {
+    localStorage.setItem('matrix.greenWindow', String(clampWindow(green, 5, 60)));
+    localStorage.setItem('matrix.redWindow', String(clampWindow(red, 5, 60)));
+    localStorage.setItem('matrix.spanWindow', String(clampWindow(span, 10, 90)));
   };
   const resolvedCoincidenceBelt = flight => {
     if (flight.source === 'aena') {
@@ -376,11 +384,13 @@
   };
 
   function applyBeltCoincidence(flights, windows = readCoincidenceWindows()) {
-    const greenMin = clampWindow(windows.green);
-    const redMin = clampWindow(windows.red);
+    const greenMin = clampWindow(windows.green, 5, 60);
+    const redMin = clampWindow(windows.red, 5, 60);
+    const spanMin = clampWindow(windows.span ?? COINCIDENCE_DEFAULTS.span, 10, 90);
     const greenMs = greenMin * 60_000;
     const redMs = redMin * 60_000;
-    const scan = Math.max(greenMs, redMs);
+    const spanMs = spanMin * 60_000;
+    const scan = Math.max(greenMs, redMs, spanMs);
     const resolved = flights.map(flight => {
       const arrivalText = flight.expected_arrival || flight.effective_arrival;
       const arrival = parseDate(arrivalText);
@@ -420,14 +430,12 @@
         const inside = belt !== null && Math.abs(delta) <= (isRed ? redMs : greenMs);
         if (belt === null) {
           if (Math.abs(delta) <= greenMs) unknown += 1;
-          else return;
         } else if (inside) {
           if (isRed) redBelts[belt] = true;
           else greenBelts[belt] = true;
           if (candidate.assignment_source) sources.push(candidate.assignment_source);
-        } else if (!isRed) {
-          return;
         }
+        if (!inside && Math.abs(delta) > spanMs) return;
         entries.push({
           id: candidate.id,
           flight: candidate.flight,
@@ -436,6 +444,7 @@
           offset_minutes: Math.round(delta / 60_000),
           belt,
           kind: belt === null ? 'unknown' : (isRed ? 'red' : 'green'),
+          counts: inside,
           assignment_source: candidate.assignment_source,
           arrival_basis: candidate.basis
         });
@@ -457,6 +466,7 @@
         arrival_basis: flight.expected_arrival_basis || 'programada',
         green_window_minutes: greenMin,
         red_window_minutes: redMin,
+        span_window_minutes: spanMin,
         perfect_min_green: 2,
         green_belts: greenKeys,
         red_belts: redKeys,
@@ -475,12 +485,14 @@
     const windows = readCoincidenceWindows();
     if (els.greenWindowInput) els.greenWindowInput.value = String(windows.green);
     if (els.redWindowInput) els.redWindowInput.value = String(windows.red);
+    if (els.spanWindowInput) els.spanWindowInput.value = String(windows.span);
     if (els.greenWindowRange) els.greenWindowRange.value = String(windows.green);
     if (els.redWindowRange) els.redWindowRange.value = String(windows.red);
+    if (els.spanWindowRange) els.spanWindowRange.value = String(windows.span);
   }
 
-  function updateCoincidenceWindows(green, red) {
-    saveCoincidenceWindows(green, red);
+  function updateCoincidenceWindows(green, red, span) {
+    saveCoincidenceWindows(green, red, span);
     syncCoincidenceSettings();
     applyBeltCoincidence(state.flights);
     render();
@@ -2515,8 +2527,11 @@
   const bindWindowPair = (input, range, side) => {
     const apply = value => {
       const windows = readCoincidenceWindows();
-      if (side === 'green') updateCoincidenceWindows(value, windows.red);
-      else updateCoincidenceWindows(windows.green, value);
+      updateCoincidenceWindows(
+        side === 'green' ? value : windows.green,
+        side === 'red' ? value : windows.red,
+        side === 'span' ? value : windows.span
+      );
     };
     input?.addEventListener('change', () => apply(input.value));
     range?.addEventListener('input', () => {
@@ -2526,8 +2541,9 @@
   };
   bindWindowPair(els.greenWindowInput, els.greenWindowRange, 'green');
   bindWindowPair(els.redWindowInput, els.redWindowRange, 'red');
+  bindWindowPair(els.spanWindowInput, els.spanWindowRange, 'span');
   els.resetCoincidenceWindows?.addEventListener('click', () => {
-    updateCoincidenceWindows(COINCIDENCE_DEFAULTS.green, COINCIDENCE_DEFAULTS.red);
+    updateCoincidenceWindows(COINCIDENCE_DEFAULTS.green, COINCIDENCE_DEFAULTS.red, COINCIDENCE_DEFAULTS.span);
   });
   syncCoincidenceSettings();
   if (els.enableNotifications) els.enableNotifications.addEventListener('click', async () => {

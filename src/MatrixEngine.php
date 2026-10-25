@@ -14,11 +14,14 @@ final class MatrixEngine
     private const GREEN_COINCIDENCE_MINUTES = 15;
     /** Tiempo de acción de una cinta 7–8. Ajustable desde Ajustes. */
     private const RED_COINCIDENCE_MINUTES = 20;
+    /** Franja visible de la nube. Más ancha que el tiempo operativo. */
+    private const SPAN_WINDOW_MINUTES = 30;
     private const MIN_WINDOW_MINUTES = 5;
-    private const MAX_WINDOW_MINUTES = 60;
+    private const MAX_WINDOW_MINUTES = 90;
     private const PERFECT_MIN_GREEN = 2;
     private int $greenWindowMinutes = self::GREEN_COINCIDENCE_MINUTES;
     private int $redWindowMinutes = self::RED_COINCIDENCE_MINUTES;
+    private int $spanWindowMinutes = self::SPAN_WINDOW_MINUTES;
     private const MIN_FLIGHT_SAMPLES = 5;
     private const MIN_ORIGIN_SAMPLES = 8;
     private const MIN_HOUR_SAMPLES = 10;
@@ -26,12 +29,13 @@ final class MatrixEngine
     /**
      * @param array<int,array<string,mixed>> $flights
      * @param array<string,mixed> $deviationProfile Resultado de FlightRepository::arrivalDeviationProfile().
-     * @param array{green_window_minutes?:int,red_window_minutes?:int} $windows
+     * @param array{green_window_minutes?:int,red_window_minutes?:int,span_window_minutes?:int} $windows
      */
     public function decorate(array $flights, array $deviationProfile = [], array $windows = []): array
     {
         $this->greenWindowMinutes = $this->clampWindow($windows['green_window_minutes'] ?? self::GREEN_COINCIDENCE_MINUTES);
         $this->redWindowMinutes = $this->clampWindow($windows['red_window_minutes'] ?? self::RED_COINCIDENCE_MINUTES);
+        $this->spanWindowMinutes = $this->clampWindow($windows['span_window_minutes'] ?? self::SPAN_WINDOW_MINUTES);
         usort($flights, fn(array $a, array $b) => strcmp($a['effective_arrival'], $b['effective_arrival']));
 
         foreach ($flights as $index => &$flight) {
@@ -126,9 +130,9 @@ final class MatrixEngine
     }
 
     /**
-     * Coincidencia operativa: cintas verdes (1–6) y rojas (7–8) con una
-     * llegada dentro de su ventana (por defecto ±15 / ±20 min).
-     * El vuelo ideal coincide con al menos dos verdes y una o dos rojas.
+     * Coincidencia operativa: la nube muestra llegadas de la franja visible
+     * (por defecto ±30 min). Solo cuentan para el cálculo y el color las que
+     * caen en el tiempo operativo (verdes ±15, rojas ±20).
      *
      * @param array<int,array<string,mixed>> $flights
      * @return array<int,array<string,mixed>>
@@ -153,7 +157,8 @@ final class MatrixEngine
 
         $green = $this->greenWindowMinutes * 60;
         $red = $this->redWindowMinutes * 60;
-        $scan = max($green, $red);
+        $span = $this->spanWindowMinutes * 60;
+        $scan = max($green, $red, $span);
         foreach ($flights as &$flight) {
             $target = strtotime((string)($flight['expected_arrival'] ?? $flight['effective_arrival'] ?? ''));
             if ($target === false) {
@@ -177,8 +182,7 @@ final class MatrixEngine
                     if ($isRed) $redBelts[$belt] = true; else $greenBelts[$belt] = true;
                     $sources[] = $candidate['assignment_source'];
                 }
-                if ($belt === null && abs($delta) > $green) continue;
-                if ($belt !== null && !$isRed && !$inside) continue;
+                if (!$inside && abs($delta) > $span) continue;
                 $entries[] = [
                     'id' => $candidate['id'],
                     'flight' => $candidate['flight'],
@@ -187,6 +191,7 @@ final class MatrixEngine
                     'offset_minutes' => (int)round($delta / 60),
                     'belt' => $belt,
                     'kind' => $belt === null ? 'unknown' : ($isRed ? 'red' : 'green'),
+                    'counts' => $inside,
                     'assignment_source' => $candidate['assignment_source'],
                     'arrival_basis' => $candidate['basis'],
                 ];
@@ -216,6 +221,7 @@ final class MatrixEngine
                 'arrival_basis' => $flight['expected_arrival_basis'] ?? 'programada',
                 'green_window_minutes' => $this->greenWindowMinutes,
                 'red_window_minutes' => $this->redWindowMinutes,
+                'span_window_minutes' => $this->spanWindowMinutes,
                 'perfect_min_green' => self::PERFECT_MIN_GREEN,
                 'green_belts' => array_keys($greenBelts),
                 'red_belts' => array_keys($redBelts),
