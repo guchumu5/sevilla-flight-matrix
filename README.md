@@ -15,6 +15,16 @@
 - **Canarias toda la semana.** El nuevo endpoint `api/canary-week.php` devuelve
   siete días de vuelos canarios. El panel permite cambiar de día y filtrar por
   origen (Tenerife Norte, Tenerife Sur, Lanzarote, Gran Canaria…).
+- **Coincidencia de cintas (`belt_coincidence_v1`).** Una cinta verde (1–6)
+  coincide con un vuelo si otra llegada cae a ±10 min; una roja (7–8), a
+  ±20 min. El vuelo perfecto reúne dos o más verdes y las dos rojas; con una
+  roja es «muy bueno». La hora usada es la real, la ETA publicada o, si no
+  hay, la programada corregida con la mediana de adelanto/retraso de los
+  últimos 60 días (por vuelo, origen o franja de tres horas, en caché una hora
+  en `storage/cache/arrival-deviation.json`). Medido con 31 días de datos: la
+  mediana general es 4 min de adelanto y Canarias llega unos 8 min antes; según
+  los estados de Aena, las rojas y las verdes tardan lo mismo en entregar.
+  `belt_occupancy_30m` se mantiene en la API por compatibilidad.
 - **Próximas llegadas más claras.** Hora grande con cuenta atrás, desvío y cinta
   en un distintivo. La infografía también muestra la hora en cada avión.
 - **Avisos Web Push reales.** Los avisos se envían cifrados (RFC 8291,

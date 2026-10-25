@@ -10,12 +10,25 @@ final class MatrixEngine
     private const BELT_COUNT = 8;
     private const RED_BELTS = [7, 8];
     private const OCCUPANCY_WINDOW_MINUTES = 30;
+    /** Medido en operación: una cinta 1–6 se desaloja en unos 10 minutos. */
+    private const GREEN_COINCIDENCE_MINUTES = 10;
+    /** Una cinta 7–8 permanece ocupada al menos 20 minutos. */
+    private const RED_COINCIDENCE_MINUTES = 20;
+    private const PERFECT_MIN_GREEN = 2;
+    private const MIN_FLIGHT_SAMPLES = 5;
+    private const MIN_ORIGIN_SAMPLES = 8;
+    private const MIN_HOUR_SAMPLES = 10;
 
-    public function decorate(array $flights): array
+    /**
+     * @param array<int,array<string,mixed>> $flights
+     * @param array<string,mixed> $deviationProfile Resultado de FlightRepository::arrivalDeviationProfile().
+     */
+    public function decorate(array $flights, array $deviationProfile = []): array
     {
         usort($flights, fn(array $a, array $b) => strcmp($a['effective_arrival'], $b['effective_arrival']));
 
         foreach ($flights as $index => &$flight) {
+            $this->attachExpectedArrival($flight, $deviationProfile);
             $flight['deviation_minutes'] = $this->minutesBetween(
                 $flight['scheduled_arrival'],
                 $flight['effective_arrival']
@@ -54,7 +67,157 @@ final class MatrixEngine
         unset($flight);
 
         $flights = $this->addHallLoad($flights);
-        return $this->addBeltOccupancy($flights);
+        $flights = $this->addBeltOccupancy($flights);
+        return $this->addBeltCoincidence($flights);
+    }
+
+    /**
+     * Llegada más probable. La real o una ETA publicada distinta de la
+     * programada prevalecen; si no existen, se aplica la mediana histórica
+     * del vuelo, del origen o de la franja horaria.
+     *
+     * @param array<string,mixed> $flight
+     * @param array<string,mixed> $profile
+     */
+    private function attachExpectedArrival(array &$flight, array $profile): void
+    {
+        $scheduled = (string)($flight['scheduled_arrival'] ?? '');
+        $flight['expected_arrival'] = $flight['effective_arrival'] ?? $scheduled;
+        $flight['expected_deviation_minutes'] = null;
+        $flight['expected_deviation_samples'] = 0;
+        $flight['expected_arrival_basis'] = 'programada';
+
+        if (!empty($flight['actual_arrival'])) {
+            $flight['expected_arrival'] = $flight['actual_arrival'];
+            $flight['expected_arrival_basis'] = 'real';
+            return;
+        }
+        $eta = (string)($flight['eta'] ?? '');
+        if ($eta !== '' && $scheduled !== '' && strtotime($eta) !== strtotime($scheduled)) {
+            $flight['expected_arrival'] = $flight['effective_arrival'] ?? $eta;
+            $flight['expected_arrival_basis'] = 'eta';
+            return;
+        }
+        $scheduledAt = strtotime($scheduled);
+        if ($scheduledAt === false) return;
+
+        $candidates = [
+            ['vuelo', $profile['flights'][strtoupper((string)($flight['physical_flight'] ?? ''))] ?? null, self::MIN_FLIGHT_SAMPLES],
+            ['origen', $profile['origins'][strtoupper((string)($flight['origin_iata'] ?? ''))] ?? null, self::MIN_ORIGIN_SAMPLES],
+            ['franja', $profile['hours'][intdiv((int)date('G', $scheduledAt), 3) * 3] ?? null, self::MIN_HOUR_SAMPLES],
+            ['general', $profile['global'] ?? null, 1],
+        ];
+        foreach ($candidates as [$basis, $stats, $minimum]) {
+            if (!is_array($stats) || (int)($stats['samples'] ?? 0) < $minimum) continue;
+            $median = (int)$stats['median'];
+            $flight['expected_arrival'] = date('Y-m-d H:i:s', $scheduledAt + $median * 60);
+            $flight['expected_deviation_minutes'] = $median;
+            $flight['expected_deviation_samples'] = (int)$stats['samples'];
+            $flight['expected_arrival_basis'] = 'media_' . $basis;
+            return;
+        }
+    }
+
+    /**
+     * Coincidencia operativa: cintas verdes (1–6) con una llegada a ±10 min
+     * y cintas rojas (7–8) con una llegada a ±20 min de la llegada prevista.
+     * El vuelo ideal coincide con al menos dos verdes y una o dos rojas.
+     *
+     * @param array<int,array<string,mixed>> $flights
+     * @return array<int,array<string,mixed>>
+     */
+    private function addBeltCoincidence(array $flights): array
+    {
+        $resolved = [];
+        foreach ($flights as $candidate) {
+            $arrival = strtotime((string)($candidate['expected_arrival'] ?? $candidate['effective_arrival'] ?? ''));
+            if ($arrival === false) continue;
+            $assignment = $this->resolvedBelt($candidate);
+            $resolved[] = [
+                'id' => (int)($candidate['id'] ?? 0),
+                'flight' => (string)($candidate['physical_flight'] ?? ''),
+                'origin' => (string)($candidate['origin_name'] ?? $candidate['origin_iata'] ?? ''),
+                'arrival' => $arrival,
+                'belt' => $assignment['belt'],
+                'assignment_source' => $assignment['source'],
+                'basis' => (string)($candidate['expected_arrival_basis'] ?? 'programada'),
+            ];
+        }
+
+        $green = self::GREEN_COINCIDENCE_MINUTES * 60;
+        $red = self::RED_COINCIDENCE_MINUTES * 60;
+        foreach ($flights as &$flight) {
+            $target = strtotime((string)($flight['expected_arrival'] ?? $flight['effective_arrival'] ?? ''));
+            if ($target === false) {
+                $flight['belt_coincidence'] = null;
+                continue;
+            }
+            $greenBelts = $redBelts = [];
+            $entries = [];
+            $unknown = 0;
+            $sources = [];
+            foreach ($resolved as $candidate) {
+                if ($candidate['id'] === (int)($flight['id'] ?? 0)) continue;
+                $delta = $candidate['arrival'] - $target;
+                if (abs($delta) > $red) continue;
+                $belt = $candidate['belt'];
+                $isRed = $belt !== null && in_array($belt, self::RED_BELTS, true);
+                $inside = $belt !== null && abs($delta) <= ($isRed ? $red : $green);
+                if ($belt === null) {
+                    if (abs($delta) <= $green) $unknown++;
+                } elseif ($inside) {
+                    if ($isRed) $redBelts[$belt] = true; else $greenBelts[$belt] = true;
+                    $sources[] = $candidate['assignment_source'];
+                }
+                if ($belt === null && abs($delta) > $green) continue;
+                if ($belt !== null && !$isRed && !$inside) continue;
+                $entries[] = [
+                    'id' => $candidate['id'],
+                    'flight' => $candidate['flight'],
+                    'origin' => $candidate['origin'],
+                    'arrival' => date('Y-m-d H:i:s', $candidate['arrival']),
+                    'offset_minutes' => (int)round($delta / 60),
+                    'belt' => $belt,
+                    'kind' => $belt === null ? 'unknown' : ($isRed ? 'red' : 'green'),
+                    'assignment_source' => $candidate['assignment_source'],
+                    'arrival_basis' => $candidate['basis'],
+                ];
+            }
+            usort($entries, static fn(array $a, array $b): int =>
+                ($a['offset_minutes'] <=> $b['offset_minutes']) ?: ($a['id'] <=> $b['id'])
+            );
+            ksort($greenBelts);
+            ksort($redBelts);
+            $greenCount = count($greenBelts);
+            $redCount = count($redBelts);
+            $greenOk = $greenCount >= self::PERFECT_MIN_GREEN;
+            $rating = match (true) {
+                $greenOk && $redCount >= 2 => 'perfecto',
+                $greenOk && $redCount === 1 => 'muy_bueno',
+                $greenOk || $redCount >= 1 => 'parcial',
+                default => 'bajo',
+            };
+            $sources = array_values(array_unique(array_filter($sources)));
+            $flight['belt_coincidence'] = [
+                'model' => 'belt_coincidence_v1',
+                'target_time' => date('Y-m-d H:i:s', $target),
+                'arrival_basis' => $flight['expected_arrival_basis'] ?? 'programada',
+                'green_window_minutes' => self::GREEN_COINCIDENCE_MINUTES,
+                'red_window_minutes' => self::RED_COINCIDENCE_MINUTES,
+                'perfect_min_green' => self::PERFECT_MIN_GREEN,
+                'green_belts' => array_keys($greenBelts),
+                'red_belts' => array_keys($redBelts),
+                'green_count' => $greenCount,
+                'red_count' => $redCount,
+                'score' => min($greenCount, 6) + $redCount * 3,
+                'rating' => $rating,
+                'unknown_belt_flights' => $unknown,
+                'confidence' => $unknown > 0 ? 'baja' : (array_diff($sources, ['oficial']) === [] ? 'alta' : 'media'),
+                'flights' => $entries,
+            ];
+        }
+        unset($flight);
+        return $flights;
     }
 
     private function pressure(array $flight): string

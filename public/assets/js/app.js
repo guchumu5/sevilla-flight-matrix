@@ -15,7 +15,7 @@
     watchedFlightIds: [], watchedFlightsBrief: [], queuedReload: false,
     canaryWeek: null, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
     detailFlightId: null, flightAwarePollTimer: null,
-    focusStatus: null, focusNotice: '', pinnedFlightId: Number(localStorage.getItem('matrix.focusFlightId') || 0)
+    focusStatus: null, focusNotice: '', redListOpen: false, pinnedFlightId: Number(localStorage.getItem('matrix.focusFlightId') || 0)
   };
   const appMain = document.querySelector('main');
   const CANARY_ALERT_DEFAULT_MS = 60_000;
@@ -231,31 +231,59 @@
     μ vuelo ${leadText(flight.belt_lead_flight_average_minutes)} · n=${Number(flight.belt_lead_flight_samples || 0)}<br>
     μ origen ${leadText(flight.belt_lead_origin_average_minutes)} · n=${Number(flight.belt_lead_origin_samples || 0)}
   </span>`;
+  const coincidenceRatings = {
+    perfecto:{label:'★ Vuelo perfecto', short:'★ Perfecto'},
+    muy_bueno:{label:'Muy buena coincidencia', short:'Muy bueno'},
+    parcial:{label:'Coincidencia parcial', short:'Parcial'},
+    bajo:{label:'Poca coincidencia', short:'Baja'},
+  };
+  const arrivalBasisText = flight => {
+    const minutes = Number(flight?.expected_deviation_minutes);
+    const samples = Number(flight?.expected_deviation_samples || 0);
+    const shift = Number.isFinite(minutes) ? `${minutes > 0 ? '+' : minutes < 0 ? '−' : '±'}${Math.abs(minutes)} min` : '';
+    switch (flight?.expected_arrival_basis) {
+      case 'real': return 'llegada real';
+      case 'eta': return 'ETA publicada';
+      case 'media_vuelo': return `media de este vuelo ${shift} (${samples} días)`;
+      case 'media_origen': return `media del origen ${shift} (${samples} vuelos)`;
+      case 'media_franja': return `media de la franja ${shift} (${samples} vuelos)`;
+      case 'media_general': return `media general ${shift}`;
+      default: return 'hora programada';
+    }
+  };
+  const coincidenceBadge = flight => {
+    const model = flight?.belt_coincidence;
+    if (!model) return '';
+    const rating = coincidenceRatings[model.rating] || coincidenceRatings.bajo;
+    return `<span class="coincidence-badge ${esc(model.rating)}" title="${esc(rating.label)} · ${Number(model.green_count)} verdes ±${Number(model.green_window_minutes)} min · ${Number(model.red_count)} rojas ±${Number(model.red_window_minutes)} min">${esc(rating.short)} · ${Number(model.green_count)}V ${Number(model.red_count)}R</span>`;
+  };
   const beltOccupancyMarkup = (flight, detailed = false) => {
-    const model = flight?.belt_occupancy_30m;
-    const arrival = model?.at_arrival;
-    const peak = model?.window_peak;
-    if (!arrival || !peak) return '';
-    const occupied = new Set((arrival.belts || []).map(Number));
-    const beltFlights = arrival.belt_flights || {};
+    const model = flight?.belt_coincidence;
+    if (!model) return '';
+    const green = new Set((model.green_belts || []).map(Number));
+    const red = new Set((model.red_belts || []).map(Number));
+    const entries = Array.isArray(model.flights) ? model.flights : [];
+    const rating = coincidenceRatings[model.rating] || coincidenceRatings.bajo;
     const beltCells = Array.from({length:8}, (_,index) => {
       const belt = index + 1;
-      const flights = Array.isArray(beltFlights[belt]) ? beltFlights[belt] : [];
+      const active = green.has(belt) || red.has(belt);
+      const flights = entries.filter(item => Number(item.belt) === belt);
       const official = flights.length > 0 && flights.every(item => item.assignment_source === 'oficial');
       const title = flights.length
-        ? flights.map(item => `${item.flight} · ${item.origin} · ${time(item.arrival)} · ${item.assignment_source}`).join(' | ')
-        : `Cinta ${belt} libre en la ETA`;
-      return `<span class="occupancy-belt ${occupied.has(belt)?'occupied':''} ${belt >= 7?'red':''} ${occupied.has(belt) && !official?'estimated':''}" title="${esc(title)}"><b>${belt}</b><small>${occupied.has(belt)?(official?'Aena':'prev.'):'libre'}</small></span>`;
+        ? flights.map(item => `${item.flight} · ${item.origin} · ${time(item.arrival)} (${relativeMinuteCompact(item.offset_minutes)}) · ${item.assignment_source}`).join(' | ')
+        : `Cinta ${belt} sin llegadas en ±${belt >= 7 ? model.red_window_minutes : model.green_window_minutes} min`;
+      const offset = flights.length ? relativeMinuteCompact(flights[0].offset_minutes) : '';
+      return `<span class="occupancy-belt ${active?'occupied':''} ${belt >= 7?'red':''} ${active && !official?'estimated':''}" title="${esc(title)}"><b>${belt}</b><small>${active ? `${offset}′` : 'libre'}</small></span>`;
     }).join('');
-    const redStatus = [7,8].map(belt => `C${belt} ${occupied.has(belt)?'ocupada':'libre'}`).join(' · ');
+    const redStatus = [7,8].map(belt => `C${belt} ${red.has(belt)?'coincide':'libre'}`).join(' · ');
     const confidence = ({alta:'alta',media:'media',baja:'baja'}[model.confidence] || 'pendiente');
     const unknown = Number(model.unknown_belt_flights || 0);
-    return `<section class="canary-occupancy ${Number(arrival.red_occupied_count || 0)>0?'has-red':''} ${detailed?'detailed':''}">
-      <header><span>Ocupación al aterrizar</span><strong>${Number(arrival.percentage || 0).toLocaleString('es-ES',{maximumFractionDigits:1})}%</strong><b>${Number(arrival.occupied_count || 0)}/8</b></header>
-      <div class="occupancy-belts" aria-label="Cintas ocupadas en la ETA">${beltCells}</div>
-      <div class="occupancy-red"><span>Bloque 7–8</span><strong>${Number(arrival.red_percentage || 0).toLocaleString('es-ES',{maximumFractionDigits:1})}%</strong><small>${redStatus}</small></div>
-      <footer><span>Pico ±30 min: <b>${Number(peak.percentage || 0).toLocaleString('es-ES',{maximumFractionDigits:1})}% · ${Number(peak.occupied_count || 0)}/8</b> a las ${time(peak.at)}</span><span>${Number(model.nearby_flights || 0)} vuelos coincidentes${unknown?` · ${unknown} sin cinta`:''} · confianza ${confidence}</span></footer>
-      ${detailed?'<p>Modelo v2: cada llegada reserva su cinta durante 30 minutos. Aena prevalece; “prev.” identifica una cinta provisional o predicha.</p>':''}
+    return `<section class="canary-occupancy coincidence-${esc(model.rating)} ${red.size?'has-red':''} ${detailed?'detailed':''}">
+      <header><span>${esc(rating.label)}</span><strong>${green.size}V · ${red.size}R</strong><b>${time(model.target_time)}</b></header>
+      <div class="occupancy-belts" aria-label="Cintas que coinciden con la llegada">${beltCells}</div>
+      <div class="occupancy-red"><span>Rojas ±${Number(model.red_window_minutes)} min</span><strong>${red.size}/2</strong><small>${redStatus}</small></div>
+      <footer><span>Verdes ±${Number(model.green_window_minutes)} min: <b>${green.size ? [...green].map(b => `C${b}`).join(' ') : 'ninguna'}</b></span><span>Llegada prevista ${time(model.target_time)} · ${esc(arrivalBasisText(flight))}${unknown?` · ${unknown} sin cinta`:''} · confianza ${confidence}</span></footer>
+      ${detailed?`<p>Una cinta verde coincide si otra llegada cae a ±${Number(model.green_window_minutes)} min y una roja a ±${Number(model.red_window_minutes)} min. Vuelo perfecto: ${Number(model.perfect_min_green)} o más verdes y las dos rojas.</p>`:''}
     </section>`;
   };
 
@@ -270,10 +298,11 @@
   };
 
   function focusWindowMarkup(flight) {
-    const model = flight?.belt_occupancy_30m;
-    const atArrival = model?.at_arrival;
-    const entries = Array.isArray(model?.window_flights) ? model.window_flights : [];
-    if (!model || !atArrival) return '<div class="alert alert-secondary">Todavía no hay datos suficientes para calcular el entorno de cintas.</div>';
+    const model = flight?.belt_coincidence;
+    const entries = Array.isArray(model?.flights) ? model.flights : [];
+    if (!model) return '<div class="alert alert-secondary">Todavía no hay datos suficientes para calcular el entorno de cintas.</div>';
+    const activeBelts = new Set([...(model.green_belts || []), ...(model.red_belts || [])].map(Number));
+    const rating = coincidenceRatings[model.rating] || coincidenceRatings.bajo;
     const byBelt = new Map();
     entries.forEach(item => {
       const belt = Number(item.belt);
@@ -281,28 +310,27 @@
       if (!byBelt.has(belt)) byBelt.set(belt, []);
       byBelt.get(belt).push(item);
     });
-    const occupied = new Set((atArrival.belts || []).map(Number));
     const tiles = Array.from({length:8}, (_,index) => {
       const belt = index + 1;
       const flights = byBelt.get(belt) || [];
-      const active = occupied.has(belt);
+      const active = activeBelts.has(belt);
+      const span = belt >= 7 ? model.red_window_minutes : model.green_window_minutes;
       const rows = flights.length ? flights.map(item => {
-        const selected = Number(item.id) === Number(flight.id);
         const source = item.assignment_source === 'oficial' ? 'Aena' : item.assignment_source === 'prediccion' ? 'predicción' : 'provisional';
-        return `<li class="${selected?'selected':''} ${item.occupies_at_target?'active':''}">
-          <span><b>${esc(item.origin)}</b><small>${esc(item.flight)} · ${esc(source)} · ${relativeMinuteCompact(item.offset_minutes)}</small></span>
+        return `<li class="active">
+          <span><b>${esc(item.origin)}</b><small>${time(item.arrival)} · ${relativeMinuteCompact(item.offset_minutes)} min · ${esc(item.flight)} · ${esc(source)}</small></span>
         </li>`;
-      }).join('') : '<li class="empty">Sin llegadas en ±30 min</li>';
+      }).join('') : `<li class="empty">Sin llegadas en ±${Number(span)} min</li>`;
       return `<article class="focus-belt ${belt >= 7?'red':''} ${active?'occupied':''}">
-        <header><span>Cinta ${belt}</span><strong>${active?'OCUPADA A TU LLEGADA':'sin ocupación activa'}</strong></header>
+        <header><span>Cinta ${belt}</span><strong>${active?'COINCIDE':`libre ±${Number(span)}′`}</strong></header>
         <ul>${rows}</ul>
       </article>`;
     }).join('');
     const unknown = entries.filter(item => item.belt === null || item.belt === undefined);
     const unknownMarkup = unknown.length ? `<aside class="focus-unknown"><strong>${unknown.length} vuelo${unknown.length===1?'':'s'} sin cinta conocida</strong>${unknown.map(item=>`<span>${esc(item.origin)} · ${esc(item.flight)} · ${relativeMinuteLabel(item.offset_minutes)}</span>`).join('')}</aside>` : '';
-    return `<section class="focus-window">
-      <header><div><small>Entorno operativo</small><h3>Las ocho cintas alrededor de ${time(model.target_time)}</h3></div><span>${Number(atArrival.occupied_count || 0)}/8 · ${Number(atArrival.percentage || 0).toLocaleString('es-ES',{maximumFractionDigits:1})}% activas</span></header>
-      <p>Se incluyen llegadas desde 30 minutos antes hasta 30 minutos después. Una cinta queda activa durante 30 minutos desde la llegada estimada o real.</p>
+    return `<section class="focus-window coincidence-${esc(model.rating)}">
+      <header><div><small>Coincidencia de cintas</small><h3>${esc(rating.label)} · llegada prevista ${time(model.target_time)}</h3></div><span>${Number(model.green_count)} verdes · ${Number(model.red_count)} rojas</span></header>
+      <p class="coincidence-basis">Hora usada: ${esc(arrivalBasisText(flight))}. Verdes a ±${Number(model.green_window_minutes)} min, rojas a ±${Number(model.red_window_minutes)} min. Perfecto: ${Number(model.perfect_min_green)}+ verdes y las dos rojas.</p>
       <div class="focus-belt-grid">${tiles}</div>${unknownMarkup}
     </section>`;
   }
@@ -365,10 +393,12 @@
     const sourceText = {oficial:'Aena', provisional:'provisional', prediccion:'predicción', historico:'histórico'};
     const listed = [...(isPastDay ? used : [...used, ...assigned, ...likely, ...historical.filter(row => row.probability >= .5)])]
       .sort((a,b) => (a.arrival || 0) - (b.arrival || 0));
-    const list = listed.length ? `<ul class="focus-red-list">${listed.slice(0, 8).map(row => `<li class="${Number(row.flight.id)===Number(flight?.id)?'selected':''} ${row.elapsed?'done':''}">
+    const open = state.redListOpen;
+    const list = listed.length ? `<button class="focus-red-toggle" type="button" data-red-list-toggle="${listed.length}" aria-expanded="${open}">${open ? 'Ocultar vuelos' : `Ver vuelos (${listed.length})`}</button>
+      <ul class="focus-red-list"${open ? '' : ' hidden'}>${listed.map(row => `<li class="${Number(row.flight.id)===Number(flight?.id)?'selected':''} ${row.elapsed?'done':''}">
         <b>${time(effectiveArrival(row.flight))}</b><span>${esc(row.flight.origin_name)} · ${esc(row.flight.physical_flight)}</span>
         <em>C${row.belt} · ${esc(sourceText[row.source] || '')}${row.source==='historico'?` ${Math.round(row.probability*100)}%`:''}</em>
-      </li>`).join('')}${listed.length > 8 ? `<li class="more">+${listed.length - 8} más</li>` : ''}</ul>` : '';
+      </li>`).join('')}</ul>` : '';
     return `<section class="focus-red-day ${total?'has-red':''}">
       <div><small>Cintas rojas ${esc(label)}</small><strong>${esc(title)}</strong><span>${esc(parts.join(' · ') || 'sin vuelos previstos en 7/8')}</span></div>
       <div class="focus-red-split"><span><b>C7</b>${countBelt(7)}</span><span><b>C8</b>${countBelt(8)}</span></div>
@@ -1315,6 +1345,7 @@
       const watched = flightIsWatched(f.id);
       return `<article class="canary-card ${past?'past':''} ${beltClass}" data-flight-id="${Number(f.id)}" tabindex="0">
         <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${esc(f.indicator)}</span></div>
+        ${coincidenceBadge(f)}
         ${timingMarkup(f, 'canary-card-timing')}
         <div class="canary-flight-code">${esc(f.physical_flight)}</div>
         ${sharedCodes.length ? `<div class="canary-codeshare"><span>Compartido:</span> <strong>${sharedCodes.map(esc).join(' · ')}</strong></div>` : ''}
@@ -1359,7 +1390,7 @@
       return `<article class="upcoming-flight ${Number(f.is_canary)===1?'canary':''}" data-flight-id="${Number(f.id)}" tabindex="0">
         <div class="upcoming-clock"><b>${time(arrival)}</b><small>${esc(arrivalCountdown(arrival, isToday))}</small></div>
         <div class="upcoming-main"><strong>${esc(f.origin_name)}</strong><span>${esc(f.physical_flight)} · prevista ${time(f.scheduled_arrival)}</span></div>
-        <div class="upcoming-side"><em class="${deviationClass}">${esc(deviationText)}</em><span class="upcoming-belt ${official?'official':predicted?'predicted':'pending'} ${red?'red':''}">${beltText}</span></div>
+        <div class="upcoming-side"><em class="${deviationClass}">${esc(deviationText)}</em><span class="upcoming-belt ${official?'official':predicted?'predicted':'pending'} ${red?'red':''}">${beltText}</span>${coincidenceBadge(f)}</div>
       </article>`;
     }).join('');
   }
@@ -2260,6 +2291,17 @@
     if (unpin) {
       pinFlight(0);
       renderTrackedFocus();
+      return;
+    }
+    const redToggle = event.target.closest('[data-red-list-toggle]');
+    if (redToggle) {
+      state.redListOpen = !state.redListOpen;
+      document.querySelectorAll('[data-red-list-toggle]').forEach(btn => {
+        btn.setAttribute('aria-expanded', String(state.redListOpen));
+        btn.textContent = state.redListOpen ? 'Ocultar vuelos' : `Ver vuelos (${btn.dataset.redListToggle})`;
+        const list = btn.nextElementSibling;
+        if (list?.classList.contains('focus-red-list')) list.hidden = !state.redListOpen;
+      });
       return;
     }
     const gotoDate = event.target.closest('[data-goto-date]');

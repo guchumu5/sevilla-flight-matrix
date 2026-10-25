@@ -155,7 +155,7 @@ SQL;
         ]);
         $rows = $stmt->fetchAll();
         $this->suppressCodeshareDuplicates($rows);
-        $rows = (new MatrixEngine())->decorate($rows);
+        $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
         // MatrixEngine necesita el día anterior y el siguiente para que una
         // ventana de ±30 minutos sea correcta también alrededor de medianoche.
         $rows = array_values(array_filter(
@@ -287,6 +287,71 @@ SQL;
             'origins' => $origins,
             'flights' => $flights,
         ];
+    }
+
+    /**
+     * Mediana del adelanto/retraso real (llegada real − programada) de los
+     * últimos 60 días, por vuelo físico, origen y franja de tres horas.
+     *
+     * @return array{global:?array{median:int,samples:int},flights:array<string,array{median:int,samples:int}>,origins:array<string,array{median:int,samples:int}>,hours:array<int,array{median:int,samples:int}>}
+     */
+    public function arrivalDeviationProfile(): array
+    {
+        $empty = ['global' => null, 'flights' => [], 'origins' => [], 'hours' => []];
+        $cacheFile = PROJECT_ROOT . '/storage/cache/arrival-deviation.json';
+        if (is_file($cacheFile) && filemtime($cacheFile) > time() - 3600) {
+            $cached = json_decode((string)file_get_contents($cacheFile), true);
+            if (is_array($cached) && array_key_exists('origins', $cached)) return $cached + $empty;
+        }
+
+        try {
+            $stmt = $this->pdo->query(
+                "SELECT f.physical_flight,f.origin_iata,HOUR(f.scheduled_arrival) AS scheduled_hour,
+                 TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,(
+                    SELECT o.actual_arrival FROM observations o
+                    WHERE o.flight_id=f.id AND o.actual_arrival IS NOT NULL
+                    ORDER BY o.source='aena' DESC,o.observed_at DESC,o.id DESC LIMIT 1
+                 )) AS deviation
+                 FROM flights f
+                 WHERE f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 60 DAY) AND NOW()"
+            );
+            $rows = $stmt ? $stmt->fetchAll() : [];
+        } catch (\Throwable $error) {
+            error_log('arrivalDeviationProfile: ' . $error->getMessage());
+            return $empty;
+        }
+
+        $all = $flights = $origins = $hours = [];
+        foreach ($rows as $row) {
+            if ($row['deviation'] === null) continue;
+            $deviation = (int)$row['deviation'];
+            if (abs($deviation) > 360) continue;
+            $all[] = $deviation;
+            $flights[strtoupper((string)$row['physical_flight'])][] = $deviation;
+            $origins[strtoupper((string)$row['origin_iata'])][] = $deviation;
+            $hours[intdiv((int)$row['scheduled_hour'], 3) * 3][] = $deviation;
+        }
+        $summarise = static function (array $groups): array {
+            $result = [];
+            foreach ($groups as $key => $values) {
+                sort($values);
+                $count = count($values);
+                $middle = intdiv($count, 2);
+                $median = $count % 2 ? $values[$middle] : ($values[$middle - 1] + $values[$middle]) / 2;
+                $result[$key] = ['median' => (int)round($median), 'samples' => $count];
+            }
+            return $result;
+        };
+        $profile = [
+            'global' => $all ? $summarise(['all' => $all])['all'] : null,
+            'flights' => $summarise($flights),
+            'origins' => $summarise($origins),
+            'hours' => $summarise($hours),
+        ];
+        if (is_dir(dirname($cacheFile)) && is_writable(dirname($cacheFile))) {
+            @file_put_contents($cacheFile, json_encode($profile), LOCK_EX);
+        }
+        return $profile;
     }
 
     public function predictionSummary(?string $beforeDate = null): array

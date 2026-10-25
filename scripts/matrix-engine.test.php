@@ -72,4 +72,32 @@ if (($redAfter['offset_minutes'] ?? null) !== 20 || !empty($redAfter['occupies_a
     throw new RuntimeException('El vuelo de C8 debe constar veinte minutos después, pero no activo en la ETA objetivo.');
 }
 
-fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 OK\n");
+$coincidence = $target['belt_coincidence'] ?? null;
+if (!is_array($coincidence) || ($coincidence['model'] ?? null) !== 'belt_coincidence_v1') throw new RuntimeException('No se generó belt_coincidence.');
+if (($coincidence['green_belts'] ?? null) !== [3]) throw new RuntimeException('Solo C3 (+10) entra en la ventana verde de ±10 min; C2 (−25) queda fuera.');
+if (($coincidence['red_belts'] ?? null) !== [7, 8]) throw new RuntimeException('C7 (−10) y C8 (+20) entran en la ventana roja de ±20 min.');
+if (($coincidence['rating'] ?? null) !== 'parcial') throw new RuntimeException('Con una sola verde la coincidencia debe ser parcial.');
+if (($coincidence['unknown_belt_flights'] ?? null) !== 1) throw new RuntimeException('El vuelo sin cinta a +5 min debe constar como incógnita.');
+
+$withGreen = array_merge($flights, [sampleFlight(7, 'GREEN05', '2026-10-15 09:55:00', '5')]);
+$perfect = array_values(array_filter((new MatrixEngine())->decorate($withGreen), static fn(array $flight): bool => $flight['id'] === 1))[0]['belt_coincidence'] ?? [];
+if (($perfect['green_belts'] ?? null) !== [3, 5] || ($perfect['rating'] ?? null) !== 'perfecto') {
+    throw new RuntimeException('Dos verdes y dos rojas en la franja deben dar un vuelo perfecto.');
+}
+
+$profile = [
+    'global' => ['median' => -4, 'samples' => 500],
+    'flights' => [],
+    'origins' => ['LPA' => ['median' => -8, 'samples' => 40]],
+    'hours' => [],
+];
+$shifted = array_values(array_filter((new MatrixEngine())->decorate($flights, $profile), static fn(array $flight): bool => $flight['id'] === 1))[0] ?? [];
+if (($shifted['expected_arrival'] ?? null) !== '2026-10-15 09:52:00' || ($shifted['expected_arrival_basis'] ?? null) !== 'media_origen') {
+    throw new RuntimeException('Sin ETA publicada se debe aplicar la mediana del origen (−8 min).');
+}
+$general = array_values(array_filter((new MatrixEngine())->decorate($flights, $profile), static fn(array $flight): bool => $flight['id'] === 2))[0] ?? [];
+if (($general['expected_arrival'] ?? null) !== '2026-10-15 09:31:00' || ($general['expected_arrival_basis'] ?? null) !== 'media_general') {
+    throw new RuntimeException('Sin datos del origen se aplica la mediana general.');
+}
+
+fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 + belt_coincidence_v1 OK\n");

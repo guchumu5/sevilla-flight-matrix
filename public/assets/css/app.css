@@ -358,7 +358,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   .flight-focus-hero{padding:.75rem;border-radius:13px}.focus-flight-title{align-items:flex-start;gap:.5rem}.focus-flight-title>span{display:none}.focus-flight-title h3{font-size:1.08rem;line-height:1.2;overflow-wrap:anywhere}.focus-flight-title p{font-size:.8rem}
   .focus-primary-values,.tracked-focus-summary .focus-primary-values{grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem;margin:.65rem 0}.focus-primary-values>span{padding:.5rem}.focus-primary-values small{font-size:.64rem}.focus-primary-values b{font-size:1.1rem}.focus-primary-values em{font-size:.74rem}
   .focus-hero-actions{grid-template-columns:1fr 1fr;gap:.4rem}.flight-focus-hero .btn{min-height:44px;padding:.45rem .4rem;font-size:.8rem;line-height:1.2}.focus-update-schedule{font-size:.72rem}.detail-watch-quick{margin:-1rem -1rem .7rem;padding:.55rem .7rem}.detail-watch-quick .btn{min-height:44px}
-  .focus-red-day{grid-template-columns:1fr auto;gap:.5rem;padding:.65rem;border-radius:12px}.focus-red-day small{font-size:.64rem}.focus-red-day>div:first-child>strong{font-size:1.05rem}.focus-red-day>div:first-child>span{font-size:.76rem}.focus-red-split{flex-direction:column;gap:.3rem}.focus-red-split span{min-width:58px;padding:.3rem .45rem;font-size:.72rem}.focus-red-split b{display:inline;margin-right:.3rem;font-size:.9rem}.focus-red-list li{font-size:.8rem}
+  .focus-red-day{grid-template-columns:1fr auto;gap:.5rem;padding:.65rem;border-radius:12px}.focus-red-day small{font-size:.64rem}.focus-red-day>div:first-child>strong{font-size:1.05rem}.focus-red-day>div:first-child>span{font-size:.76rem}.focus-red-split{flex-direction:column;gap:.3rem}.focus-red-split span{min-width:58px;padding:.3rem .45rem;font-size:.72rem}.focus-red-split b{display:inline;margin-right:.3rem;font-size:.9rem}.focus-red-list li{font-size:.8rem}.focus-red-toggle{justify-self:stretch;min-height:42px;font-size:.82rem}
   .telemetry-compact .telemetry-visual{display:none}.telemetry-compact .telemetry-note{padding:.55rem;font-size:.74rem}.telemetry-refresh{width:calc(100% - .8rem);margin:0 .4rem .5rem;min-height:42px;font-size:.8rem}.telemetry-compact>header{padding:.5rem .6rem;font-size:.8rem}.telemetry-compact-values{grid-template-columns:repeat(3,minmax(0,1fr));gap:.3rem;padding:.45rem}.telemetry-compact-values>span{padding:.4rem}.telemetry-compact-values small{font-size:.64rem}.telemetry-compact-values b{font-size:.8rem}
   .focus-window{padding:.65rem;border-radius:13px}.focus-window>header{align-items:flex-start;flex-direction:column;gap:.2rem}.focus-window>header h3{font-size:.98rem;line-height:1.2}.focus-window>header>span{font-size:.8rem}.focus-window>p{display:none}
   .focus-belt-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:.4rem}.focus-belt>header{padding:.45rem .5rem}.focus-belt>header span{font-size:.92rem}.focus-belt>header strong{font-size:.62rem}.focus-belt ul{min-height:0;padding:.35rem;gap:.25rem}.focus-belt li{padding:.35rem}.focus-belt li b{font-size:.8rem}.focus-belt li small{font-size:.68rem}.focus-belt li.empty{font-size:.7rem}.focus-unknown{padding:.5rem;font-size:.74rem}
@@ -421,6 +421,9 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .focus-red-list li em { color:#ffadb4; font-size:.72rem; font-style:normal; font-weight:850; white-space:nowrap; }
 .focus-red-list li.selected { outline:1px solid var(--orange); }.focus-red-list li.done { opacity:.6; }
 .focus-red-list li.more { display:block; color:var(--muted); text-align:center; }
+.focus-red-list[hidden] { display:none; }
+.focus-red-toggle { grid-column:1/-1; justify-self:start; min-height:34px; padding:.3rem .75rem; border:1px solid rgba(255,173,180,.45); border-radius:8px; background:rgba(255,77,90,.1); color:#ffadb4; font-size:.78rem; font-weight:850; }
+.focus-red-toggle:hover,.focus-red-toggle[aria-expanded="true"] { background:rgba(255,77,90,.2); color:#fff; }
 
 /* Canarias: semana y orígenes */
 .canary-week { display:flex; gap:.4rem; overflow-x:auto; padding:.75rem 1rem .3rem; scrollbar-width:none; }
@@ -443,6 +446,17 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .scene-plane-side-right .scene-plane-time { justify-content:flex-end; }
 .scene-plane-time b { color:#fff; font-size:1rem; font-weight:900; font-variant-numeric:tabular-nums; }
 .scene-plane-time i { overflow:hidden; color:#ffd47d; font-size:.64rem; font-style:normal; font-weight:850; text-overflow:ellipsis; white-space:nowrap; }
+
+/* Coincidencia de cintas: verdes ±10 min, rojas ±20 min */
+.coincidence-badge { display:inline-flex; align-items:center; align-self:flex-start; gap:.2rem; padding:.16rem .5rem; border:1px solid #36485d; border-radius:999px; background:rgba(255,255,255,.05); color:#b6c4d3; font-size:.74rem; font-weight:900; white-space:nowrap; }
+.coincidence-badge.perfecto { border-color:#e8b440; background:#e8b440; color:#1d1404; }
+.coincidence-badge.muy_bueno { border-color:#1f8a63; background:#123a2e; color:#7cf3c2; }
+.coincidence-badge.parcial { border-color:#31506d; color:#9ed8ff; }
+.canary-card > .coincidence-badge { margin:.35rem 0 .15rem; }
+.canary-occupancy.coincidence-perfecto { border-color:#e8b440; box-shadow:0 0 0 1px rgba(232,180,64,.35) inset; }
+.canary-occupancy.coincidence-perfecto > header span { color:#ffd47d; }
+.focus-window.coincidence-perfecto { border-color:#e8b440; }
+.focus-window > p.coincidence-basis { display:block; color:#b6c4d3; font-size:.8rem; }
 
 @media (max-width:400px) {
   .navbar-brand { display:none; }
