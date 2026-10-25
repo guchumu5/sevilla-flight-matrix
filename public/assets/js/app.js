@@ -310,20 +310,26 @@
       if (!byBelt.has(belt)) byBelt.set(belt, []);
       byBelt.get(belt).push(item);
     });
+    const sourceLabel = value => value === 'oficial' ? 'Aena' : value === 'prediccion' ? 'predicción' : 'provisional';
+    const ownEstimate = model.target_belt === undefined ? redBeltEstimate(flight) : null;
+    const ownBelt = ownEstimate ? (ownEstimate.source === 'historico' ? null : ownEstimate.belt) : (model.target_belt === null ? null : Number(model.target_belt));
+    const ownSource = ownEstimate ? ownEstimate.source : model.target_belt_source;
     const tiles = Array.from({length:8}, (_,index) => {
       const belt = index + 1;
       const flights = byBelt.get(belt) || [];
       const active = activeBelts.has(belt);
+      const own = ownBelt === belt;
       const span = belt >= 7 ? model.red_window_minutes : model.green_window_minutes;
-      const rows = flights.length ? flights.map(item => {
-        const source = item.assignment_source === 'oficial' ? 'Aena' : item.assignment_source === 'prediccion' ? 'predicción' : 'provisional';
-        return `<li class="active">
-          <span><b>${esc(item.origin)}</b><small>${time(item.arrival)} · ${relativeMinuteCompact(item.offset_minutes)} min · ${esc(item.flight)} · ${esc(source)}</small></span>
-        </li>`;
-      }).join('') : `<li class="empty">Sin llegadas en ±${Number(span)} min</li>`;
-      return `<article class="focus-belt ${belt >= 7?'red':''} ${active?'occupied':''}">
-        <header><span>Cinta ${belt}</span><strong>${active?'COINCIDE':`libre ±${Number(span)}′`}</strong></header>
-        <ul>${rows}</ul>
+      const ownRow = own ? `<li class="selected">
+          <span><b>Tu vuelo · ${esc(flight.origin_name)}</b><small>${time(model.target_time)} · ${esc(flight.physical_flight)} · ${esc(sourceLabel(ownSource))}</small></span>
+        </li>` : '';
+      const rows = flights.map(item => `<li class="active">
+          <span><b>${esc(item.origin)}</b><small>${time(item.arrival)} · ${relativeMinuteCompact(item.offset_minutes)} min · ${esc(item.flight)} · ${esc(sourceLabel(item.assignment_source))}</small></span>
+        </li>`).join('');
+      const status = own && active ? 'TU CINTA · COINCIDE' : own ? 'TU CINTA' : active ? 'COINCIDE' : `libre ±${Number(span)}′`;
+      return `<article class="focus-belt ${belt >= 7?'red':''} ${active?'occupied':''} ${own?'own':''}">
+        <header><span>Cinta ${belt}</span><strong>${status}</strong></header>
+        <ul>${ownRow}${rows || (own ? '' : `<li class="empty">Sin llegadas en ±${Number(span)} min</li>`)}</ul>
       </article>`;
     }).join('');
     const unknown = entries.filter(item => item.belt === null || item.belt === undefined);

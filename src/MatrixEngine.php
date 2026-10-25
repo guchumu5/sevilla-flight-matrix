@@ -198,9 +198,13 @@ final class MatrixEngine
                 default => 'bajo',
             };
             $sources = array_values(array_unique(array_filter($sources)));
+            $own = $this->resolvedBelt($flight);
             $flight['belt_coincidence'] = [
                 'model' => 'belt_coincidence_v1',
                 'target_time' => date('Y-m-d H:i:s', $target),
+                'target_belt' => $own['belt'],
+                'target_hall' => $own['hall'],
+                'target_belt_source' => $own['source'],
                 'arrival_basis' => $flight['expected_arrival_basis'] ?? 'programada',
                 'green_window_minutes' => self::GREEN_COINCIDENCE_MINUTES,
                 'red_window_minutes' => self::RED_COINCIDENCE_MINUTES,

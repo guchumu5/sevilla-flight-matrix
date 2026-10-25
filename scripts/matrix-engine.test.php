@@ -74,6 +74,7 @@ if (($redAfter['offset_minutes'] ?? null) !== 20 || !empty($redAfter['occupies_a
 
 $coincidence = $target['belt_coincidence'] ?? null;
 if (!is_array($coincidence) || ($coincidence['model'] ?? null) !== 'belt_coincidence_v1') throw new RuntimeException('No se generó belt_coincidence.');
+if (($coincidence['target_belt'] ?? null) !== 1 || ($coincidence['target_belt_source'] ?? null) !== 'oficial') throw new RuntimeException('La coincidencia debe incluir la cinta del propio vuelo.');
 if (($coincidence['green_belts'] ?? null) !== [3]) throw new RuntimeException('Solo C3 (+10) entra en la ventana verde de ±10 min; C2 (−25) queda fuera.');
 if (($coincidence['red_belts'] ?? null) !== [7, 8]) throw new RuntimeException('C7 (−10) y C8 (+20) entran en la ventana roja de ±20 min.');
 if (($coincidence['rating'] ?? null) !== 'parcial') throw new RuntimeException('Con una sola verde la coincidencia debe ser parcial.');
