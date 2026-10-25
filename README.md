@@ -1,5 +1,34 @@
 # Matriz Operativa de Cintas · Sevilla
 
+## Versión 1.25.0 · varios vuelos en seguimiento, semana canaria y móvil
+
+- **Fecha siempre visible.** La barra superior muestra el día operativo que se
+  está viendo (Hoy, Mañana, Ayer…), con flechas para cambiar de día y un botón
+  para volver a hoy. `api/board.php` usa por defecto el día operativo (02:00 a
+  01:59), no la fecha natural.
+- **Varios vuelos en seguimiento.** La portada reúne todos los vuelos vigilados
+  (también los de otros días) y el abierto. Se pasa de uno a otro con las
+  flechas, las pestañas o deslizando el dedo.
+- **Cintas rojas en días futuros.** Al abrir un vuelo se estima cuántas
+  llegadas irán a las cintas 7 y 8 en la jornada: oficiales de Aena, asignadas,
+  predichas e históricas (por vuelo u origen con al menos tres muestras).
+- **Canarias toda la semana.** El nuevo endpoint `api/canary-week.php` devuelve
+  siete días de vuelos canarios. El panel permite cambiar de día y filtrar por
+  origen (Tenerife Norte, Tenerife Sur, Lanzarote, Gran Canaria…).
+- **Próximas llegadas más claras.** Hora grande con cuenta atrás, desvío y cinta
+  en un distintivo. La infografía también muestra la hora en cada avión.
+- **Avisos Web Push reales.** Los avisos se envían cifrados (RFC 8291,
+  `aes128gcm`), así iOS siempre muestra la notificación aunque el service worker
+  no pueda consultar el servidor. Además, cada ingesta de Aena despacha la cola
+  sin esperar al cron, y la suscripción ya no descarta avisos de Canarias al
+  actualizar su fecha.
+- **Errores de MySQL ocultos.** El navegador recibe un mensaje genérico; el
+  detalle queda en el log de PHP (salvo con `APP_DEBUG`).
+- **Móvil.** Diseño en una columna para el vuelo vigilado, tamaños de letra
+  legibles y botones de al menos 40 px, pensado para pantallas de 375 px.
+
+No requiere migración de MySQL.
+
 ## Versión 1.22.1 · matrícula FlightAware bajo demanda
 
 La lectura pública bajo demanda analiza también el bloque de datos que

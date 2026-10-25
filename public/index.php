@@ -41,8 +41,18 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <span class="brand-mark">SVQ</span>
       <span class="brand-copy"><strong>Matriz de Cintas</strong><small class="d-block text-secondary">Llegadas · Sevilla</small></span>
     </a>
+    <div class="nav-date" id="navDate" role="group" aria-label="Día que estás viendo">
+      <button type="button" class="nav-date-step" id="datePrev" aria-label="Día anterior">‹</button>
+      <div class="nav-date-current">
+        <small id="dateRelative">Hoy</small>
+        <strong id="dateLabel"><?= e($today) ?></strong>
+        <input type="date" id="flightDate" value="<?= e($today) ?>" aria-label="Elegir otro día">
+      </div>
+      <button type="button" class="nav-date-step" id="dateNext" aria-label="Día siguiente">›</button>
+      <button type="button" class="nav-date-today d-none" id="dateToday">Hoy</button>
+    </div>
     <div class="d-flex align-items-center gap-2 ms-auto">
-      <span id="connectionBadge" class="badge text-bg-secondary">Conectando</span>
+      <span id="connectionBadge" class="badge text-bg-secondary connection-badge">Conectando</span>
       <a class="btn btn-sm btn-outline-light admin-link" href="admin.php" aria-label="Administración Aena" title="Administración Aena"><span class="admin-icon" aria-hidden="true">⚙</span><span class="admin-label">Aena / Admin</span></a>
     </div>
   </div>
@@ -52,7 +62,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       data-focus-admin="<?= $focusAdmin ? '1' : '0' ?>" data-focus-csrf="<?= e($focusCsrf) ?>">
   <div class="mobile-command-grid d-md-none mb-2" aria-label="Accesos rápidos">
     <button class="mobile-command mobile-date-command" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-controls="filtersCollapse">
-      <span aria-hidden="true">▣</span><span><small>Fecha</small><strong id="mobileDateLabel"><?= e($today) ?></strong></span>
+      <span aria-hidden="true">⌕</span><span><small>Filtros</small><strong>Sala y búsqueda</strong></span>
     </button>
     <button class="mobile-command mobile-belt-command" type="button" data-bs-toggle="modal" data-bs-target="#beltDailyModal">
       <span aria-hidden="true">⚠</span><span><small>Vigilancia de cintas</small><strong id="mobileBeltWatchLabel">Comprobando</strong></span>
@@ -61,14 +71,10 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
 
   <section class="panel mb-3 overflow-hidden radar-collapsed-panel filters-panel" aria-label="Filtros del tablero">
     <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
-      <span><strong>Fecha, sala y búsqueda</strong><small>Día operativo hasta las 02:00 · pulsa para desplegar filtros</small></span><b aria-hidden="true">⌄</b>
+      <span><strong>Sala y búsqueda</strong><small>El día se cambia arriba · día operativo de 02:00 a 01:59</small></span><b aria-hidden="true">⌄</b>
     </button>
     <div class="collapse" id="filtersCollapse"><div class="toolbar"><div class="row g-2 align-items-end">
-      <div class="col-6 col-md-2">
-        <label class="form-label" for="flightDate">Fecha</label>
-        <input class="form-control" type="date" id="flightDate" value="<?= e($today) ?>">
-      </div>
-      <div class="col-6 col-md-2">
+      <div class="col-5 col-md-2">
         <label class="form-label" for="hallFilter">Sala</label>
         <select class="form-select" id="hallFilter">
           <option value="">Todas</option><option value="A">A</option><option value="B">B</option>
@@ -107,19 +113,24 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
   </section>
 
   <section class="panel tracked-focus-panel mb-3 d-none" id="trackedFocusPanel" aria-labelledby="trackedFocusTitle">
-    <header class="panel-header d-flex align-items-center justify-content-between gap-2">
-      <div><small class="tracked-focus-kicker">PRIORIDAD 1</small><h2 class="h5 mb-1" id="trackedFocusTitle">Vuelo en seguimiento</h2><p class="mb-0 text-secondary small">Es el centro operativo: entorno de cintas, telemetría y actualización dirigida.</p></div>
-      <button class="btn btn-sm btn-outline-light" type="button" id="clearTrackedFocus">Dejar de fijar</button>
+    <header class="panel-header tracked-focus-header">
+      <div><small class="tracked-focus-kicker">PRIORIDAD 1</small><h2 class="h5 mb-0" id="trackedFocusTitle">Vuelo en seguimiento</h2></div>
+      <div class="tracked-focus-nav" id="trackedFocusNav">
+        <button type="button" class="tracked-focus-step" id="focusPrev" aria-label="Vuelo anterior">‹</button>
+        <span id="focusCounter" aria-live="polite">1/1</span>
+        <button type="button" class="tracked-focus-step" id="focusNext" aria-label="Vuelo siguiente">›</button>
+      </div>
+      <div class="tracked-focus-actions" id="trackedFocusActions"></div>
     </header>
-    <nav class="tracked-focus-tabs d-none" id="trackedFocusTabs" aria-label="Vuelos vigilados"></nav>
+    <nav class="tracked-focus-tabs d-none" id="trackedFocusTabs" aria-label="Vuelos en seguimiento"></nav>
     <div class="tracked-focus-body" id="trackedFocusBody"></div>
   </section>
 
   <section class="panel canary-watch-panel mb-3" aria-labelledby="canaryWatchTitle">
     <header class="panel-header d-flex align-items-center justify-content-between gap-2">
       <div>
-        <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias siempre visible</h2>
-        <p class="mb-0 text-secondary small">Todos los vuelos canarios del día. «Activar avisos» cubre despegue, ETA, cinta, incidencias, aterrizaje y equipaje.</p>
+        <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias · semana</h2>
+        <p class="mb-0 text-secondary small">Elige día y origen. «Activar avisos» cubre despegue, ETA, cinta, incidencias, aterrizaje y equipaje.</p>
       </div>
       <div class="d-flex align-items-center gap-2">
         <button class="btn btn-sm btn-outline-info d-none" id="testPushNotification" type="button">Probar aviso real</button>
@@ -128,6 +139,8 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       </div>
     </header>
     <div class="push-status-line" id="pushStatusLine" aria-live="polite">Comprobando avisos del dispositivo…</div>
+    <nav class="canary-week" id="canaryWeek" aria-label="Días de la semana con vuelos canarios"></nav>
+    <nav class="canary-origins" id="canaryOrigins" aria-label="Filtrar por origen canario"></nav>
     <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
   </section>
 
@@ -149,10 +162,10 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
   </section>
 
   <section class="panel upcoming-panel mb-3 overflow-hidden radar-collapsed-panel" aria-labelledby="upcomingTitle">
-    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#upcomingCollapse" aria-expanded="false" aria-controls="upcomingCollapse">
-      <span><strong id="upcomingTitle">Próximas 5 llegadas</strong><small>plegado · la cola se repone automáticamente</small></span><b aria-hidden="true">⌄</b>
+    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#upcomingCollapse" aria-expanded="true" aria-controls="upcomingCollapse">
+      <span><strong id="upcomingTitle">Próximas 5 llegadas</strong><small>hora prevista de llegada y cuánto falta · se repone sola</small></span><b aria-hidden="true">⌄</b>
     </button>
-    <div class="collapse" id="upcomingCollapse"><div class="upcoming-strip" id="upcomingStrip" aria-live="polite"></div></div>
+    <div class="collapse show" id="upcomingCollapse"><div class="upcoming-strip" id="upcomingStrip" aria-live="polite"></div></div>
   </section>
 
   <section class="panel mb-3 overflow-hidden radar-collapsed-panel" aria-label="Aeropuerto de Sevilla en movimiento">

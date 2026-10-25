@@ -48,7 +48,7 @@ final class MatrixEngine
             $flight['secondary_belt_state'] = $this->secondaryBeltState($flight);
             $flight['indicator'] = $this->indicator($flight);
             $flight['belt_label'] = empty($flight['belt'])
-                ? 'CINTA PENDIENTE · Aena'
+                ? 'Cinta pendiente'
                 : (($flight['belt'] === '7' || $flight['belt'] === '8') ? '🔴' : '') . $flight['hall'] . '/' . $flight['belt'];
         }
         unset($flight);

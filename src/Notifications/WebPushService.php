@@ -43,7 +43,7 @@ final class WebPushService
                 $this->pdo->prepare(
                     'UPDATE push_subscriptions
                      SET endpoint=:endpoint,endpoint_hash=:hash,p256dh=:p256dh,auth_secret=:auth,
-                         active=1,user_agent=:agent,last_error=NULL
+                         active=1,user_agent=:agent,last_error=NULL,updated_at=updated_at
                      WHERE device_token=:token'
                 )->execute([
                     'endpoint' => $endpoint, 'hash' => $hash, 'p256dh' => substr($p256dh, 0, 180),
@@ -56,7 +56,7 @@ final class WebPushService
             'INSERT INTO push_subscriptions
              (device_token,endpoint,endpoint_hash,p256dh,auth_secret,watch_canary_all,active,user_agent)
              VALUES (:token,:endpoint,:hash,:p256dh,:auth,0,1,:agent)
-             ON DUPLICATE KEY UPDATE endpoint=VALUES(endpoint),p256dh=VALUES(p256dh),auth_secret=VALUES(auth_secret),active=1,user_agent=VALUES(user_agent),last_error=NULL'
+             ON DUPLICATE KEY UPDATE endpoint=VALUES(endpoint),p256dh=VALUES(p256dh),auth_secret=VALUES(auth_secret),active=1,user_agent=VALUES(user_agent),last_error=NULL,updated_at=updated_at'
         );
         $stmt->execute([
             'token' => $token, 'endpoint' => $endpoint, 'hash' => $hash,
@@ -108,6 +108,14 @@ final class WebPushService
             'SELECT flight_id FROM flight_watches WHERE subscription_id=:subscription_id AND enabled=1 ORDER BY updated_at DESC'
         );
         $watchIds->execute(['subscription_id' => $subscription['id']]);
+        $watchedFlights = $this->pdo->prepare(
+            'SELECT f.id,f.flight_date,f.physical_flight,f.origin_iata,f.origin_name,f.scheduled_arrival,f.is_canary
+             FROM flight_watches w INNER JOIN flights f ON f.id=w.flight_id
+             WHERE w.subscription_id=:subscription_id AND w.enabled=1
+               AND f.scheduled_arrival>=DATE_SUB(NOW(),INTERVAL 1 DAY)
+             ORDER BY f.scheduled_arrival LIMIT 20'
+        );
+        $watchedFlights->execute(['subscription_id' => $subscription['id']]);
         $pending = $this->pdo->prepare('SELECT COUNT(*) FROM push_outbox WHERE subscription_id=:subscription_id AND pushed_at IS NULL AND attempts<4');
         $pending->execute(['subscription_id' => $subscription['id']]);
         return [
@@ -118,6 +126,15 @@ final class WebPushService
             'last_error' => $subscription['last_error'],
             'individual_watches' => (int)$watches->fetchColumn(),
             'watched_flight_ids' => array_map('intval', $watchIds->fetchAll(PDO::FETCH_COLUMN)),
+            'watched_flights' => array_map(static fn(array $row): array => [
+                'id' => (int)$row['id'],
+                'flight_date' => (string)$row['flight_date'],
+                'physical_flight' => (string)$row['physical_flight'],
+                'origin_iata' => (string)$row['origin_iata'],
+                'origin_name' => (string)$row['origin_name'],
+                'scheduled_arrival' => (string)$row['scheduled_arrival'],
+                'is_canary' => (int)$row['is_canary'],
+            ], $watchedFlights->fetchAll()),
             'pending_notifications' => (int)$pending->fetchColumn(),
         ];
     }
@@ -137,6 +154,7 @@ final class WebPushService
         $row = $stmt->fetch();
         if (!$row) return null;
         $this->pdo->prepare('UPDATE push_outbox SET displayed_at=NOW() WHERE id=:id')->execute(['id' => $row['id']]);
+        $row['tag'] = 'matrix-outbox-' . (int)$row['id'];
         unset($row['id']);
         return $row;
     }
@@ -145,9 +163,10 @@ final class WebPushService
     public function test(string $deviceToken): array
     {
         $subscriptionId = $this->subscriptionId($deviceToken);
-        $stmt = $this->pdo->prepare('SELECT endpoint FROM push_subscriptions WHERE id=:id AND active=1');
+        $stmt = $this->pdo->prepare('SELECT endpoint,p256dh,auth_secret FROM push_subscriptions WHERE id=:id AND active=1');
         $stmt->execute(['id' => $subscriptionId]);
-        $endpoint = (string)($stmt->fetchColumn() ?: '');
+        $subscription = $stmt->fetch();
+        $endpoint = (string)($subscription['endpoint'] ?? '');
         if ($endpoint === '') throw new RuntimeException('La suscripción de este dispositivo no está activa.');
 
         $notice = [
@@ -168,19 +187,20 @@ final class WebPushService
         }
 
         try {
-            $status = $this->sendEmpty($endpoint);
+            $delivery = $this->send($endpoint, (string)$subscription['p256dh'], (string)$subscription['auth_secret'], $notice + ['tag' => 'matrix-test']);
+            $status = $delivery['status'];
             if (in_array($status, [404, 410], true)) {
-                $this->pdo->prepare('UPDATE push_subscriptions SET active=0,last_error=:error WHERE id=:id')
+                $this->pdo->prepare('UPDATE push_subscriptions SET active=0,last_error=:error,updated_at=updated_at WHERE id=:id')
                     ->execute(['error' => "Push HTTP {$status}", 'id' => $subscriptionId]);
                 throw new RuntimeException('La suscripción del teléfono ha caducado. Pulsa de nuevo «Activar avisos» para renovarla.');
             }
             if ($status < 200 || $status >= 300) throw new RuntimeException("Push HTTP {$status}");
-            $this->pdo->prepare('UPDATE push_subscriptions SET last_push_at=NOW(),last_error=NULL WHERE id=:id')
+            $this->pdo->prepare('UPDATE push_subscriptions SET last_push_at=NOW(),last_error=NULL,updated_at=updated_at WHERE id=:id')
                 ->execute(['id' => $subscriptionId]);
-            return ['ok' => true, 'http_status' => $status, 'sent_at' => date('Y-m-d H:i:s')];
+            return ['ok' => true, 'http_status' => $status, 'encrypted' => $delivery['encrypted'], 'sent_at' => date('Y-m-d H:i:s')];
         } catch (\Throwable $error) {
             @unlink($path);
-            $this->pdo->prepare('UPDATE push_subscriptions SET last_error=:error WHERE id=:id')
+            $this->pdo->prepare('UPDATE push_subscriptions SET last_error=:error,updated_at=updated_at WHERE id=:id')
                 ->execute(['error' => substr($error->getMessage(), 0, 500), 'id' => $subscriptionId]);
             throw $error;
         }
@@ -191,6 +211,12 @@ final class WebPushService
     {
         $path = $this->testNoticePath($deviceToken);
         if (!is_file($path)) return null;
+        // Los service workers actuales muestran la prueba cifrada sin consultar
+        // la cola; una copia antigua no debe reaparecer en un aviso posterior.
+        if ((int)@filemtime($path) < time() - 120) {
+            @unlink($path);
+            return null;
+        }
         $handle = @fopen($path, 'r');
         if ($handle === false) return null;
         try {
@@ -297,7 +323,8 @@ final class WebPushService
         );
 
         $stmt = $this->pdo->prepare(
-            'SELECT o.id,o.subscription_id,s.endpoint FROM push_outbox o
+            'SELECT o.id,o.subscription_id,o.title,o.body,o.target_url,s.endpoint,s.p256dh,s.auth_secret
+             FROM push_outbox o
              JOIN push_subscriptions s ON s.id=o.subscription_id
              WHERE o.pushed_at IS NULL AND o.attempts<4 AND s.active=1
              ORDER BY o.id LIMIT :limit'
@@ -318,21 +345,32 @@ final class WebPushService
             $reserve->execute(['id' => $row['id']]);
             if ($reserve->rowCount() !== 1) continue;
             try {
-                $status = $this->sendEmpty((string)$row['endpoint']);
+                $delivery = $this->send((string)$row['endpoint'], (string)$row['p256dh'], (string)$row['auth_secret'], [
+                    'title' => (string)$row['title'],
+                    'body' => (string)$row['body'],
+                    'target_url' => (string)$row['target_url'],
+                    'tag' => 'matrix-outbox-' . (int)$row['id'],
+                ]);
+                $status = $delivery['status'];
                 if (in_array($status, [404, 410], true)) {
-                    $this->pdo->prepare('UPDATE push_subscriptions SET active=0,last_error=:error WHERE id=:id')
+                    $this->pdo->prepare('UPDATE push_subscriptions SET active=0,last_error=:error,updated_at=updated_at WHERE id=:id')
                         ->execute(['error' => "Push HTTP {$status}", 'id' => $row['subscription_id']]);
                     throw new RuntimeException("Suscripción caducada ({$status}).");
                 }
                 if ($status < 200 || $status >= 300) throw new RuntimeException("Push HTTP {$status}");
-                $this->pdo->prepare('UPDATE push_subscriptions SET last_push_at=NOW(),last_error=NULL WHERE id=:id')->execute(['id' => $row['subscription_id']]);
+                if ($delivery['encrypted']) {
+                    $this->pdo->prepare('UPDATE push_outbox SET displayed_at=NOW() WHERE id=:id AND displayed_at IS NULL')
+                        ->execute(['id' => $row['id']]);
+                }
+                $this->pdo->prepare('UPDATE push_subscriptions SET last_push_at=NOW(),last_error=NULL,updated_at=updated_at WHERE id=:id')
+                    ->execute(['id' => $row['subscription_id']]);
                 $sent++;
             } catch (\Throwable $error) {
                 // Return the row to the retry queue. The attempt was already
                 // counted by the atomic reservation above.
                 $this->pdo->prepare('UPDATE push_outbox SET pushed_at=NULL,last_error=:error WHERE id=:id')
                     ->execute(['error' => substr($error->getMessage(), 0, 500), 'id' => $row['id']]);
-                $this->pdo->prepare('UPDATE push_subscriptions SET last_error=:error WHERE id=:id')
+                $this->pdo->prepare('UPDATE push_subscriptions SET last_error=:error,updated_at=updated_at WHERE id=:id')
                     ->execute(['error' => substr($error->getMessage(), 0, 500), 'id' => $row['subscription_id']]);
                 $failed++;
             }
@@ -394,7 +432,64 @@ final class WebPushService
         return $id;
     }
 
-    private function sendEmpty(string $endpoint): int
+    /**
+     * Envía el aviso cifrado dentro del propio push para que el service worker
+     * lo muestre sin depender de una segunda petición al servidor. iOS revoca
+     * las suscripciones que reciben pushes sin notificación visible.
+     *
+     * @param array<string,string> $notice
+     * @return array{status:int,encrypted:bool}
+     */
+    private function send(string $endpoint, string $p256dh, string $auth, array $notice): array
+    {
+        $payload = json_encode($notice, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        try {
+            $body = $this->encryptPayload((string)$payload, $p256dh, $auth);
+        } catch (\Throwable) {
+            return ['status' => $this->post($endpoint, '', []), 'encrypted' => false];
+        }
+        return [
+            'status' => $this->post($endpoint, $body, [
+                'Content-Encoding: aes128gcm',
+                'Content-Type: application/octet-stream',
+            ]),
+            'encrypted' => true,
+        ];
+    }
+
+    /** RFC 8291 (aes128gcm) con un único registro. */
+    public function encryptPayload(string $payload, string $p256dh, string $auth): string
+    {
+        $userPublic = $this->b64Decode($p256dh);
+        $authSecret = $this->b64Decode($auth);
+        if (strlen($userPublic) !== 65 || $userPublic[0] !== "\x04" || strlen($authSecret) < 16) {
+            throw new RuntimeException('Claves de suscripción push no válidas.');
+        }
+
+        $local = openssl_pkey_new(['private_key_type' => OPENSSL_KEYTYPE_EC, 'curve_name' => 'prime256v1']);
+        if (!$local) throw new RuntimeException('OpenSSL no pudo crear la clave efímera.');
+        $details = openssl_pkey_get_details($local);
+        $localPublic = "\x04" . $this->pad32((string)($details['ec']['x'] ?? '')) . $this->pad32((string)($details['ec']['y'] ?? ''));
+
+        $peer = openssl_pkey_get_public($this->p256PublicPem($userPublic));
+        if (!$peer) throw new RuntimeException('Clave pública del dispositivo no válida.');
+        $shared = openssl_pkey_derive($peer, $local, 32);
+        if (!is_string($shared) || strlen($shared) !== 32) throw new RuntimeException('No se pudo derivar el secreto ECDH.');
+
+        $ikm = hash_hkdf('sha256', $shared, 32, "WebPush: info\0" . $userPublic . $localPublic, $authSecret);
+        $salt = random_bytes(16);
+        $cek = hash_hkdf('sha256', $ikm, 16, "Content-Encoding: aes128gcm\0", $salt);
+        $nonce = hash_hkdf('sha256', $ikm, 12, "Content-Encoding: nonce\0", $salt);
+
+        $tag = '';
+        $cipher = openssl_encrypt($payload . "\x02", 'aes-128-gcm', $cek, OPENSSL_RAW_DATA, $nonce, $tag, '', 16);
+        if ($cipher === false) throw new RuntimeException('No se pudo cifrar el aviso push.');
+
+        return $salt . pack('N', 4096) . chr(strlen($localPublic)) . $localPublic . $cipher . $tag;
+    }
+
+    /** @param list<string> $headers */
+    private function post(string $endpoint, string $body, array $headers): int
     {
         $keys = $this->keys();
         $audience = parse_url($endpoint, PHP_URL_SCHEME) . '://' . parse_url($endpoint, PHP_URL_HOST);
@@ -408,19 +503,36 @@ final class WebPushService
         $curl = curl_init($endpoint);
         curl_setopt_array($curl, [
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => '',
+            CURLOPT_POSTFIELDS => $body,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => 20,
-            CURLOPT_HTTPHEADER => [
-                'TTL: 120', 'Urgency: high', 'Content-Length: 0',
+            CURLOPT_HTTPHEADER => array_merge([
+                'TTL: 3600', 'Urgency: high', 'Content-Length: ' . strlen($body),
                 'Authorization: vapid t=' . $jwt . ', k=' . $keys['public_key'],
-                'Crypto-Key: p256ecdsa=' . $keys['public_key'],
-            ],
+            ], $headers),
         ]);
         curl_exec($curl);
         $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
         curl_close($curl);
         return $status;
+    }
+
+    private function p256PublicPem(string $point): string
+    {
+        $der = hex2bin('3059301306072a8648ce3d020106082a8648ce3d030107034200') . $point;
+        return "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($der), 64, "\n") . "-----END PUBLIC KEY-----\n";
+    }
+
+    private function pad32(string $value): string
+    {
+        return str_pad($value, 32, "\0", STR_PAD_LEFT);
+    }
+
+    private function b64Decode(string $value): string
+    {
+        $value = strtr(trim($value), '-_', '+/');
+        $decoded = base64_decode($value . str_repeat('=', (4 - strlen($value) % 4) % 4), true);
+        return $decoded === false ? '' : $decoded;
     }
 
     /** @return array{private_pem:string,public_key:string} */
@@ -437,7 +549,7 @@ final class WebPushService
         $details = openssl_pkey_get_details($key);
         $x = $details['ec']['x'] ?? null; $y = $details['ec']['y'] ?? null;
         if (!is_string($x) || !is_string($y)) throw new RuntimeException('PHP/OpenSSL no expuso la clave pública EC.');
-        $stored = ['private_pem' => $privatePem, 'public_key' => $this->b64("\x04" . $x . $y)];
+        $stored = ['private_pem' => $privatePem, 'public_key' => $this->b64("\x04" . $this->pad32($x) . $this->pad32($y))];
         file_put_contents($this->keyFile, json_encode($stored, JSON_UNESCAPED_SLASHES), LOCK_EX);
         @chmod($this->keyFile, 0600);
         return $stored;

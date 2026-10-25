@@ -5,6 +5,7 @@ require dirname(__DIR__, 2) . '/src/bootstrap.php';
 
 use SevillaMatrix\Database;
 use SevillaMatrix\Env;
+use SevillaMatrix\Notifications\WebPushService;
 use SevillaMatrix\Response;
 use SevillaMatrix\Sync\FlightReconciliationService;
 
@@ -93,11 +94,20 @@ try {
         );
         $finish->execute(['count' => count($records), 'id' => $fetchRunId]);
 
+        // Los eventos de esta captura se despachan ya; el cron de Plesk sigue
+        // cubriendo los recordatorios y los reintentos.
+        try {
+            $push = (new WebPushService($pdo))->dispatch(50);
+        } catch (Throwable $pushError) {
+            $push = ['error' => substr($pushError->getMessage(), 0, 300)];
+        }
+
         Response::json([
             'ok' => true,
             'message' => sprintf('Captura Aena conciliada: %d vuelos físicos.', count($records)),
             'fetch_run_id' => $fetchRunId,
             'result' => $result,
+            'push' => $push,
         ], 201);
     } catch (Throwable $error) {
         $finish = $pdo->prepare(

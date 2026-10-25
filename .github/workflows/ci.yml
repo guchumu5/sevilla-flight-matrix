@@ -61,6 +61,7 @@ jobs:
           npm run test:aena-status
           npm run test:aena-identity
           npm run test:flightaware
+          node scripts/web-push-encryption.test.mjs
 
       - name: Crear esquema MySQL
         run: mysql -h127.0.0.1 -uroot -proot sevilla_matrix < database/schema.sql
@@ -90,6 +91,10 @@ jobs:
         run: |
           mysql -h127.0.0.1 -uroot -proot sevilla_matrix -e 'INSERT INTO flightaware_snapshots (flight_id,observed_at,public_url,status_text,aircraft_type,speed_mph,distance_mi) SELECT id,NOW(),"https://www.flightaware.com/live/flight/VLG3051","EN ROUTE","Airbus A320 (A320)",448,895 FROM flights LIMIT 1'
           php -r 'require "src/bootstrap.php"; $f=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-24")[0]??[]; if (($f["flightaware"]["speed_mph"]??null)!==448 && (int)($f["flightaware"]["speed_mph"]??0)!==448) exit(1);'
+
+      - name: Comprobar semana de Canarias
+        run: |
+          php -r 'require "src/bootstrap.php"; $week=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->canaryWeek("2026-09-22"); if (count($week["days"]??[])!==7 || !isset($week["origins"],$week["flights"])) { fwrite(STDERR,json_encode($week,JSON_PRETTY_PRINT)); exit(1); }'
 
       - name: Comprobar idempotencia e historico
         run: |

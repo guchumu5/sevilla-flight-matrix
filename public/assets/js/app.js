@@ -12,7 +12,8 @@
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
     canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushPending: 0, pushWatches: 0,
-    watchedFlightIds: [],
+    watchedFlightIds: [], watchedFlightsBrief: [], queuedReload: false,
+    canaryWeek: null, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
     detailFlightId: null, flightAwarePollTimer: null,
     focusStatus: null, focusNotice: '', pinnedFlightId: Number(localStorage.getItem('matrix.focusFlightId') || 0)
   };
@@ -45,9 +46,16 @@
     predictionExactAccuracy: document.querySelector('#predictionExactAccuracy'),
     predictionCanaryAccuracy: document.querySelector('#predictionCanaryAccuracy'), predictionEvaluated: document.querySelector('#predictionEvaluated'),
     trackedFocusPanel: document.querySelector('#trackedFocusPanel'), trackedFocusBody: document.querySelector('#trackedFocusBody'),
-    trackedFocusTabs: document.querySelector('#trackedFocusTabs'), mobileDateLabel: document.querySelector('#mobileDateLabel'),
+    trackedFocusTabs: document.querySelector('#trackedFocusTabs'),
     mobileBeltWatchLabel: document.querySelector('#mobileBeltWatchLabel'),
-    clearTrackedFocus: document.querySelector('#clearTrackedFocus'), pushStatusLine: document.querySelector('#pushStatusLine'),
+    trackedFocusTitle: document.querySelector('#trackedFocusTitle'), trackedFocusActions: document.querySelector('#trackedFocusActions'),
+    trackedFocusNav: document.querySelector('#trackedFocusNav'), focusPrev: document.querySelector('#focusPrev'),
+    focusNext: document.querySelector('#focusNext'), focusCounter: document.querySelector('#focusCounter'),
+    navDate: document.querySelector('#navDate'), dateLabel: document.querySelector('#dateLabel'),
+    dateRelative: document.querySelector('#dateRelative'), datePrev: document.querySelector('#datePrev'),
+    dateNext: document.querySelector('#dateNext'), dateToday: document.querySelector('#dateToday'),
+    canaryWeek: document.querySelector('#canaryWeek'), canaryOrigins: document.querySelector('#canaryOrigins'),
+    pushStatusLine: document.querySelector('#pushStatusLine'),
     testPushNotification: document.querySelector('#testPushNotification'), dailyBeltModalBody: document.querySelector('#dailyBeltModalBody'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
   };
@@ -57,13 +65,51 @@
   const parseDate = value => value instanceof Date ? value : value ? new Date(String(value).replace(' ', 'T')) : null;
   const time = value => value ? new Intl.DateTimeFormat('es-ES',{hour:'2-digit',minute:'2-digit'}).format(parseDate(value)) : '—';
   const dateTime = value => value ? new Intl.DateTimeFormat('es-ES',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}).format(parseDate(value)) : '—';
-  const updateMobileDateLabel = () => {
-    if (!els.mobileDateLabel) return;
-    const parsed = /^\d{4}-\d{2}-\d{2}$/.test(els.date?.value || '') ? new Date(`${els.date.value}T12:00:00`) : null;
-    els.mobileDateLabel.textContent = parsed
-      ? new Intl.DateTimeFormat('es-ES',{weekday:'short',day:'2-digit',month:'2-digit'}).format(parsed).replace('.', '')
-      : 'Elegir día';
+  const isIsoDate = value => /^\d{4}-\d{2}-\d{2}$/.test(String(value || ''));
+  const shiftDate = (value, days) => {
+    const date = new Date(`${value}T12:00:00Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
   };
+  const dayDifference = (from, to) => Math.round((Date.parse(`${to}T12:00:00Z`) - Date.parse(`${from}T12:00:00Z`)) / 86_400_000);
+  const operationalDateOf = value => {
+    const match = String(value || '').match(/^(\d{4}-\d{2}-\d{2})[T\s](\d{2})/);
+    if (!match) return null;
+    return Number(match[2]) < 2 ? shiftDate(match[1], -1) : match[1];
+  };
+  const dayName = (value, options = {weekday:'long',day:'numeric',month:'short'}) =>
+    new Intl.DateTimeFormat('es-ES', {timeZone:'UTC', ...options}).format(new Date(`${value}T12:00:00Z`)).replace('.', '');
+  const relativeDayLabel = value => {
+    const diff = dayDifference(madridNow().operationalDate, value);
+    if (diff === 0) return 'Hoy';
+    if (diff === 1) return 'Mañana';
+    if (diff === -1) return 'Ayer';
+    return diff > 0 ? `Dentro de ${diff} días` : `Hace ${-diff} días`;
+  };
+  const updateDateLabels = () => {
+    const value = els.date?.value;
+    if (!isIsoDate(value)) return;
+    const today = madridNow().operationalDate;
+    if (els.dateLabel) els.dateLabel.textContent = dayName(value);
+    if (els.dateRelative) els.dateRelative.textContent = relativeDayLabel(value);
+    els.navDate?.classList.toggle('is-other-day', value !== today);
+    els.navDate?.classList.toggle('is-future-day', value > today);
+    els.dateToday?.classList.toggle('d-none', value === today);
+    document.title = `${value === today ? 'Hoy' : dayName(value, {weekday:'short',day:'numeric',month:'short'})} · Matriz de Cintas · Sevilla`;
+  };
+  function setBoardDate(value) {
+    if (!isIsoDate(value)) return;
+    if (els.date.value !== value) els.date.value = value;
+    const url = new URL(window.location.href);
+    url.searchParams.set('date', value);
+    url.searchParams.delete('flight');
+    window.history.replaceState(null, '', url);
+    updateDateLabels();
+    state.autoScrolledDate = null;
+    state.mapHasFitted = false;
+    renderCanaryWeek();
+    loadBoard(true);
+  }
   const signed = value => Number(value) > 0 ? `+${value} min` : `${value} min`;
   const timingMarkup = (flight, className = 'flight-timing') => {
     const deviation = Number(flight.deviation_minutes || 0);
@@ -261,22 +307,72 @@
     </section>`;
   }
 
+  const beltDigit = value => {
+    const match = String(value ?? '').trim().match(/(?:^|\D)([1-8])$/);
+    return match ? Number(match[1]) : null;
+  };
+
+  // Cinta más fiable conocida para un vuelo y probabilidad de que acabe en 7/8.
+  function redBeltEstimate(flight) {
+    const official = flight.source === 'aena' ? beltDigit(flight.belt) : null;
+    if (official !== null) return {belt:official, source:'oficial', probability:official >= 7 ? 1 : 0};
+    const provisional = beltDigit(flight.belt) ?? beltDigit(flight.secondary_belt);
+    if (provisional !== null) return {belt:provisional, source:'provisional', probability:provisional >= 7 ? 1 : 0};
+    const predicted = beltDigit(flight.predicted_belt);
+    if (predicted !== null) return {belt:predicted, source:'prediccion', probability:predicted >= 7 ? 1 : 0};
+    const profile = [flight.belt_distribution_flight, flight.belt_distribution_origin]
+      .find(item => Number(item?.samples || 0) >= 3);
+    if (!profile) return {belt:null, source:null, probability:0};
+    const counts = Object.fromEntries((profile.belts || []).map(item => [Number(item.belt), Number(item.count || 0)]));
+    return {
+      belt:(counts[8] || 0) > (counts[7] || 0) ? 8 : 7,
+      source:'historico',
+      probability:clamp(Number(profile.red_percentage || 0) / 100, 0, 1)
+    };
+  }
+
   function dailyRedUsageMarkup(flight) {
     const now = madridNow();
     const selectedDate = String(els.date.value);
-    const red = state.flights.filter(item => {
-      if (item.source !== 'aena' || !['7','8'].includes(String(item.belt))) return false;
-      const arrival = parseDate(effectiveArrival(item))?.getTime();
-      return selectedDate < now.operationalDate
-        || (selectedDate === now.operationalDate && arrival !== undefined && arrival <= now.nowMs);
-    });
-    const belt7 = red.filter(item => String(item.belt) === '7').length;
-    const belt8 = red.filter(item => String(item.belt) === '8').length;
-    const used = Number(belt7 > 0) + Number(belt8 > 0);
-    const label = selectedDate === now.operationalDate ? 'en lo que llevamos de día operativo' : selectedDate < now.operationalDate ? 'en toda la jornada' : 'hasta ahora';
-    return `<section class="focus-red-day ${red.length?'has-red':''}">
-      <div><small>Histórico rojo ${esc(label)}</small><strong>${red.length} uso${red.length===1?'':'s'} oficial${red.length===1?'':'es'}</strong><span>${used}/2 cintas rojas utilizadas · ${(used/2*100).toLocaleString('es-ES')}%</span></div>
-      <div class="focus-red-split"><span><b>C7</b>${belt7} vuelo${belt7===1?'':'s'}</span><span><b>C8</b>${belt8} vuelo${belt8===1?'':'s'}</span></div>
+    const isPastDay = selectedDate < now.operationalDate;
+    const isToday = selectedDate === now.operationalDate;
+    const rows = state.flights
+      .filter(item => !/cancel/i.test(`${item.status || ''}`))
+      .map(item => {
+        const arrival = parseDate(effectiveArrival(item))?.getTime() ?? null;
+        return {flight:item, arrival, elapsed:isPastDay || (isToday && arrival !== null && arrival <= now.nowMs), ...redBeltEstimate(item)};
+      });
+    const used = rows.filter(row => row.elapsed && row.source === 'oficial' && row.belt >= 7);
+    const pending = rows.filter(row => !row.elapsed && row.probability > 0);
+    const assigned = pending.filter(row => row.source === 'oficial');
+    const likely = pending.filter(row => ['provisional','prediccion'].includes(row.source));
+    const historical = pending.filter(row => row.source === 'historico');
+    const historicalExpected = historical.reduce((sum,row) => sum + row.probability, 0);
+    const total = used.length + assigned.length + likely.length + Math.round(historicalExpected);
+    const countBelt = belt => [...used, ...assigned, ...likely, ...historical.filter(row => row.probability >= .5)]
+      .filter(row => row.belt === belt).length;
+    const decimal = value => value.toLocaleString('es-ES', {maximumFractionDigits:1});
+    const parts = [];
+    if (!isPastDay && !isToday) parts.push('previsión');
+    if (used.length) parts.push(`${used.length} ya usada${used.length===1?'':'s'}`);
+    if (assigned.length) parts.push(`${assigned.length} asignada${assigned.length===1?'':'s'} por Aena`);
+    if (likely.length) parts.push(`${likely.length} por predicción`);
+    if (historicalExpected >= .05) parts.push(`≈${decimal(historicalExpected)} por histórico`);
+    const title = isPastDay
+      ? `${used.length} vuelo${used.length===1?'':'s'} en C7/C8`
+      : `${historicalExpected >= .5 && total ? '≈ ' : ''}${total} vuelo${total===1?'':'s'} en C7/C8`;
+    const label = isPastDay ? 'en toda la jornada' : isToday ? 'hoy, usadas + previstas' : `previstas para ${relativeDayLabel(selectedDate).toLowerCase()}`;
+    const sourceText = {oficial:'Aena', provisional:'provisional', prediccion:'predicción', historico:'histórico'};
+    const listed = [...(isPastDay ? used : [...used, ...assigned, ...likely, ...historical.filter(row => row.probability >= .5)])]
+      .sort((a,b) => (a.arrival || 0) - (b.arrival || 0));
+    const list = listed.length ? `<ul class="focus-red-list">${listed.slice(0, 8).map(row => `<li class="${Number(row.flight.id)===Number(flight?.id)?'selected':''} ${row.elapsed?'done':''}">
+        <b>${time(effectiveArrival(row.flight))}</b><span>${esc(row.flight.origin_name)} · ${esc(row.flight.physical_flight)}</span>
+        <em>C${row.belt} · ${esc(sourceText[row.source] || '')}${row.source==='historico'?` ${Math.round(row.probability*100)}%`:''}</em>
+      </li>`).join('')}${listed.length > 8 ? `<li class="more">+${listed.length - 8} más</li>` : ''}</ul>` : '';
+    return `<section class="focus-red-day ${total?'has-red':''}">
+      <div><small>Cintas rojas ${esc(label)}</small><strong>${esc(title)}</strong><span>${esc(parts.join(' · ') || 'sin vuelos previstos en 7/8')}</span></div>
+      <div class="focus-red-split"><span><b>C7</b>${countBelt(7)}</span><span><b>C8</b>${countBelt(8)}</span></div>
+      ${list}
     </section>`;
   }
 
@@ -579,10 +675,7 @@
       state.watchedFlightIds = Array.isArray(data.watched_flight_ids)
         ? data.watched_flight_ids.map(Number).filter(Number.isFinite)
         : [];
-      if (!state.pinnedFlightId && state.watchedFlightIds.length) {
-        state.pinnedFlightId = state.watchedFlightIds[0];
-        localStorage.setItem('matrix.focusFlightId', String(state.pinnedFlightId));
-      }
+      if (Array.isArray(data.watched_flights)) state.watchedFlightsBrief = data.watched_flights;
       if (Notification.permission === 'granted') await ensureServiceWorker(token);
     } catch (error) {
       state.pushLastError = error.message || 'No se pudo comprobar Web Push';
@@ -821,17 +914,24 @@
       state.pushWatches = Math.max(0, state.pushWatches + (enabled ? 1 : -1));
       if (enabled) {
         state.watchedFlightIds = [Number(flightId), ...state.watchedFlightIds.filter(id => Number(id) !== Number(flightId))];
-        state.pinnedFlightId = Number(flightId);
-        localStorage.setItem('matrix.focusFlightId', String(flightId));
+        const flight = state.flights.find(item => Number(item.id) === Number(flightId));
+        if (flight && !state.watchedFlightsBrief.some(item => Number(item.id) === Number(flightId))) {
+          state.watchedFlightsBrief = [...state.watchedFlightsBrief, {
+            id:Number(flight.id), flight_date:flight.flight_date, physical_flight:flight.physical_flight,
+            origin_iata:flight.origin_iata, origin_name:flight.origin_name,
+            scheduled_arrival:flight.scheduled_arrival, is_canary:Number(flight.is_canary)
+          }];
+        }
+        pinFlight(flightId);
         await showPushConfirmation();
       } else {
         state.watchedFlightIds = state.watchedFlightIds.filter(id => Number(id) !== Number(flightId));
-        if (Number(state.pinnedFlightId) === Number(flightId)) {
-          state.pinnedFlightId = Number(state.watchedFlightIds[0] || 0);
-          if (state.pinnedFlightId) localStorage.setItem('matrix.focusFlightId', String(state.pinnedFlightId));
-          else localStorage.removeItem('matrix.focusFlightId');
-        }
+        state.watchedFlightsBrief = state.watchedFlightsBrief.filter(item => Number(item.id) !== Number(flightId));
+        if (Number(state.pinnedFlightId) === Number(flightId)) pinFlight(0);
       }
+      document.querySelectorAll(`[data-watch-flight="${Number(flightId)}"]`).forEach(other => {
+        if (other !== button) setWatchButtonState(other, enabled);
+      });
       renderTrackedFocus();
       renderCanaryWatch();
       updateNotificationButton();
@@ -854,23 +954,28 @@
           : state.watchedFlightIds;
         setWatchButtonState(button, Boolean(data.watching));
       }
-      if (response.ok && data.watching) {
-        state.pinnedFlightId = Number(flightId);
-        localStorage.setItem('matrix.focusFlightId', String(flightId));
-        renderTrackedFocus();
-      }
+      if (response.ok && Array.isArray(data.watched_flights)) state.watchedFlightsBrief = data.watched_flights;
+      if (response.ok) renderTrackedFocus();
     } catch (_) {}
   }
 
   async function loadBoard(showSpinner = false) {
-    if (state.loading) return;
+    if (state.loading) {
+      state.queuedReload = true;
+      return;
+    }
     state.loading = true;
     if (showSpinner) setLoading(true);
     els.refresh.disabled = true;
+    const requestedDate = els.date.value;
     try {
-      const response = await fetch(`api/board.php?date=${encodeURIComponent(els.date.value)}`, {headers:{Accept:'application/json'}, cache:'no-store'});
+      const response = await fetch(`api/board.php?date=${encodeURIComponent(requestedDate)}`, {headers:{Accept:'application/json'}, cache:'no-store'});
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'No se pudo actualizar el tablero.');
+      if (requestedDate !== els.date.value) {
+        state.queuedReload = true;
+        return;
+      }
       const incoming = payload.flights || [];
       processCanaryAlerts(incoming, els.date.value);
       state.flights = incoming;
@@ -922,6 +1027,10 @@
       state.loading = false;
       els.refresh.disabled = false;
       setLoading(false);
+      if (state.queuedReload) {
+        state.queuedReload = false;
+        loadBoard(requestedDate !== els.date.value);
+      }
     }
   }
 
@@ -1032,10 +1141,50 @@
     });
   }
 
+  function pinFlight(flightId) {
+    state.pinnedFlightId = Number(flightId) || 0;
+    if (state.pinnedFlightId) localStorage.setItem('matrix.focusFlightId', String(state.pinnedFlightId));
+    else localStorage.removeItem('matrix.focusFlightId');
+  }
+
+  // Vuelo fijado + vigilados, ordenados por hora de llegada. Los vigilados de
+  // otros días se muestran con sus datos básicos y un acceso a su día.
+  function trackedEntries() {
+    const ids = [...new Set([state.pinnedFlightId, ...state.watchedFlightIds].map(Number).filter(Boolean))];
+    return ids.map(id => {
+      const flight = state.flights.find(item => Number(item.id) === id) || null;
+      const brief = state.watchedFlightsBrief.find(item => Number(item.id) === id) || null;
+      if (!flight && !brief) return null;
+      const source = flight || brief;
+      return {
+        id, flight, brief,
+        watched: flightIsWatched(id),
+        date: flight ? els.date.value : (operationalDateOf(brief.scheduled_arrival) || brief.flight_date),
+        arrival: parseDate(flight ? effectiveArrival(flight) : brief.scheduled_arrival)?.getTime() || 0,
+        label: source.physical_flight, origin: source.origin_name
+      };
+    }).filter(Boolean).sort((a,b) => a.arrival - b.arrival);
+  }
+
+  function defaultTrackedEntry(entries) {
+    const now = Date.now();
+    const sameDay = entries.filter(entry => entry.flight);
+    return sameDay.find(entry => entry.arrival >= now - 45 * 60_000) || sameDay[0]
+      || entries.find(entry => entry.arrival >= now - 45 * 60_000) || entries[0];
+  }
+
+  function stepTrackedFocus(direction) {
+    const entries = trackedEntries();
+    if (entries.length < 2) return;
+    const index = Math.max(0, entries.findIndex(entry => entry.id === Number(state.pinnedFlightId)));
+    pinFlight(entries[(index + direction + entries.length) % entries.length].id);
+    renderTrackedFocus();
+  }
+
   function renderTrackedFocus() {
     if (!els.trackedFocusPanel || !els.trackedFocusBody) return;
-    const flight = state.flights.find(item => Number(item.id) === Number(state.pinnedFlightId));
-    if (!flight) {
+    const entries = trackedEntries();
+    if (!entries.length) {
       els.trackedFocusPanel.classList.add('d-none');
       els.trackedFocusBody.innerHTML = '';
       if (els.trackedFocusTabs) {
@@ -1044,14 +1193,50 @@
       }
       return;
     }
-    const watchedFlights = state.watchedFlightIds
-      .map(id => state.flights.find(item => Number(item.id) === Number(id)))
-      .filter(Boolean);
+    let current = entries.find(entry => entry.id === Number(state.pinnedFlightId));
+    if (!current) {
+      current = defaultTrackedEntry(entries);
+      state.pinnedFlightId = current.id;
+    }
+    const index = entries.indexOf(current);
+    const multiple = entries.length > 1;
+    if (els.trackedFocusTitle) {
+      els.trackedFocusTitle.textContent = multiple ? `Vuelos en seguimiento · ${entries.length}` : 'Vuelo en seguimiento';
+    }
+    els.trackedFocusNav?.classList.toggle('d-none', !multiple);
+    if (els.focusCounter) els.focusCounter.textContent = `${index + 1} de ${entries.length}`;
+    if (els.trackedFocusActions) {
+      els.trackedFocusActions.innerHTML = current.watched
+        ? `<button class="btn btn-sm btn-warning" type="button" data-watch-flight="${current.id}" data-watching="1" data-watch-compact="1">🔔 Vigilando</button>`
+        : `<button class="btn btn-sm btn-outline-light" type="button" data-focus-unpin="${current.id}">Quitar</button>`;
+      bindWatchButtons(els.trackedFocusActions);
+    }
     if (els.trackedFocusTabs) {
-      els.trackedFocusTabs.classList.toggle('d-none', watchedFlights.length < 2);
-      els.trackedFocusTabs.innerHTML = watchedFlights.map(item => `<button type="button" class="tracked-focus-tab ${Number(item.id)===Number(flight.id)?'active':''}" data-focus-tab="${Number(item.id)}" aria-pressed="${Number(item.id)===Number(flight.id)?'true':'false'}"><strong>${esc(item.physical_flight)}</strong><span>${esc(item.origin_name)} · ${time(effectiveArrival(item))}</span></button>`).join('');
+      els.trackedFocusTabs.classList.toggle('d-none', !multiple);
+      els.trackedFocusTabs.innerHTML = entries.map(entry => {
+        const active = entry.id === current.id;
+        const otherDay = entry.date !== els.date.value;
+        const day = otherDay ? `${relativeDayLabel(entry.date)} · ` : '';
+        return `<button type="button" class="tracked-focus-tab ${active?'active':''} ${otherDay?'other-day':''}" data-focus-tab="${entry.id}" aria-pressed="${active?'true':'false'}">
+          <strong>${entry.watched?'🔔 ':''}${esc(entry.label)}</strong><span>${esc(day)}${time(entry.arrival ? new Date(entry.arrival) : null)} · ${esc(entry.origin)}</span>
+        </button>`;
+      }).join('');
+      const activeTab = els.trackedFocusTabs.querySelector('.tracked-focus-tab.active');
+      if (activeTab) {
+        els.trackedFocusTabs.scrollLeft = activeTab.offsetLeft - (els.trackedFocusTabs.clientWidth - activeTab.offsetWidth) / 2;
+      }
     }
     els.trackedFocusPanel.classList.remove('d-none');
+    if (!current.flight) {
+      els.trackedFocusBody.innerHTML = `<div class="tracked-other-day">
+        <div><small>${esc(relativeDayLabel(current.date))} · ${esc(dayName(current.date))}</small>
+        <strong>${esc(current.label)} · ${esc(current.origin)}</strong>
+        <span>Programado a las ${time(current.brief.scheduled_arrival)}. Estás viendo ${esc(dayName(els.date.value))}.</span></div>
+        <button class="btn btn-info" type="button" data-goto-date="${esc(current.date)}">Ver ${esc(relativeDayLabel(current.date).toLowerCase())}</button>
+      </div>`;
+      return;
+    }
+    const flight = current.flight;
     els.trackedFocusBody.innerHTML = `<div class="tracked-focus-layout">
       <aside class="tracked-focus-summary">
         ${focusHeroMarkup(flight, Number(state.detailFlightId) === Number(flight.id) ? state.focusStatus : null, true)}
@@ -1062,10 +1247,61 @@
     bindFocusRefreshButtons(els.trackedFocusBody);
   }
 
+  async function loadCanaryWeek() {
+    try {
+      const today = madridNow().operationalDate;
+      const response = await fetch(`api/canary-week.php?from=${encodeURIComponent(today)}&days=7`, {headers:{Accept:'application/json'}, cache:'no-store'});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Sin semana');
+      state.canaryWeek = payload;
+    } catch (_) {
+      // La franja diaria sigue funcionando con los datos del tablero.
+    }
+    renderCanaryWeek();
+  }
+
+  const canaryOriginMatches = flight => !state.canaryOrigin || String(flight.origin_iata) === state.canaryOrigin;
+
+  function renderCanaryWeek() {
+    if (!els.canaryWeek || !els.canaryOrigins) return;
+    const today = madridNow().operationalDate;
+    const week = state.canaryWeek;
+    const days = Array.isArray(week?.days) && week.days.length
+      ? week.days
+      : Array.from({length:7}, (_,index) => ({date:shiftDate(today, index)}));
+    const weekFlights = Array.isArray(week?.flights) ? week.flights : [];
+    els.canaryWeek.innerHTML = days.map(day => {
+      const flights = weekFlights.filter(item => item.operational_date === day.date && canaryOriginMatches(item));
+      const red = flights.filter(item => Number(item.official_belt) >= 7 || (!item.official_belt && Number(item.predicted_belt) >= 7)).length;
+      const diff = dayDifference(today, day.date);
+      const top = diff === 0 ? 'Hoy' : diff === 1 ? 'Mañana' : dayName(day.date, {weekday:'short'});
+      return `<button type="button" class="canary-day ${day.date===els.date.value?'active':''} ${flights.length?'':'empty'}" data-canary-date="${esc(day.date)}" aria-pressed="${day.date===els.date.value?'true':'false'}">
+        <small>${esc(top)}</small><strong>${esc(dayName(day.date, {day:'numeric'}))}</strong>
+        <span>${week ? `${flights.length} vuelo${flights.length===1?'':'s'}` : '—'}</span>${red ? `<i title="Vuelos en cinta 7/8 confirmados o predichos">${red} en 7/8</i>` : ''}
+      </button>`;
+    }).join('');
+    const origins = new Map();
+    [...weekFlights, ...state.flights.filter(f => Number(f.is_canary) === 1)].forEach(item => {
+      if (item.origin_iata && !origins.has(item.origin_iata)) origins.set(item.origin_iata, item.origin_name || item.origin_iata);
+    });
+    if (state.canaryOrigin && !origins.has(state.canaryOrigin)) origins.set(state.canaryOrigin, state.canaryOrigin);
+    const chips = [['', 'Todas'], ...[...origins.entries()].sort((a,b) => a[1].localeCompare(b[1], 'es'))];
+    els.canaryOrigins.innerHTML = chips.map(([iata, name]) => {
+      const count = weekFlights.filter(item => (!iata || item.origin_iata === iata) && item.operational_date === els.date.value).length;
+      return `<button type="button" class="canary-origin ${state.canaryOrigin===iata?'active':''}" data-canary-origin="${esc(iata)}" aria-pressed="${state.canaryOrigin===iata?'true':'false'}">${esc(name)}${week ? ` <b>${count}</b>` : ''}</button>`;
+    }).join('');
+  }
+
   function renderCanaryWatch() {
-    const flights = state.flights.filter(f => Number(f.is_canary) === 1);
+    const canaryDay = state.flights.filter(f => Number(f.is_canary) === 1);
+    const flights = canaryDay.filter(canaryOriginMatches);
     if (!flights.length) {
-      els.canaryWatch.innerHTML = '<div class="canary-empty">No hay vuelos canarios cargados para esta fecha.</div>';
+      const originName = canaryDay.find(f => f.origin_iata === state.canaryOrigin)?.origin_name
+        || state.canaryWeek?.origins?.find(item => item.iata === state.canaryOrigin)?.name || state.canaryOrigin;
+      els.canaryWatch.innerHTML = `<div class="canary-empty">${canaryDay.length && state.canaryOrigin
+        ? `No hay vuelos desde ${esc(originName)} ${esc(relativeDayLabel(els.date.value).toLowerCase())}. Elige otro día u origen.`
+        : `No hay vuelos canarios para ${esc(dayName(els.date.value))}.`}</div>`;
+      renderCanaryWeek();
       return;
     }
     const now = madridNow();
@@ -1096,6 +1332,7 @@
       </article>`;
     }).join('');
     bindWatchButtons(els.canaryWatch);
+    renderCanaryWeek();
   }
 
   function renderUpcomingLine() {
@@ -1110,17 +1347,31 @@
       els.upcomingStrip.innerHTML = '<div class="upcoming-empty">No quedan llegadas activas para esta fecha.</div>';
       return;
     }
-    els.upcomingStrip.innerHTML = flights.map((f,index) => {
-      const officialBelt = f.source === 'aena' && f.belt ? f.belt_label : 'pendiente Aena';
+    els.upcomingStrip.innerHTML = flights.map(f => {
+      const arrival = parseDate(effectiveArrival(f));
+      const deviation = Number(f.deviation_minutes || 0);
+      const deviationClass = deviation >= 5 ? 'late' : deviation <= -5 ? 'early' : 'ontime';
+      const deviationText = Math.abs(deviation) < 5 ? 'en hora' : signed(deviation);
+      const official = f.source === 'aena' && f.belt;
+      const predicted = !official && f.predicted_belt;
+      const beltText = official ? `Cinta ${beltPosition(f)}` : predicted ? `Prev. cinta ${esc(f.predicted_belt)}` : 'Cinta —';
+      const red = ['7','8'].includes(String(official ? f.belt : f.predicted_belt));
       return `<article class="upcoming-flight ${Number(f.is_canary)===1?'canary':''}" data-flight-id="${Number(f.id)}" tabindex="0">
-        <span class="upcoming-order">${index + 1}</span>
-        <span class="upcoming-plane" aria-hidden="true">✈</span>
-        <div><strong>${esc(f.physical_flight)}</strong><b>${esc(f.origin_name)}</b><small>${esc(f.origin_iata)} · ${esc(f.aircraft_type || 'avión pendiente')}</small><small>μ cinta ${leadText(f.belt_lead_flight_average_minutes)} · n=${Number(f.belt_lead_flight_samples || 0)}</small></div>
-        ${timingMarkup(f, 'upcoming-timing')}
-        <em>${esc(officialBelt)}</em>
-        ${flightAwareLink(f, true)}
+        <div class="upcoming-clock"><b>${time(arrival)}</b><small>${esc(arrivalCountdown(arrival, isToday))}</small></div>
+        <div class="upcoming-main"><strong>${esc(f.origin_name)}</strong><span>${esc(f.physical_flight)} · prevista ${time(f.scheduled_arrival)}</span></div>
+        <div class="upcoming-side"><em class="${deviationClass}">${esc(deviationText)}</em><span class="upcoming-belt ${official?'official':predicted?'predicted':'pending'} ${red?'red':''}">${beltText}</span></div>
       </article>`;
     }).join('');
+  }
+
+  function arrivalCountdown(arrival, isToday) {
+    if (!arrival) return '';
+    if (!isToday) return dayName(els.date.value, {weekday:'short', day:'numeric'});
+    const minutes = Math.round((arrival.getTime() - Date.now()) / 60_000);
+    if (minutes > 90) return `en ${Math.floor(minutes / 60)} h${minutes % 60 ? ` ${minutes % 60} min` : ''}`;
+    if (minutes > 0) return `en ${minutes} min`;
+    if (minutes === 0) return 'ahora';
+    return `hace ${-minutes} min`;
   }
 
   function initMap() {
@@ -1440,12 +1691,11 @@
       }
       const side = position.gps ? approachSide(f) : 'unknown';
       const distance = distanceToSvq(f);
-      const rank = f._sceneRank ? `#${f._sceneRank} · ` : '';
       const direction = side === 'left' ? 'entrada oeste/09' : side === 'right' ? 'entrada este/27' : 'dirección pendiente';
       const positionText = f.stand ? `posición ${esc(f.stand)}` : f.gate ? `puerta ${esc(f.gate)} · puesto sin verificar` : 'posición pendiente';
       const detail = position.gps
-        ? `${rank}${distance!==null?`${Math.round(distance)} km · `:''}${direction}`
-        : `${rank}sin GPS · ${direction}`;
+        ? `${distance!==null?`${Math.round(distance)} km · `:''}${direction}`
+        : `${destination} · sin GPS`;
       node.className = `scene-plane scene-plane-${stage} scene-plane-side-${side} ${canary?'scene-plane-canary':''} ${position.gps?'scene-plane-live':'scene-plane-planned'}`;
       if (isNew) node.classList.add('scene-plane-entering');
       node.dataset.targetLeft = position.left;
@@ -1453,7 +1703,7 @@
       node.style.setProperty('--scene-heading', `${sceneHeading(stage,f)}deg`);
       node.title = `${f.physical_flight} · ${f.origin_name} · ${stageLabels[stage]} · ${destination}`;
       node.innerHTML = `<span class="scene-plane-icon" aria-hidden="true">${stage==='ground'?'🧳':'✈'}</span>
-        <span class="scene-plane-data"><strong>${esc(f.physical_flight)}${f._sceneRank?` · #${f._sceneRank}`:''}</strong><em>${esc(f.origin_name)}</em><small>${stage==='ground'?`${destination} oficial · entrega pendiente`:detail}</small></span>`;
+        <span class="scene-plane-data"><span class="scene-plane-time"><b>${time(effectiveArrival(f))}</b>${stage==='ground'?'':`<i>${esc(arrivalCountdown(parseDate(effectiveArrival(f)), els.date.value === madridNow().operationalDate))}</i>`}</span><strong>${esc(f.physical_flight)}${f._sceneRank?` · #${f._sceneRank}`:''}</strong><em>${esc(f.origin_name)}</em><small>${stage==='ground'?`${destination} · espera entrega`:detail}</small></span>`;
       requestAnimationFrame(() => {
         node.classList.remove('scene-plane-entering');
         node.style.left = `${position.left}%`;
@@ -2002,14 +2252,57 @@
   document.addEventListener('click', event => {
     const focusTab = event.target.closest('[data-focus-tab]');
     if (focusTab) {
-      state.pinnedFlightId = Number(focusTab.dataset.focusTab);
-      localStorage.setItem('matrix.focusFlightId', String(state.pinnedFlightId));
+      pinFlight(focusTab.dataset.focusTab);
       renderTrackedFocus();
+      return;
+    }
+    const unpin = event.target.closest('[data-focus-unpin]');
+    if (unpin) {
+      pinFlight(0);
+      renderTrackedFocus();
+      return;
+    }
+    const gotoDate = event.target.closest('[data-goto-date]');
+    if (gotoDate) {
+      setBoardDate(gotoDate.dataset.gotoDate);
+      return;
+    }
+    const canaryDay = event.target.closest('[data-canary-date]');
+    if (canaryDay) {
+      if (canaryDay.dataset.canaryDate !== els.date.value) setBoardDate(canaryDay.dataset.canaryDate);
+      return;
+    }
+    const canaryOrigin = event.target.closest('[data-canary-origin]');
+    if (canaryOrigin) {
+      state.canaryOrigin = canaryOrigin.dataset.canaryOrigin || '';
+      if (state.canaryOrigin) localStorage.setItem('matrix.canaryOrigin', state.canaryOrigin);
+      else localStorage.removeItem('matrix.canaryOrigin');
+      renderCanaryWatch();
       return;
     }
     const button = event.target.closest('[data-open-flight]');
     if (button) openDetail(button.dataset.openFlight);
   });
+  els.focusPrev?.addEventListener('click', () => stepTrackedFocus(-1));
+  els.focusNext?.addEventListener('click', () => stepTrackedFocus(1));
+  if (els.trackedFocusBody) {
+    let touchStart = null;
+    els.trackedFocusBody.addEventListener('touchstart', event => {
+      const touch = event.touches[0];
+      touchStart = touch ? {x:touch.clientX, y:touch.clientY} : null;
+    }, {passive:true});
+    els.trackedFocusBody.addEventListener('touchend', event => {
+      const touch = event.changedTouches[0];
+      if (!touchStart || !touch) return;
+      const dx = touch.clientX - touchStart.x;
+      const dy = touch.clientY - touchStart.y;
+      touchStart = null;
+      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) stepTrackedFocus(dx < 0 ? 1 : -1);
+    }, {passive:true});
+  }
+  els.datePrev?.addEventListener('click', () => setBoardDate(shiftDate(els.date.value, -1)));
+  els.dateNext?.addEventListener('click', () => setBoardDate(shiftDate(els.date.value, 1)));
+  els.dateToday?.addEventListener('click', () => setBoardDate(madridNow().operationalDate));
   document.querySelector('#flightDetail')?.addEventListener('hidden.bs.offcanvas', () => {
     state.detailFlightId = null;
     state.focusStatus = null;
@@ -2020,12 +2313,7 @@
     render();
   }));
   els.search.addEventListener('input', render);
-  els.date.addEventListener('change', () => {
-    updateMobileDateLabel();
-    state.autoScrolledDate = null;
-    state.mapHasFitted = false;
-    loadBoard(true);
-  });
+  els.date.addEventListener('change', () => setBoardDate(els.date.value));
   els.refresh.addEventListener('click', () => loadBoard(true));
   els.now.addEventListener('click', () => {
     if (els.arrivalsCollapse && !els.arrivalsCollapse.classList.contains('show')) {
@@ -2046,11 +2334,6 @@
       await sendPushTest();
     } catch (error) { window.alert(error.message); }
   });
-  if (els.clearTrackedFocus) els.clearTrackedFocus.addEventListener('click', () => {
-    state.pinnedFlightId = 0;
-    localStorage.removeItem('matrix.focusFlightId');
-    renderTrackedFocus();
-  });
   if (els.radarCollapse) els.radarCollapse.addEventListener('shown.bs.collapse', () => {
     if (state.map) {
       state.map.invalidateSize();
@@ -2070,10 +2353,14 @@
     if (els.arrivalsToggleLabel) els.arrivalsToggleLabel.textContent = els.arrivalsToggleLabel.textContent.replace('visible','plegado');
   });
 
-  updateMobileDateLabel();
+  updateDateLabels();
   updateNotificationButton();
   updateSceneClock();
   setInterval(updateSceneClock, 1000);
+  renderCanaryWeek();
+  loadCanaryWeek();
+  setInterval(loadCanaryWeek, 120_000);
+  setInterval(updateDateLabels, 60_000);
   Promise.race([
     refreshNotificationStatus(),
     new Promise(resolve => setTimeout(resolve, 1500))

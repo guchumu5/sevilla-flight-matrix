@@ -215,6 +215,80 @@ SQL;
         }));
     }
 
+    /**
+     * Resumen ligero de los vuelos canarios de varios días operativos.
+     *
+     * @return array<string,mixed>
+     */
+    public function canaryWeek(string $fromDate, int $days = 7): array
+    {
+        $days = max(1, min(14, $days));
+        $from = OperationalDay::window($fromDate)['from'];
+        $to = (new \DateTimeImmutable($from))->modify("+{$days} day")->format('Y-m-d H:i:s');
+        $prediction = $this->tableExists('predictions')
+            ? '(SELECT p.predicted_belt FROM predictions p WHERE p.flight_id=f.id ORDER BY p.predicted_at,p.id LIMIT 1)'
+            : 'NULL';
+        $stmt = $this->pdo->prepare(
+            "SELECT f.id,f.flight_date,f.physical_flight,f.origin_iata,f.origin_name,f.scheduled_arrival,
+                    (SELECT GROUP_CONCAT(c.flight_code ORDER BY c.flight_code SEPARATOR ' / ')
+                     FROM flight_codes c WHERE c.flight_id=f.id) AS codes,
+                    (SELECT o.belt FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena' AND o.belt IS NOT NULL AND o.belt<>''
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS official_belt,
+                    (SELECT COALESCE(o.actual_arrival,o.eta) FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena'
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS aena_arrival,
+                    {$prediction} AS predicted_belt
+             FROM flights f
+             WHERE f.is_canary=1 AND f.scheduled_arrival>=:from AND f.scheduled_arrival<:to
+             ORDER BY f.scheduled_arrival,f.physical_flight"
+        );
+        $stmt->execute(['from' => $from, 'to' => $to]);
+        $rows = $stmt->fetchAll();
+        $this->suppressCodeshareDuplicates($rows);
+
+        $summary = [];
+        $cursor = new \DateTimeImmutable($fromDate);
+        for ($i = 0; $i < $days; $i++) {
+            $date = $cursor->modify("+{$i} day")->format('Y-m-d');
+            $summary[$date] = ['date' => $date, 'count' => 0, 'red_official' => 0, 'red_predicted' => 0, 'origins' => []];
+        }
+        $origins = [];
+        $flights = [];
+        foreach ($rows as $row) {
+            $day = OperationalDay::current(new \DateTimeImmutable((string)$row['scheduled_arrival']));
+            if (!isset($summary[$day])) continue;
+            $iata = (string)$row['origin_iata'];
+            $official = $this->beltNumber($row['official_belt'] ?? null);
+            $predicted = $this->beltNumber($row['predicted_belt'] ?? null);
+            $summary[$day]['count']++;
+            $summary[$day]['origins'][$iata] = ($summary[$day]['origins'][$iata] ?? 0) + 1;
+            if ($official !== null && $official >= 7) $summary[$day]['red_official']++;
+            elseif ($official === null && $predicted !== null && $predicted >= 7) $summary[$day]['red_predicted']++;
+            $origins[$iata] ??= ['iata' => $iata, 'name' => (string)$row['origin_name'], 'count' => 0];
+            $origins[$iata]['count']++;
+            $flights[] = [
+                'id' => (int)$row['id'],
+                'operational_date' => $day,
+                'physical_flight' => (string)$row['physical_flight'],
+                'origin_iata' => $iata,
+                'origin_name' => (string)$row['origin_name'],
+                'scheduled_arrival' => (string)$row['scheduled_arrival'],
+                'effective_arrival' => (string)($row['aena_arrival'] ?: $row['scheduled_arrival']),
+                'official_belt' => $official,
+                'predicted_belt' => $predicted,
+            ];
+        }
+        usort($origins, static fn(array $a, array $b): int => $b['count'] <=> $a['count'] ?: strcmp($a['name'], $b['name']));
+
+        return [
+            'from' => $fromDate,
+            'days' => array_values($summary),
+            'origins' => $origins,
+            'flights' => $flights,
+        ];
+    }
+
     public function predictionSummary(?string $beforeDate = null): array
     {
         return (new PredictionEngine($this->pdo))->summary($beforeDate);
