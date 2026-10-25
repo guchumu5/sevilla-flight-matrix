@@ -57,7 +57,10 @@
     canaryWeek: document.querySelector('#canaryWeek'), canaryOrigins: document.querySelector('#canaryOrigins'),
     pushStatusLine: document.querySelector('#pushStatusLine'),
     testPushNotification: document.querySelector('#testPushNotification'), dailyBeltModalBody: document.querySelector('#dailyBeltModalBody'),
-    detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody')
+    detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody'),
+    greenWindowInput: document.querySelector('#greenWindowInput'), redWindowInput: document.querySelector('#redWindowInput'),
+    greenWindowRange: document.querySelector('#greenWindowRange'), redWindowRange: document.querySelector('#redWindowRange'),
+    resetCoincidenceWindows: document.querySelector('#resetCoincidenceWindows')
   };
   if (/^\d{4}-\d{2}-\d{2}$/.test(deepLink.get('date') || '')) els.date.value = deepLink.get('date');
 
@@ -345,6 +348,143 @@
     const match = String(value ?? '').trim().match(/(?:^|\D)([1-8])$/);
     return match ? Number(match[1]) : null;
   };
+
+  const COINCIDENCE_DEFAULTS = {green:15, red:20};
+  const clampWindow = value => Math.max(5, Math.min(60, Math.round(Number(value) || 0)));
+  const readCoincidenceWindows = () => ({
+    green: clampWindow(localStorage.getItem('matrix.greenWindow') || COINCIDENCE_DEFAULTS.green),
+    red: clampWindow(localStorage.getItem('matrix.redWindow') || COINCIDENCE_DEFAULTS.red)
+  });
+  const saveCoincidenceWindows = (green, red) => {
+    localStorage.setItem('matrix.greenWindow', String(clampWindow(green)));
+    localStorage.setItem('matrix.redWindow', String(clampWindow(red)));
+  };
+  const resolvedCoincidenceBelt = flight => {
+    if (flight.source === 'aena') {
+      const official = beltDigit(flight.belt);
+      if (official !== null) return {belt:official, hall:flight.hall || (official >= 7 ? 'B' : 'A'), source:'oficial'};
+    }
+    const provisional = beltDigit(flight.belt) ?? beltDigit(flight.secondary_belt);
+    if (provisional !== null) {
+      return {belt:provisional, hall:flight.hall || flight.secondary_hall || (provisional >= 7 ? 'B' : 'A'), source:'provisional'};
+    }
+    const predicted = beltDigit(flight.predicted_belt);
+    if (predicted !== null) {
+      return {belt:predicted, hall:flight.predicted_hall || (predicted >= 7 ? 'B' : 'A'), source:'prediccion'};
+    }
+    return {belt:null, hall:null, source:null};
+  };
+
+  function applyBeltCoincidence(flights, windows = readCoincidenceWindows()) {
+    const greenMin = clampWindow(windows.green);
+    const redMin = clampWindow(windows.red);
+    const greenMs = greenMin * 60_000;
+    const redMs = redMin * 60_000;
+    const scan = Math.max(greenMs, redMs);
+    const resolved = flights.map(flight => {
+      const arrivalText = flight.expected_arrival || flight.effective_arrival;
+      const arrival = parseDate(arrivalText);
+      if (!arrival) return null;
+      const assignment = resolvedCoincidenceBelt(flight);
+      return {
+        id: Number(flight.id),
+        flight: flight.physical_flight,
+        origin: flight.origin_name || flight.origin_iata,
+        arrival: arrival.getTime(),
+        arrivalText,
+        belt: assignment.belt,
+        assignment_source: assignment.source,
+        basis: flight.expected_arrival_basis || 'programada'
+      };
+    }).filter(Boolean);
+
+    flights.forEach(flight => {
+      const targetText = flight.expected_arrival || flight.effective_arrival;
+      const target = parseDate(targetText);
+      if (!target) {
+        flight.belt_coincidence = null;
+        return;
+      }
+      const targetMs = target.getTime();
+      const greenBelts = {};
+      const redBelts = {};
+      const entries = [];
+      let unknown = 0;
+      const sources = [];
+      resolved.forEach(candidate => {
+        if (candidate.id === Number(flight.id)) return;
+        const delta = candidate.arrival - targetMs;
+        if (Math.abs(delta) > scan) return;
+        const belt = candidate.belt;
+        const isRed = belt === 7 || belt === 8;
+        const inside = belt !== null && Math.abs(delta) <= (isRed ? redMs : greenMs);
+        if (belt === null) {
+          if (Math.abs(delta) <= greenMs) unknown += 1;
+          else return;
+        } else if (inside) {
+          if (isRed) redBelts[belt] = true;
+          else greenBelts[belt] = true;
+          if (candidate.assignment_source) sources.push(candidate.assignment_source);
+        } else if (!isRed) {
+          return;
+        }
+        entries.push({
+          id: candidate.id,
+          flight: candidate.flight,
+          origin: candidate.origin,
+          arrival: candidate.arrivalText,
+          offset_minutes: Math.round(delta / 60_000),
+          belt,
+          kind: belt === null ? 'unknown' : (isRed ? 'red' : 'green'),
+          assignment_source: candidate.assignment_source,
+          arrival_basis: candidate.basis
+        });
+      });
+      entries.sort((a, b) => a.offset_minutes - b.offset_minutes || a.id - b.id);
+      const greenKeys = Object.keys(greenBelts).map(Number).sort((a, b) => a - b);
+      const redKeys = Object.keys(redBelts).map(Number).sort((a, b) => a - b);
+      const greenCount = greenKeys.length;
+      const redCount = redKeys.length;
+      const greenOk = greenCount >= 2;
+      const uniqueSources = [...new Set(sources)];
+      const own = resolvedCoincidenceBelt(flight);
+      flight.belt_coincidence = {
+        model: 'belt_coincidence_v1',
+        target_time: targetText,
+        target_belt: own.belt,
+        target_hall: own.hall,
+        target_belt_source: own.source,
+        arrival_basis: flight.expected_arrival_basis || 'programada',
+        green_window_minutes: greenMin,
+        red_window_minutes: redMin,
+        perfect_min_green: 2,
+        green_belts: greenKeys,
+        red_belts: redKeys,
+        green_count: greenCount,
+        red_count: redCount,
+        score: Math.min(greenCount, 6) + redCount * 3,
+        rating: greenOk && redCount >= 2 ? 'perfecto' : greenOk && redCount === 1 ? 'muy_bueno' : greenOk || redCount >= 1 ? 'parcial' : 'bajo',
+        unknown_belt_flights: unknown,
+        confidence: unknown > 0 ? 'baja' : (uniqueSources.every(source => source === 'oficial') ? 'alta' : 'media'),
+        flights: entries
+      };
+    });
+  }
+
+  function syncCoincidenceSettings() {
+    const windows = readCoincidenceWindows();
+    if (els.greenWindowInput) els.greenWindowInput.value = String(windows.green);
+    if (els.redWindowInput) els.redWindowInput.value = String(windows.red);
+    if (els.greenWindowRange) els.greenWindowRange.value = String(windows.green);
+    if (els.redWindowRange) els.redWindowRange.value = String(windows.red);
+  }
+
+  function updateCoincidenceWindows(green, red) {
+    saveCoincidenceWindows(green, red);
+    syncCoincidenceSettings();
+    applyBeltCoincidence(state.flights);
+    render();
+  }
 
   // Cinta más fiable conocida para un vuelo y probabilidad de que acabe en 7/8.
   function redBeltEstimate(flight) {
@@ -1015,6 +1155,7 @@
       const incoming = payload.flights || [];
       processCanaryAlerts(incoming, els.date.value);
       state.flights = incoming;
+      applyBeltCoincidence(state.flights);
       const important = incoming.filter(f => Boolean(f.belt_attention));
       const daily = payload.belt_analysis_daily;
       if (els.mobileBeltWatchLabel) {
@@ -2371,6 +2512,24 @@
     scrollToCurrent(true);
   });
   els.fitMap.addEventListener('click', fitTrackedAircraft);
+  const bindWindowPair = (input, range, side) => {
+    const apply = value => {
+      const windows = readCoincidenceWindows();
+      if (side === 'green') updateCoincidenceWindows(value, windows.red);
+      else updateCoincidenceWindows(windows.green, value);
+    };
+    input?.addEventListener('change', () => apply(input.value));
+    range?.addEventListener('input', () => {
+      if (input) input.value = range.value;
+    });
+    range?.addEventListener('change', () => apply(range.value));
+  };
+  bindWindowPair(els.greenWindowInput, els.greenWindowRange, 'green');
+  bindWindowPair(els.redWindowInput, els.redWindowRange, 'red');
+  els.resetCoincidenceWindows?.addEventListener('click', () => {
+    updateCoincidenceWindows(COINCIDENCE_DEFAULTS.green, COINCIDENCE_DEFAULTS.red);
+  });
+  syncCoincidenceSettings();
   if (els.enableNotifications) els.enableNotifications.addEventListener('click', async () => {
     try {
       await toggleCanaryNotifications();

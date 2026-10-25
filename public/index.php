@@ -53,6 +53,9 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     </div>
     <div class="d-flex align-items-center gap-2 ms-auto">
       <span id="connectionBadge" class="badge text-bg-secondary connection-badge">Conectando</span>
+      <button type="button" class="btn btn-sm btn-outline-light settings-link" data-bs-toggle="modal" data-bs-target="#settingsModal" aria-label="Ajustes de coincidencia" title="Ajustes">
+        <span class="admin-icon" aria-hidden="true">☰</span><span class="admin-label">Ajustes</span>
+      </button>
       <a class="btn btn-sm btn-outline-light admin-link" href="admin.php" aria-label="Administración Aena" title="Administración Aena"><span class="admin-icon" aria-hidden="true">⚙</span><span class="admin-label">Aena / Admin</span></a>
     </div>
   </div>
@@ -284,6 +287,42 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
   </div>
   <div class="offcanvas-body" id="detailBody"><div class="loading-state"><div class="spinner-border spinner-border-sm"></div></div></div>
+</div>
+
+<div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content settings-modal">
+      <div class="modal-header">
+        <div><small class="text-secondary">AJUSTES</small><h2 class="modal-title h5" id="settingsModalLabel">Coincidencia de cintas</h2></div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-secondary mb-3">Tiempo de acción de cada cinta alrededor de la llegada prevista. El valor se guarda en este teléfono.</p>
+        <label class="form-label" for="greenWindowInput">Cintas verdes 1–6</label>
+        <div class="settings-window">
+          <input type="range" id="greenWindowRange" min="5" max="60" step="5" aria-label="Ventana de cintas verdes">
+          <div class="input-group">
+            <span class="input-group-text">±</span>
+            <input class="form-control" type="number" id="greenWindowInput" min="5" max="60" step="1" inputmode="numeric">
+            <span class="input-group-text">min</span>
+          </div>
+        </div>
+        <label class="form-label mt-3" for="redWindowInput">Cintas rojas 7–8</label>
+        <div class="settings-window">
+          <input type="range" id="redWindowRange" min="5" max="60" step="5" aria-label="Ventana de cintas rojas">
+          <div class="input-group">
+            <span class="input-group-text">±</span>
+            <input class="form-control" type="number" id="redWindowInput" min="5" max="60" step="1" inputmode="numeric">
+            <span class="input-group-text">min</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-light" id="resetCoincidenceWindows">Valores habituales</button>
+        <button type="button" class="btn btn-success" data-bs-dismiss="modal">Listo</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="modal fade" id="beltDailyModal" tabindex="-1" aria-labelledby="beltDailyModalLabel" aria-hidden="true">

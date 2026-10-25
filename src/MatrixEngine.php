@@ -10,11 +10,15 @@ final class MatrixEngine
     private const BELT_COUNT = 8;
     private const RED_BELTS = [7, 8];
     private const OCCUPANCY_WINDOW_MINUTES = 30;
-    /** Ajustado en operación: una cinta 1–6 sigue activa unos 15 minutos. */
+    /** Tiempo de acción de una cinta 1–6. Ajustable desde Ajustes. */
     private const GREEN_COINCIDENCE_MINUTES = 15;
-    /** Una cinta 7–8 permanece ocupada al menos 20 minutos. */
+    /** Tiempo de acción de una cinta 7–8. Ajustable desde Ajustes. */
     private const RED_COINCIDENCE_MINUTES = 20;
+    private const MIN_WINDOW_MINUTES = 5;
+    private const MAX_WINDOW_MINUTES = 60;
     private const PERFECT_MIN_GREEN = 2;
+    private int $greenWindowMinutes = self::GREEN_COINCIDENCE_MINUTES;
+    private int $redWindowMinutes = self::RED_COINCIDENCE_MINUTES;
     private const MIN_FLIGHT_SAMPLES = 5;
     private const MIN_ORIGIN_SAMPLES = 8;
     private const MIN_HOUR_SAMPLES = 10;
@@ -22,9 +26,12 @@ final class MatrixEngine
     /**
      * @param array<int,array<string,mixed>> $flights
      * @param array<string,mixed> $deviationProfile Resultado de FlightRepository::arrivalDeviationProfile().
+     * @param array{green_window_minutes?:int,red_window_minutes?:int} $windows
      */
-    public function decorate(array $flights, array $deviationProfile = []): array
+    public function decorate(array $flights, array $deviationProfile = [], array $windows = []): array
     {
+        $this->greenWindowMinutes = $this->clampWindow($windows['green_window_minutes'] ?? self::GREEN_COINCIDENCE_MINUTES);
+        $this->redWindowMinutes = $this->clampWindow($windows['red_window_minutes'] ?? self::RED_COINCIDENCE_MINUTES);
         usort($flights, fn(array $a, array $b) => strcmp($a['effective_arrival'], $b['effective_arrival']));
 
         foreach ($flights as $index => &$flight) {
@@ -119,8 +126,8 @@ final class MatrixEngine
     }
 
     /**
-     * Coincidencia operativa: cintas verdes (1–6) con una llegada a ±15 min
-     * y cintas rojas (7–8) con una llegada a ±20 min de la llegada prevista.
+     * Coincidencia operativa: cintas verdes (1–6) y rojas (7–8) con una
+     * llegada dentro de su ventana (por defecto ±15 / ±20 min).
      * El vuelo ideal coincide con al menos dos verdes y una o dos rojas.
      *
      * @param array<int,array<string,mixed>> $flights
@@ -144,8 +151,9 @@ final class MatrixEngine
             ];
         }
 
-        $green = self::GREEN_COINCIDENCE_MINUTES * 60;
-        $red = self::RED_COINCIDENCE_MINUTES * 60;
+        $green = $this->greenWindowMinutes * 60;
+        $red = $this->redWindowMinutes * 60;
+        $scan = max($green, $red);
         foreach ($flights as &$flight) {
             $target = strtotime((string)($flight['expected_arrival'] ?? $flight['effective_arrival'] ?? ''));
             if ($target === false) {
@@ -159,7 +167,7 @@ final class MatrixEngine
             foreach ($resolved as $candidate) {
                 if ($candidate['id'] === (int)($flight['id'] ?? 0)) continue;
                 $delta = $candidate['arrival'] - $target;
-                if (abs($delta) > $red) continue;
+                if (abs($delta) > $scan) continue;
                 $belt = $candidate['belt'];
                 $isRed = $belt !== null && in_array($belt, self::RED_BELTS, true);
                 $inside = $belt !== null && abs($delta) <= ($isRed ? $red : $green);
@@ -206,8 +214,8 @@ final class MatrixEngine
                 'target_hall' => $own['hall'],
                 'target_belt_source' => $own['source'],
                 'arrival_basis' => $flight['expected_arrival_basis'] ?? 'programada',
-                'green_window_minutes' => self::GREEN_COINCIDENCE_MINUTES,
-                'red_window_minutes' => self::RED_COINCIDENCE_MINUTES,
+                'green_window_minutes' => $this->greenWindowMinutes,
+                'red_window_minutes' => $this->redWindowMinutes,
                 'perfect_min_green' => self::PERFECT_MIN_GREEN,
                 'green_belts' => array_keys($greenBelts),
                 'red_belts' => array_keys($redBelts),
@@ -504,6 +512,11 @@ final class MatrixEngine
         if ($value === null || $value === '') return null;
         if (!preg_match('/(?:^|\\D)([1-8])$/', trim((string)$value), $match)) return null;
         return (int)$match[1];
+    }
+
+    private function clampWindow(mixed $value): int
+    {
+        return max(self::MIN_WINDOW_MINUTES, min(self::MAX_WINDOW_MINUTES, (int)$value));
     }
 
     private function minutesBetween(string $from, string $to): int
