@@ -837,17 +837,7 @@
   function updateNotificationButton() {
     if (!els.enableNotifications) return;
     const capabilityError = pushCapabilityError();
-    if (capabilityError) {
-      els.enableNotifications.classList.add('d-none');
-      els.testPushNotification?.classList.add('d-none');
-      els.drillPushNotification?.classList.add('d-none');
-      if (els.pushStatusLine) {
-        els.pushStatusLine.className = 'push-status-line push-status-warning';
-        els.pushStatusLine.textContent = capabilityError;
-      }
-      return;
-    }
-    const pushReady = Notification.permission === 'granted' && !!localStorage.getItem('matrix.pushDevice');
+    const pushReady = !capabilityError && 'Notification' in window && Notification.permission === 'granted' && !!localStorage.getItem('matrix.pushDevice');
     const needsRepair = pushReady && Boolean(state.pushLastError);
     els.enableNotifications.classList.remove('d-none');
     els.enableNotifications.className = state.canaryWatchEnabled
@@ -861,22 +851,27 @@
       : '';
     els.enableNotifications.disabled = false;
     if (els.testPushNotification) {
-      els.testPushNotification.classList.toggle('d-none', !pushReady);
-      els.testPushNotification.disabled = !pushReady;
+      els.testPushNotification.classList.remove('d-none');
+      els.testPushNotification.disabled = false;
       els.testPushNotification.textContent = 'Probar aviso real';
     }
     if (els.drillPushNotification) {
-      els.drillPushNotification.classList.toggle('d-none', !pushReady);
-      els.drillPushNotification.disabled = !pushReady;
+      els.drillPushNotification.classList.remove('d-none');
+      els.drillPushNotification.disabled = false;
       els.drillPushNotification.textContent = 'Simulacro de un vuelo';
     }
     if (els.pushStatusLine) {
-      els.pushStatusLine.className = `push-status-line ${state.pushLastError?'push-status-error':pushReady?'push-status-ready':''}`;
-      els.pushStatusLine.textContent = state.pushLastError
-        ? `El servidor intentó avisar, pero falló: ${state.pushLastError}`
-        : pushReady
-          ? `Web Push preparado · ${state.pushWatches} vuelo${state.pushWatches===1?'':'s'} vigilado${state.pushWatches===1?'':'s'} · ${state.pushPending} aviso${state.pushPending===1?'':'s'} pendiente${state.pushPending===1?'':'s'}${state.pushLastAt ? ` · último envío ${dateTime(state.pushLastAt)}` : ' · todavía sin envíos registrados'}.`
-          : 'Los globos de la web no son avisos de iOS. Activa Web Push desde la app instalada en la pantalla de inicio.';
+      if (capabilityError) {
+        els.pushStatusLine.className = 'push-status-line push-status-warning';
+        els.pushStatusLine.textContent = capabilityError;
+      } else {
+        els.pushStatusLine.className = `push-status-line ${state.pushLastError?'push-status-error':pushReady?'push-status-ready':''}`;
+        els.pushStatusLine.textContent = state.pushLastError
+          ? `El servidor intentó avisar, pero falló: ${state.pushLastError}`
+          : pushReady
+            ? `Web Push preparado · ${state.pushWatches} vuelo${state.pushWatches===1?'':'s'} vigilado${state.pushWatches===1?'':'s'} · ${state.pushPending} aviso${state.pushPending===1?'':'s'} pendiente${state.pushPending===1?'':'s'}${state.pushLastAt ? ` · último envío ${dateTime(state.pushLastAt)}` : ' · todavía sin envíos registrados'}.`
+            : 'Los globos de la web no son avisos de iOS. Activa Web Push o pulsa Simulacro desde la app instalada en la pantalla de inicio.';
+      }
     }
   }
 
