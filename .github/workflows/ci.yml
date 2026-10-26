@@ -96,6 +96,10 @@ jobs:
         run: |
           php -r 'require "src/bootstrap.php"; $week=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->canaryWeek("2026-09-22"); if (count($week["days"]??[])!==7 || !isset($week["origins"],$week["flights"])) { fwrite(STDERR,json_encode($week,JSON_PRETTY_PRINT)); exit(1); }'
 
+      - name: Comprobar semana nocturna
+        run: |
+          php -r 'require "src/bootstrap.php"; $week=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->nightWeek("2026-09-22"); if (count($week["days"]??[])!==7 || !isset($week["flights"],$week["context"]) || ($week["night_from_hour"]??0)!==21) { fwrite(STDERR,json_encode($week,JSON_PRETTY_PRINT)); exit(1); }'
+
       - name: Comprobar idempotencia e historico
         run: |
           test "$(mysql -N -h127.0.0.1 -uroot -proot sevilla_matrix -e 'SELECT COUNT(*) FROM flights')" = "1"

@@ -70,6 +70,9 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <button class="mobile-command mobile-belt-command" type="button" data-bs-toggle="modal" data-bs-target="#beltDailyModal">
       <span aria-hidden="true">⚠</span><span><small>Vigilancia de cintas</small><strong id="mobileBeltWatchLabel">Comprobando</strong></span>
     </button>
+    <button class="mobile-command mobile-night-command" type="button" data-bs-toggle="collapse" data-bs-target="#nightWeekCollapse" aria-controls="nightWeekCollapse" aria-expanded="false">
+      <span aria-hidden="true">☾</span><span><small>Semana nocturna</small><strong id="mobileNightLabel">21:00 a 01:59</strong></span>
+    </button>
   </div>
 
   <section class="panel mb-3 overflow-hidden radar-collapsed-panel filters-panel" aria-label="Filtros del tablero">
@@ -145,6 +148,22 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <nav class="canary-week" id="canaryWeek" aria-label="Días de la semana con vuelos canarios"></nav>
     <nav class="canary-origins" id="canaryOrigins" aria-label="Filtrar por origen canario"></nav>
     <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
+  </section>
+
+  <section class="panel night-week-panel mb-3 overflow-hidden radar-collapsed-panel" aria-labelledby="nightWeekTitle">
+    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#nightWeekCollapse" aria-expanded="false" aria-controls="nightWeekCollapse">
+      <span><strong id="nightWeekTitle">Nocturnos · semana</strong><small id="nightWeekToggleLabel">plegado · 21:00 a 01:59 · compara las mejores coincidencias</small></span><b aria-hidden="true">⌄</b>
+    </button>
+    <div class="collapse" id="nightWeekCollapse">
+      <header class="panel-header night-week-toolbar">
+        <p class="mb-0 text-secondary small">Tarjetas de toda la semana, de 21:00 a 01:59. El color y el recuento siguen el tiempo operativo de Ajustes. Pulsa una para abrirla.</p>
+        <div class="night-week-sort" role="group" aria-label="Orden de las tarjetas nocturnas">
+          <button type="button" class="night-sort active" data-night-sort="best" aria-pressed="true">Mejores</button>
+          <button type="button" class="night-sort" data-night-sort="time" aria-pressed="false">Por hora</button>
+        </div>
+      </header>
+      <div class="night-strip" id="nightWeekStrip" aria-live="polite"></div>
+    </div>
   </section>
 
   <section class="panel mb-3 overflow-hidden radar-collapsed-panel">

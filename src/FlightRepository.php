@@ -11,7 +11,96 @@ final class FlightRepository
     {
     }
 
+    public const NIGHT_FROM_HOUR = 21;
+
     public function board(string $date): array
+    {
+        $day = new \DateTimeImmutable($date);
+        $rows = $this->boardRows(
+            $day->modify('-1 day')->format('Y-m-d'),
+            $day->modify('+1 day')->format('Y-m-d')
+        );
+        $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
+        $rows = array_values(array_filter(
+            $rows,
+            static fn(array $row): bool => OperationalDay::contains(
+                (string)($row['scheduled_arrival'] ?? ''),
+                $date
+            )
+        ));
+        if (!$rows) return [];
+        foreach ($rows as &$row) {
+            if (is_string($row['prediction_features'] ?? null)) {
+                $decoded = json_decode($row['prediction_features'], true);
+                $row['prediction_features'] = is_array($decoded) ? $decoded : null;
+            }
+            $row['prediction_correct'] = $row['prediction_correct'] === null
+                ? null : (int)$row['prediction_correct'];
+            $row['prediction_exact'] = $row['prediction_exact'] === null
+                ? null : (int)$row['prediction_exact'];
+        }
+        unset($row);
+        $this->attachBeltAverages($rows, $date);
+        $this->attachBeltEvents($rows);
+        $this->attachBeltAttention($rows);
+        $this->attachTelemetryTrails($rows);
+        $this->attachFlightAwareSnapshots($rows);
+        return $rows;
+    }
+
+    /**
+     * Llegadas nocturnas de varios días operativos (21:00–01:59), con
+     * coincidencia calculada sobre toda la jornada para poder comparar
+     * cuál es la mejor noche de la semana.
+     *
+     * @return array{from:string,night_from_hour:int,days:list<array<string,mixed>>,flights:list<array<string,mixed>>,context:list<array<string,mixed>>}
+     */
+    public function nightWeek(string $fromDate, int $days = 7): array
+    {
+        $days = max(1, min(14, $days));
+        $from = new \DateTimeImmutable($fromDate);
+        $dates = [];
+        for ($i = 0; $i < $days; $i++) {
+            $dates[] = $from->modify("+{$i} day")->format('Y-m-d');
+        }
+        $rows = $this->boardRows(
+            $from->modify('-1 day')->format('Y-m-d'),
+            $from->modify('+' . ($days + 1) . ' day')->format('Y-m-d')
+        );
+        $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
+        $inRange = array_flip($dates);
+        $summary = [];
+        foreach ($dates as $date) {
+            $summary[$date] = ['date' => $date, 'count' => 0, 'perfecto' => 0, 'muy_bueno' => 0, 'parcial' => 0];
+        }
+        $night = [];
+        $context = [];
+        foreach ($rows as $row) {
+            $scheduled = (string)($row['scheduled_arrival'] ?? '');
+            if ($scheduled === '') continue;
+            $day = OperationalDay::current(new \DateTimeImmutable($scheduled));
+            if (!isset($inRange[$day])) continue;
+            $arrival = (string)($row['expected_arrival'] ?? $row['effective_arrival'] ?? $scheduled);
+            if (!$this->isEveningArrival($arrival)) continue;
+            $card = $this->nightCard($row, $day);
+            $context[] = $card;
+            if (!$this->isNightArrival($arrival)) continue;
+            $night[] = $card;
+            $summary[$day]['count']++;
+            $rating = (string)($card['belt_coincidence']['rating'] ?? 'bajo');
+            if (isset($summary[$day][$rating])) $summary[$day][$rating]++;
+        }
+        usort($night, [$this, 'nightRank']);
+        return [
+            'from' => $fromDate,
+            'night_from_hour' => self::NIGHT_FROM_HOUR,
+            'days' => array_values($summary),
+            'flights' => $night,
+            'context' => $context,
+        ];
+    }
+
+    private function boardRows(string $fromDate, string $toDate): array
     {
         $sql = <<<'SQL'
 SELECT
@@ -148,41 +237,78 @@ WHERE f.flight_date BETWEEN :context_from AND :context_to
 ORDER BY effective_arrival, f.physical_flight
 SQL;
         $stmt = $this->pdo->prepare($sql);
-        $day = new \DateTimeImmutable($date);
-        $stmt->execute([
-            'context_from' => $day->modify('-1 day')->format('Y-m-d'),
-            'context_to' => $day->modify('+1 day')->format('Y-m-d'),
-        ]);
+        $stmt->execute(['context_from' => $fromDate, 'context_to' => $toDate]);
         $rows = $stmt->fetchAll();
         $this->suppressCodeshareDuplicates($rows);
-        $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
-        // MatrixEngine necesita el día anterior y el siguiente para que una
-        // ventana de ±30 minutos sea correcta también alrededor de medianoche.
-        $rows = array_values(array_filter(
-            $rows,
-            static fn(array $row): bool => OperationalDay::contains(
-                (string)($row['scheduled_arrival'] ?? ''),
-                $date
-            )
-        ));
-        if (!$rows) return [];
-        foreach ($rows as &$row) {
-            if (is_string($row['prediction_features'] ?? null)) {
-                $decoded = json_decode($row['prediction_features'], true);
-                $row['prediction_features'] = is_array($decoded) ? $decoded : null;
-            }
-            $row['prediction_correct'] = $row['prediction_correct'] === null
-                ? null : (int)$row['prediction_correct'];
-            $row['prediction_exact'] = $row['prediction_exact'] === null
-                ? null : (int)$row['prediction_exact'];
-        }
-        unset($row);
-        $this->attachBeltAverages($rows, $date);
-        $this->attachBeltEvents($rows);
-        $this->attachBeltAttention($rows);
-        $this->attachTelemetryTrails($rows);
-        $this->attachFlightAwareSnapshots($rows);
         return $rows;
+    }
+
+    /** @param array<string,mixed> $row */
+    private function nightCard(array $row, string $day): array
+    {
+        $coincidence = $row['belt_coincidence'] ?? null;
+        if (is_array($coincidence)) {
+            unset($coincidence['window_flights']);
+        }
+        return [
+            'id' => (int)($row['id'] ?? 0),
+            'operational_date' => $day,
+            'physical_flight' => (string)($row['physical_flight'] ?? ''),
+            'codes' => (string)($row['codes'] ?? ''),
+            'origin_iata' => (string)($row['origin_iata'] ?? ''),
+            'origin_name' => (string)($row['origin_name'] ?? ''),
+            'scheduled_arrival' => (string)($row['scheduled_arrival'] ?? ''),
+            'effective_arrival' => (string)($row['effective_arrival'] ?? ''),
+            'expected_arrival' => (string)($row['expected_arrival'] ?? $row['effective_arrival'] ?? ''),
+            'expected_arrival_basis' => (string)($row['expected_arrival_basis'] ?? 'programada'),
+            'expected_deviation_minutes' => $row['expected_deviation_minutes'] ?? null,
+            'expected_deviation_samples' => (int)($row['expected_deviation_samples'] ?? 0),
+            'actual_arrival' => $row['actual_arrival'] ?? null,
+            'eta' => $row['eta'] ?? null,
+            'hall' => $row['hall'] ?? null,
+            'belt' => $row['belt'] ?? null,
+            'source' => $row['source'] ?? null,
+            'secondary_belt' => $row['secondary_belt'] ?? null,
+            'secondary_hall' => $row['secondary_hall'] ?? null,
+            'predicted_belt' => $row['predicted_belt'] ?? null,
+            'predicted_hall' => $row['predicted_hall'] ?? null,
+            'prediction_score' => $row['prediction_score'] ?? null,
+            'prediction_confidence' => $row['prediction_confidence'] ?? null,
+            'is_canary' => (int)($row['is_canary'] ?? 0),
+            'indicator' => (string)($row['indicator'] ?? ''),
+            'belt_attention' => $row['belt_attention'] ?? null,
+            'belt_attention_reason' => $row['belt_attention_reason'] ?? null,
+            'belt_coincidence' => $coincidence,
+        ];
+    }
+
+    /** @param array<string,mixed> $a @param array<string,mixed> $b */
+    private function nightRank(array $a, array $b): int
+    {
+        $order = ['perfecto' => 4, 'muy_bueno' => 3, 'parcial' => 2, 'bajo' => 1];
+        $rating = ($order[$b['belt_coincidence']['rating'] ?? 'bajo'] ?? 0) <=> ($order[$a['belt_coincidence']['rating'] ?? 'bajo'] ?? 0);
+        if ($rating !== 0) return $rating;
+        $score = ((int)($b['belt_coincidence']['score'] ?? 0)) <=> ((int)($a['belt_coincidence']['score'] ?? 0));
+        if ($score !== 0) return $score;
+        return strcmp((string)$a['expected_arrival'], (string)$b['expected_arrival']);
+    }
+
+    private function isNightArrival(string $dateTime): bool
+    {
+        return $this->arrivalHour($dateTime) >= self::NIGHT_FROM_HOUR
+            || $this->arrivalHour($dateTime) < OperationalDay::CUTOFF_HOUR;
+    }
+
+    private function isEveningArrival(string $dateTime): bool
+    {
+        $hour = $this->arrivalHour($dateTime);
+        return $hour >= self::NIGHT_FROM_HOUR - 2 || $hour < OperationalDay::CUTOFF_HOUR;
+    }
+
+    private function arrivalHour(string $dateTime): int
+    {
+        if ($dateTime === '') return -1;
+        return (int)(new \DateTimeImmutable($dateTime))->format('G');
     }
 
     /** @param array<int,array<string,mixed>> $rows */

@@ -14,6 +14,8 @@
     canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushPending: 0, pushWatches: 0,
     watchedFlightIds: [], watchedFlightsBrief: [], queuedReload: false,
     canaryWeek: null, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
+    nightWeek: null, nightContext: [], nightSort: localStorage.getItem('matrix.nightSort') || 'best',
+    pendingFlightId: 0, pendingFlightDate: '',
     detailFlightId: null, flightAwarePollTimer: null,
     focusStatus: null, focusNotice: '', redListOpen: false, pinnedFlightId: Number(localStorage.getItem('matrix.focusFlightId') || 0)
   };
@@ -61,7 +63,9 @@
     greenWindowInput: document.querySelector('#greenWindowInput'), redWindowInput: document.querySelector('#redWindowInput'),
     greenWindowRange: document.querySelector('#greenWindowRange'), redWindowRange: document.querySelector('#redWindowRange'),
     spanWindowInput: document.querySelector('#spanWindowInput'), spanWindowRange: document.querySelector('#spanWindowRange'),
-    resetCoincidenceWindows: document.querySelector('#resetCoincidenceWindows')
+    resetCoincidenceWindows: document.querySelector('#resetCoincidenceWindows'),
+    nightWeekStrip: document.querySelector('#nightWeekStrip'), nightWeekToggleLabel: document.querySelector('#nightWeekToggleLabel'),
+    mobileNightLabel: document.querySelector('#mobileNightLabel'), nightWeekCollapse: document.querySelector('#nightWeekCollapse')
   };
   if (/^\d{4}-\d{2}-\d{2}$/.test(deepLink.get('date') || '')) els.date.value = deepLink.get('date');
 
@@ -495,7 +499,9 @@
     saveCoincidenceWindows(green, red, span);
     syncCoincidenceSettings();
     applyBeltCoincidence(state.flights);
+    applyBeltCoincidence(state.nightContext);
     render();
+    renderNightWeek();
   }
 
   // Cinta más fiable conocida para un vuelo y probabilidad de que acabe en 7/8.
@@ -1207,6 +1213,12 @@
         state.deepLinkOpened = true;
         openDetail(linkedFlight);
       }
+      if (state.pendingFlightId && state.flights.some(f => Number(f.id) === Number(state.pendingFlightId))) {
+        const pending = state.pendingFlightId;
+        state.pendingFlightId = 0;
+        state.pendingFlightDate = '';
+        openDetail(pending);
+      }
     } catch (error) {
       els.connection.className = 'badge text-bg-danger';
       els.connection.textContent = 'Sin conexión';
@@ -1317,14 +1329,17 @@
       link.addEventListener('click', event => event.stopPropagation());
       link.addEventListener('keydown', event => event.stopPropagation());
     });
-    document.querySelectorAll('.flight-row, .canary-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-belt.has-flight, .belt-change-card').forEach(item => {
+    document.querySelectorAll('.flight-row, .canary-card, .night-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-belt.has-flight, .belt-change-card').forEach(item => {
       if (item.dataset.flightOpenerBound === '1') return;
       item.dataset.flightOpenerBound = '1';
-      item.addEventListener('click', () => openDetail(item.dataset.flightId));
+      const open = () => item.classList.contains('night-card')
+        ? openNightFlight(item.dataset.flightId, item.dataset.gotoDate)
+        : openDetail(item.dataset.flightId);
+      item.addEventListener('click', open);
       item.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          openDetail(item.dataset.flightId);
+          open();
         }
       });
     });
@@ -1523,6 +1538,97 @@
     }).join('');
     bindWatchButtons(els.canaryWatch);
     renderCanaryWeek();
+  }
+
+  const NIGHT_FROM_HOUR = 21;
+  const isNightFlight = flight => {
+    const arrival = parseDate(flight.expected_arrival || effectiveArrival(flight) || flight.scheduled_arrival);
+    if (!arrival) return false;
+    const hour = arrival.getHours();
+    return hour >= NIGHT_FROM_HOUR || hour < 2;
+  };
+  const nightRankValue = flight => {
+    const rating = {perfecto:4, muy_bueno:3, parcial:2, bajo:1}[flight?.belt_coincidence?.rating] || 0;
+    return rating * 100 + Number(flight?.belt_coincidence?.score || 0);
+  };
+
+  async function loadNightWeek() {
+    try {
+      const today = madridNow().operationalDate;
+      const response = await fetch(`api/night-week.php?from=${encodeURIComponent(today)}&days=7`, {headers:{Accept:'application/json'}, cache:'no-store'});
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Sin nocturnos');
+      state.nightWeek = payload;
+      state.nightContext = Array.isArray(payload.context) ? payload.context : (payload.flights || []);
+      applyBeltCoincidence(state.nightContext);
+    } catch (_) {
+      if (!state.nightWeek) state.nightWeek = {flights:[], days:[]};
+    }
+    renderNightWeek();
+  }
+
+  function renderNightWeek() {
+    if (!els.nightWeekStrip) return;
+    const today = madridNow().operationalDate;
+    const context = state.nightContext.length ? state.nightContext : (state.nightWeek?.flights || []);
+    const flights = context.filter(isNightFlight);
+    const perfect = flights.filter(f => f.belt_coincidence?.rating === 'perfecto').length;
+    const bestScore = flights.reduce((max, flight) => Math.max(max, nightRankValue(flight)), 0);
+    if (els.nightWeekToggleLabel) {
+      const open = els.nightWeekCollapse?.classList.contains('show');
+      els.nightWeekToggleLabel.textContent = `${open ? 'visible' : 'plegado'} · 21:00 a 01:59 · ${flights.length} vuelo${flights.length===1?'':'s'}${perfect ? ` · ${perfect} perfecto${perfect===1?'':'s'}` : ''}`;
+    }
+    if (els.mobileNightLabel) {
+      els.mobileNightLabel.textContent = flights.length
+        ? `${flights.length} vuelo${flights.length===1?'':'s'}${perfect ? ` · ${perfect}★` : ''}`
+        : '21:00 a 01:59';
+    }
+    document.querySelectorAll('[data-night-sort]').forEach(button => {
+      const on = button.dataset.nightSort === state.nightSort;
+      button.classList.toggle('active', on);
+      button.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    if (!flights.length) {
+      els.nightWeekStrip.innerHTML = '<div class="canary-empty">No hay llegadas de 21:00 a 01:59 en los próximos 7 días.</div>';
+      return;
+    }
+    const sorted = [...flights].sort((a, b) => {
+      if (state.nightSort === 'time') {
+        return String(a.expected_arrival || a.scheduled_arrival).localeCompare(String(b.expected_arrival || b.scheduled_arrival));
+      }
+      return nightRankValue(b) - nightRankValue(a)
+        || String(a.expected_arrival || '').localeCompare(String(b.expected_arrival || ''));
+    });
+    els.nightWeekStrip.innerHTML = sorted.map((f, index) => {
+      const arrival = parseDate(f.expected_arrival || effectiveArrival(f));
+      const confirmedBelt = f.source === 'aena' && f.belt ? beltPosition(f) : null;
+      const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
+      const top = nightRankValue(f) === bestScore && bestScore > 0;
+      const otherDay = f.operational_date && f.operational_date !== today;
+      return `<article class="canary-card night-card ${top?'best':''} ${Number(f.is_canary)===1?'canary':''}" data-flight-id="${Number(f.id)}" data-goto-date="${esc(f.operational_date || '')}" tabindex="0">
+        <div class="night-card-kicker"><small>${esc(relativeDayLabel(f.operational_date))} · ${esc(dayName(f.operational_date, {weekday:'short', day:'numeric'}))}</small>${top ? '<b>Mejor de la semana</b>' : `<b>#${index + 1}</b>`}</div>
+        <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${time(arrival)}</span></div>
+        ${coincidenceBadge(f)}
+        <div class="canary-flight-code">${esc(f.physical_flight)}${Number(f.is_canary)===1?' · Canarias':''}</div>
+        <div class="canary-belts">
+          <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>
+          <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b></div>
+        </div>
+        ${beltOccupancyMarkup(f)}
+        ${otherDay ? `<button class="btn btn-sm btn-outline-info w-100 mt-2" type="button" data-goto-date="${esc(f.operational_date)}">Ver ${esc(relativeDayLabel(f.operational_date).toLowerCase())}</button>` : ''}
+      </article>`;
+    }).join('');
+    bindFlightOpeners();
+  }
+
+  function openNightFlight(id, date) {
+    if (date && date !== els.date.value) {
+      state.pendingFlightId = Number(id);
+      state.pendingFlightDate = date;
+      setBoardDate(date);
+      return;
+    }
+    openDetail(id);
   }
 
   function renderUpcomingLine() {
@@ -2463,8 +2569,16 @@
       });
       return;
     }
+    const nightSort = event.target.closest('[data-night-sort]');
+    if (nightSort) {
+      state.nightSort = nightSort.dataset.nightSort || 'best';
+      localStorage.setItem('matrix.nightSort', state.nightSort);
+      renderNightWeek();
+      return;
+    }
     const gotoDate = event.target.closest('[data-goto-date]');
     if (gotoDate) {
+      if (gotoDate.closest('.night-card')) return;
       setBoardDate(gotoDate.dataset.gotoDate);
       return;
     }
@@ -2575,6 +2689,8 @@
   if (els.arrivalsCollapse) els.arrivalsCollapse.addEventListener('hidden.bs.collapse', () => {
     if (els.arrivalsToggleLabel) els.arrivalsToggleLabel.textContent = els.arrivalsToggleLabel.textContent.replace('visible','plegado');
   });
+  els.nightWeekCollapse?.addEventListener('shown.bs.collapse', () => renderNightWeek());
+  els.nightWeekCollapse?.addEventListener('hidden.bs.collapse', () => renderNightWeek());
 
   updateDateLabels();
   updateNotificationButton();
@@ -2582,7 +2698,9 @@
   setInterval(updateSceneClock, 1000);
   renderCanaryWeek();
   loadCanaryWeek();
+  loadNightWeek();
   setInterval(loadCanaryWeek, 120_000);
+  setInterval(loadNightWeek, 180_000);
   setInterval(updateDateLabels, 60_000);
   Promise.race([
     refreshNotificationStatus(),

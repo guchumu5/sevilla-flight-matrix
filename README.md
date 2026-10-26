@@ -12,6 +12,11 @@
 - **Cintas rojas en días futuros.** Al abrir un vuelo se estima cuántas
   llegadas irán a las cintas 7 y 8 en la jornada: oficiales de Aena, asignadas,
   predichas e históricas (por vuelo u origen con al menos tres muestras).
+- **Nocturnos de la semana.** El apartado **Nocturnos · semana** (y el botón
+  del móvil) muestra las llegadas de 21:00 a 01:59 de siete días, en tarjetas
+  ordenadas por coincidencia para ver cuáles son las mejores. Nuevo endpoint
+  `api/night-week.php`. En el teléfono cada tarjeta ocupa el ancho y se pasa
+  entera.
 - **Canarias toda la semana.** El nuevo endpoint `api/canary-week.php` devuelve
   siete días de vuelos canarios. El panel permite cambiar de día y filtrar por
   origen (Tenerife Norte, Tenerife Sur, Lanzarote, Gran Canaria…).
