@@ -259,11 +259,23 @@
       default: return 'hora programada';
     }
   };
+  const coincidenceScore10 = (greenCount, redCount) => {
+    const redPart = Number(redCount) >= 2 ? 0.70 : Number(redCount) === 1 ? 0.35 : 0;
+    const greenPart = 0.30 * (Math.min(Math.max(Number(greenCount) || 0, 0), 3) / 3);
+    return Math.max(1, Math.min(10, Math.round(10 * (redPart + greenPart))));
+  };
+  const flightScore10 = flight => {
+    const model = flight?.belt_coincidence;
+    if (!model) return 1;
+    if (model.score_10 != null) return Math.max(1, Math.min(10, Number(model.score_10)));
+    return coincidenceScore10(model.green_count, model.red_count);
+  };
   const coincidenceBadge = flight => {
     const model = flight?.belt_coincidence;
     if (!model) return '';
     const rating = coincidenceRatings[model.rating] || coincidenceRatings.bajo;
-    return `<span class="coincidence-badge ${esc(model.rating)}" title="${esc(rating.label)} · ${Number(model.green_count)} verdes ±${Number(model.green_window_minutes)} min · ${Number(model.red_count)} rojas ±${Number(model.red_window_minutes)} min">${esc(rating.short)} · ${Number(model.green_count)}V ${Number(model.red_count)}R</span>`;
+    const note = flightScore10(flight);
+    return `<span class="coincidence-badge ${esc(model.rating)} score-${note}" title="${esc(rating.label)} · ${Number(model.green_count)} verdes · ${Number(model.red_count)} rojas · nota ${note}/10"><b>${note}</b><span>${esc(rating.short)} · ${Number(model.green_count)}V ${Number(model.red_count)}R</span></span>`;
   };
   const beltOccupancyMarkup = (flight, detailed = false) => {
     const model = flight?.belt_coincidence;
@@ -459,6 +471,7 @@
       const greenCount = greenKeys.length;
       const redCount = redKeys.length;
       const greenOk = greenCount >= 2;
+      const score10 = coincidenceScore10(greenCount, redCount);
       const uniqueSources = [...new Set(sources)];
       const own = resolvedCoincidenceBelt(flight);
       flight.belt_coincidence = {
@@ -476,7 +489,8 @@
         red_belts: redKeys,
         green_count: greenCount,
         red_count: redCount,
-        score: Math.min(greenCount, 6) + redCount * 3,
+        score: score10,
+        score_10: score10,
         rating: greenOk && redCount >= 2 ? 'perfecto' : greenOk && redCount === 1 ? 'muy_bueno' : greenOk || redCount >= 1 ? 'parcial' : 'bajo',
         unknown_belt_flights: unknown,
         confidence: unknown > 0 ? 'baja' : (uniqueSources.every(source => source === 'oficial') ? 'alta' : 'media'),
@@ -1547,10 +1561,7 @@
     const hour = arrival.getHours();
     return hour >= NIGHT_FROM_HOUR || hour < 2;
   };
-  const nightRankValue = flight => {
-    const rating = {perfecto:4, muy_bueno:3, parcial:2, bajo:1}[flight?.belt_coincidence?.rating] || 0;
-    return rating * 100 + Number(flight?.belt_coincidence?.score || 0);
-  };
+  const nightRankValue = flight => flightScore10(flight);
 
   async function loadNightWeek() {
     try {
@@ -1567,21 +1578,42 @@
     renderNightWeek();
   }
 
+  function nightCardMarkup(f, today, bestOfDay) {
+    const arrival = parseDate(f.expected_arrival || effectiveArrival(f));
+    const confirmedBelt = f.source === 'aena' && f.belt ? beltPosition(f) : null;
+    const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
+    const note = flightScore10(f);
+    const top = note === bestOfDay && bestOfDay >= 7;
+    const otherDay = f.operational_date && f.operational_date !== today;
+    return `<article class="canary-card night-card canary score-${note} ${top?'best':''}" data-flight-id="${Number(f.id)}" data-goto-date="${esc(f.operational_date || '')}" tabindex="0">
+      <div class="night-card-kicker"><small>${esc(f.origin_iata || '')}</small>${top ? '<b>Mejor de la noche</b>' : ''}</div>
+      <div class="night-score" aria-label="Nota ${note} de 10"><strong>${note}</strong><small>/10</small></div>
+      <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${time(arrival)}</span></div>
+      ${coincidenceBadge(f)}
+      <div class="canary-flight-code">${esc(f.physical_flight)}</div>
+      <div class="canary-belts">
+        <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>
+        <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b></div>
+      </div>
+      ${beltOccupancyMarkup(f)}
+      ${otherDay ? `<button class="btn btn-sm btn-outline-info w-100 mt-2" type="button" data-goto-date="${esc(f.operational_date)}">Ver ${esc(relativeDayLabel(f.operational_date).toLowerCase())}</button>` : ''}
+    </article>`;
+  }
+
   function renderNightWeek() {
     if (!els.nightWeekStrip) return;
     const today = madridNow().operationalDate;
     const context = state.nightContext.length ? state.nightContext : (state.nightWeek?.flights || []);
-    const flights = context.filter(isNightFlight);
-    const perfect = flights.filter(f => f.belt_coincidence?.rating === 'perfecto').length;
-    const bestScore = flights.reduce((max, flight) => Math.max(max, nightRankValue(flight)), 0);
+    const flights = context.filter(f => isNightFlight(f) && Number(f.is_canary) === 1);
+    const best = flights.reduce((max, flight) => Math.max(max, flightScore10(flight)), 0);
     if (els.nightWeekToggleLabel) {
       const open = els.nightWeekCollapse?.classList.contains('show');
-      els.nightWeekToggleLabel.textContent = `${open ? 'visible' : 'plegado'} · 21:00 a 01:59 · ${flights.length} vuelo${flights.length===1?'':'s'}${perfect ? ` · ${perfect} perfecto${perfect===1?'':'s'}` : ''}`;
+      els.nightWeekToggleLabel.textContent = `${open ? 'visible' : 'plegado'} · Canarias 21:00–01:59 · ${flights.length} vuelo${flights.length===1?'':'s'}${best ? ` · mejor ${best}/10` : ''}`;
     }
     if (els.mobileNightLabel) {
       els.mobileNightLabel.textContent = flights.length
-        ? `${flights.length} vuelo${flights.length===1?'':'s'}${perfect ? ` · ${perfect}★` : ''}`
-        : '21:00 a 01:59';
+        ? `${flights.length} Canarias${best ? ` · ${best}/10` : ''}`
+        : 'Canarias noche';
     }
     document.querySelectorAll('[data-night-sort]').forEach(button => {
       const on = button.dataset.nightSort === state.nightSort;
@@ -1589,34 +1621,37 @@
       button.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
     if (!flights.length) {
-      els.nightWeekStrip.innerHTML = '<div class="canary-empty">No hay llegadas de 21:00 a 01:59 en los próximos 7 días.</div>';
+      els.nightWeekStrip.innerHTML = '<div class="canary-empty">No hay vuelos canarios de 21:00 a 01:59 en los próximos 7 días.</div>';
       return;
     }
-    const sorted = [...flights].sort((a, b) => {
-      if (state.nightSort === 'time') {
-        return String(a.expected_arrival || a.scheduled_arrival).localeCompare(String(b.expected_arrival || b.scheduled_arrival));
+    const days = [];
+    flights.forEach(flight => {
+      const date = flight.operational_date || operationalDateOf(flight.scheduled_arrival);
+      if (!date) return;
+      let group = days.find(item => item.date === date);
+      if (!group) {
+        group = {date, flights: []};
+        days.push(group);
       }
-      return nightRankValue(b) - nightRankValue(a)
-        || String(a.expected_arrival || '').localeCompare(String(b.expected_arrival || ''));
+      group.flights.push(flight);
     });
-    els.nightWeekStrip.innerHTML = sorted.map((f, index) => {
-      const arrival = parseDate(f.expected_arrival || effectiveArrival(f));
-      const confirmedBelt = f.source === 'aena' && f.belt ? beltPosition(f) : null;
-      const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
-      const top = nightRankValue(f) === bestScore && bestScore > 0;
-      const otherDay = f.operational_date && f.operational_date !== today;
-      return `<article class="canary-card night-card ${top?'best':''} ${Number(f.is_canary)===1?'canary':''}" data-flight-id="${Number(f.id)}" data-goto-date="${esc(f.operational_date || '')}" tabindex="0">
-        <div class="night-card-kicker"><small>${esc(relativeDayLabel(f.operational_date))} · ${esc(dayName(f.operational_date, {weekday:'short', day:'numeric'}))}</small>${top ? '<b>Mejor de la semana</b>' : `<b>#${index + 1}</b>`}</div>
-        <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${time(arrival)}</span></div>
-        ${coincidenceBadge(f)}
-        <div class="canary-flight-code">${esc(f.physical_flight)}${Number(f.is_canary)===1?' · Canarias':''}</div>
-        <div class="canary-belts">
-          <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>
-          <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b></div>
-        </div>
-        ${beltOccupancyMarkup(f)}
-        ${otherDay ? `<button class="btn btn-sm btn-outline-info w-100 mt-2" type="button" data-goto-date="${esc(f.operational_date)}">Ver ${esc(relativeDayLabel(f.operational_date).toLowerCase())}</button>` : ''}
-      </article>`;
+    days.sort((a, b) => a.date.localeCompare(b.date));
+    days.forEach(group => {
+      group.flights.sort((a, b) => state.nightSort === 'time'
+        ? String(a.expected_arrival || a.scheduled_arrival).localeCompare(String(b.expected_arrival || b.scheduled_arrival))
+        : flightScore10(b) - flightScore10(a) || String(a.expected_arrival || '').localeCompare(String(b.expected_arrival || '')));
+      group.best = group.flights.reduce((max, flight) => Math.max(max, flightScore10(flight)), 0);
+    });
+    els.nightWeekStrip.innerHTML = days.map(group => {
+      const diff = dayDifference(today, group.date);
+      const label = diff === 0 ? 'Hoy' : diff === 1 ? 'Mañana' : dayName(group.date, {weekday:'long', day:'numeric', month:'short'});
+      return `<section class="night-day">
+        <header class="night-day-header">
+          <div><small>${esc(label)}</small><strong>${esc(dayName(group.date, {weekday:'short', day:'numeric'}))}</strong></div>
+          <span>${group.flights.length} vuelo${group.flights.length===1?'':'s'} · mejor <b>${group.best}/10</b></span>
+        </header>
+        <div class="night-day-strip">${group.flights.map(flight => nightCardMarkup(flight, today, group.best)).join('')}</div>
+      </section>`;
     }).join('');
     bindFlightOpeners();
   }

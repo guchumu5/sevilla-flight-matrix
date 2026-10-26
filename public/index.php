@@ -71,7 +71,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <span aria-hidden="true">⚠</span><span><small>Vigilancia de cintas</small><strong id="mobileBeltWatchLabel">Comprobando</strong></span>
     </button>
     <button class="mobile-command mobile-night-command" type="button" data-bs-toggle="collapse" data-bs-target="#nightWeekCollapse" aria-controls="nightWeekCollapse" aria-expanded="false">
-      <span aria-hidden="true">☾</span><span><small>Semana nocturna</small><strong id="mobileNightLabel">21:00 a 01:59</strong></span>
+      <span aria-hidden="true">☾</span><span><small>Canarias noche</small><strong id="mobileNightLabel">21:00 a 01:59</strong></span>
     </button>
   </div>
 
@@ -152,13 +152,13 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
 
   <section class="panel night-week-panel mb-3 overflow-hidden radar-collapsed-panel" aria-labelledby="nightWeekTitle">
     <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#nightWeekCollapse" aria-expanded="false" aria-controls="nightWeekCollapse">
-      <span><strong id="nightWeekTitle">Nocturnos · semana</strong><small id="nightWeekToggleLabel">plegado · 21:00 a 01:59 · compara las mejores coincidencias</small></span><b aria-hidden="true">⌄</b>
+      <span><strong id="nightWeekTitle">Canarias noche · semana</strong><small id="nightWeekToggleLabel">plegado · 21:00 a 01:59 · nota 1 a 10</small></span><b aria-hidden="true">⌄</b>
     </button>
     <div class="collapse" id="nightWeekCollapse">
       <header class="panel-header night-week-toolbar">
-        <p class="mb-0 text-secondary small">Tarjetas de toda la semana, de 21:00 a 01:59. El color y el recuento siguen el tiempo operativo de Ajustes. Pulsa una para abrirla.</p>
+        <p class="mb-0 text-secondary small">Solo Canarias, noche a noche. El 10 es 2 cintas rojas y 3 verdes. Las rojas valen el 70 % y las verdes el 30 %. Pulsa una tarjeta para abrirla.</p>
         <div class="night-week-sort" role="group" aria-label="Orden de las tarjetas nocturnas">
-          <button type="button" class="night-sort active" data-night-sort="best" aria-pressed="true">Mejores</button>
+          <button type="button" class="night-sort active" data-night-sort="best" aria-pressed="true">Mejor nota</button>
           <button type="button" class="night-sort" data-night-sort="time" aria-pressed="false">Por hora</button>
         </div>
       </header>

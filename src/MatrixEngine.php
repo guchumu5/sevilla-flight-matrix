@@ -210,6 +210,7 @@ final class MatrixEngine
                 $greenOk || $redCount >= 1 => 'parcial',
                 default => 'bajo',
             };
+            $score10 = $this->coincidenceScore10($greenCount, $redCount);
             $sources = array_values(array_unique(array_filter($sources)));
             $own = $this->resolvedBelt($flight);
             $flight['belt_coincidence'] = [
@@ -227,7 +228,8 @@ final class MatrixEngine
                 'red_belts' => array_keys($redBelts),
                 'green_count' => $greenCount,
                 'red_count' => $redCount,
-                'score' => min($greenCount, 6) + $redCount * 3,
+                'score' => $score10,
+                'score_10' => $score10,
                 'rating' => $rating,
                 'unknown_belt_flights' => $unknown,
                 'confidence' => $unknown > 0 ? 'baja' : (array_diff($sources, ['oficial']) === [] ? 'alta' : 'media'),
@@ -518,6 +520,17 @@ final class MatrixEngine
         if ($value === null || $value === '') return null;
         if (!preg_match('/(?:^|\\D)([1-8])$/', trim((string)$value), $match)) return null;
         return (int)$match[1];
+    }
+
+    /**
+     * Nota 1–10. El 10 es 2 rojas y 3 verdes. Las rojas pesan el 70 %
+     * (35 % una, 70 % dos) y las verdes el 30 % (hasta 3).
+     */
+    private function coincidenceScore10(int $greenCount, int $redCount): int
+    {
+        $redPart = $redCount >= 2 ? 0.70 : ($redCount === 1 ? 0.35 : 0.0);
+        $greenPart = 0.30 * (min(max($greenCount, 0), 3) / 3);
+        return max(1, min(10, (int)round(10 * ($redPart + $greenPart))));
     }
 
     private function clampWindow(mixed $value): int

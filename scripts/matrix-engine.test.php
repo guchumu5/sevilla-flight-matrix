@@ -96,6 +96,13 @@ $perfect = array_values(array_filter((new MatrixEngine())->decorate($withGreen),
 if (($perfect['green_belts'] ?? null) !== [3, 5] || ($perfect['rating'] ?? null) !== 'perfecto') {
     throw new RuntimeException('Dos verdes y dos rojas en la franja deben dar un vuelo perfecto.');
 }
+if (($perfect['score_10'] ?? null) !== 9) {
+    throw new RuntimeException('2 rojas y 2 verdes deben puntuar 9/10.');
+}
+$ten = array_values(array_filter((new MatrixEngine())->decorate(array_merge($withGreen, [sampleFlight(8, 'GREEN04', '2026-10-15 10:08:00', '4')])), static fn(array $flight): bool => $flight['id'] === 1))[0]['belt_coincidence'] ?? [];
+if (($ten['score_10'] ?? null) !== 10 || ($ten['green_count'] ?? 0) < 3) {
+    throw new RuntimeException('2 rojas y 3 verdes deben puntuar 10/10.');
+}
 
 $profile = [
     'global' => ['median' => -4, 'samples' => 500],

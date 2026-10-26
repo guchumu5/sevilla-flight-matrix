@@ -286,10 +286,11 @@ SQL;
     private function nightRank(array $a, array $b): int
     {
         $order = ['perfecto' => 4, 'muy_bueno' => 3, 'parcial' => 2, 'bajo' => 1];
+        $score = ((int)($b['belt_coincidence']['score_10'] ?? $b['belt_coincidence']['score'] ?? 0))
+            <=> ((int)($a['belt_coincidence']['score_10'] ?? $a['belt_coincidence']['score'] ?? 0));
+        if ($score !== 0) return $score;
         $rating = ($order[$b['belt_coincidence']['rating'] ?? 'bajo'] ?? 0) <=> ($order[$a['belt_coincidence']['rating'] ?? 'bajo'] ?? 0);
         if ($rating !== 0) return $rating;
-        $score = ((int)($b['belt_coincidence']['score'] ?? 0)) <=> ((int)($a['belt_coincidence']['score'] ?? 0));
-        if ($score !== 0) return $score;
         return strcmp((string)$a['expected_arrival'], (string)$b['expected_arrival']);
     }
 
