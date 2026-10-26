@@ -28,6 +28,7 @@ try {
     Response::json([
         'history' => $repository->history((int)$flightId),
         'flightaware' => $repository->flightAwareSnapshot((int)$flightId),
+        'flightstats' => $repository->flightStatsSnapshot((int)$flightId),
         'aircraft' => $aircraft->fetch() ?: null,
         'flightaware_request' => $request,
         'focus' => (new FlightFocusService($pdo))->status((int)$flightId),

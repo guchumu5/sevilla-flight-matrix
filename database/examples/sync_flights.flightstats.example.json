@@ -1,0 +1,30 @@
+{
+  "context": {
+    "provider": "flightstats",
+    "mode": "delta",
+    "observed_at": "2026-09-24 08:40:00",
+    "complete": false,
+    "create_missing": false,
+    "metadata": {
+      "airport": "SVQ",
+      "note": "Retraso y ETA secundarios de FlightStats; no toca cinta ni sala de Aena"
+    }
+  },
+  "flights": [
+    {
+      "source_key": "2026-09-24|VLG3049|LPA|SVQ",
+      "flight_date": "2026-09-24",
+      "physical_flight": "VLG3049",
+      "origin_iata": "LPA",
+      "origin_name": "Gran Canaria",
+      "scheduled_arrival": "2026-09-24 10:00:00",
+      "status": "Departed · Delayed by 20m",
+      "eta": "2026-09-24 10:20:00",
+      "actual_departure": "2026-09-24 07:05:00",
+      "confidence": "provisional",
+      "occupancy_level": "no_verificable",
+      "reason_code": "secondary_provider_update",
+      "reason_detail": "FlightStats actualizó retraso, despegue o ETA; no sustituye cinta, sala ni estado de Aena."
+    }
+  ]
+}

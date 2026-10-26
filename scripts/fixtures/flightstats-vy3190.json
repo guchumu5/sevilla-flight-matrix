@@ -1,0 +1,170 @@
+{
+  "data": {
+    "flightId": 1416394892,
+    "flightNote": {
+      "final": false,
+      "canceled": false,
+      "hasDepartedGate": true,
+      "hasDepartedRunway": true,
+      "landed": false,
+      "message": null,
+      "messageCode": null,
+      "pastExpectedTakeOff": true,
+      "tracking": true,
+      "hasPositions": true,
+      "trackingUnavailable": false,
+      "phase": "Cruising",
+      "hasActualRunwayDepartureTime": true,
+      "hasActualGateDepartureTime": true
+    },
+    "isTracking": true,
+    "isLanded": false,
+    "isScheduled": false,
+    "sortTime": "2026-10-26T20:20:00.000Z",
+    "schedule": {
+      "scheduledDeparture": "2026-10-26T20:20:00.000",
+      "scheduledDepartureUTC": "2026-10-26T20:20:00.000Z",
+      "estimatedActualDepartureRunway": false,
+      "estimatedActualDepartureTitle": "Actual",
+      "estimatedActualDeparture": "2026-10-26T20:44:00.000",
+      "estimatedActualDepartureUTC": "2026-10-26T20:44:00.000Z",
+      "scheduledArrival": "2026-10-26T23:35:00.000",
+      "scheduledArrivalUTC": "2026-10-26T22:35:00.000Z",
+      "estimatedActualArrivalRunway": false,
+      "estimatedActualArrivalTitle": "Estimated",
+      "estimatedActualArrival": "2026-10-26T23:55:00.000",
+      "estimatedActualArrivalUTC": "2026-10-26T22:55:00.000Z",
+      "graphXAxis": {
+        "dep": "2026-10-26T20:44:00.000",
+        "depUTC": "2026-10-26T20:44:00.000Z",
+        "arr": "2026-10-26T23:55:00.000",
+        "arrUTC": "2026-10-26T22:55:00.000Z"
+      },
+      "tookOff": "2026-10-26T20:44:00.000"
+    },
+    "status": {
+      "statusCode": "A",
+      "status": "Departed",
+      "color": "yellow",
+      "statusDescription": "Delayed by 20m",
+      "delay": {
+        "departure": {
+          "minutes": 24
+        },
+        "arrival": {
+          "minutes": 20
+        }
+      },
+      "delayStatus": {
+        "wording": "Delayed by 20m",
+        "minutes": 20
+      },
+      "lastUpdatedText": "Status Last Updated 13 Minutes Ago",
+      "diverted": false
+    },
+    "resultHeader": {
+      "statusDescription": "Delayed by 20m",
+      "carrier": {
+        "name": "Vueling",
+        "fs": "VY"
+      },
+      "flightNumber": "3190",
+      "status": "Departed",
+      "diverted": false,
+      "color": "yellow",
+      "departureAirportFS": "LPA",
+      "arrivalAirportFS": "SVQ",
+      "divertedAirport": null
+    },
+    "ticketHeader": {
+      "carrier": {
+        "name": "Vueling",
+        "fs": "VY"
+      },
+      "flightNumber": "3190"
+    },
+    "operatedBy": null,
+    "departureAirport": {
+      "fs": "LPA",
+      "iata": "LPA",
+      "name": "Gran Canaria Airport",
+      "city": "Las Palmas",
+      "state": "CI",
+      "country": "ES",
+      "timeZoneRegionName": "Atlantic/Canary",
+      "regionName": "Europe",
+      "gate": "C1",
+      "terminal": null,
+      "times": {
+        "scheduled": {
+          "time": "8:20",
+          "ampm": "PM",
+          "time24": "20:20",
+          "timezone": "WET"
+        },
+        "estimatedActual": {
+          "title": "Actual",
+          "time": "8:44",
+          "ampm": "PM",
+          "time24": "20:44",
+          "runway": false,
+          "timezone": "WET"
+        }
+      },
+      "date": "2026-10-26T20:20:00.000"
+    },
+    "arrivalAirport": {
+      "fs": "SVQ",
+      "iata": "SVQ",
+      "name": "Seville Airport",
+      "city": "Sevilla",
+      "state": "SP",
+      "country": "ES",
+      "timeZoneRegionName": "Europe/Madrid",
+      "regionName": "Europe",
+      "gate": null,
+      "terminal": null,
+      "baggage": "2",
+      "times": {
+        "scheduled": {
+          "time": "11:35",
+          "ampm": "PM",
+          "time24": "23:35",
+          "timezone": "CET"
+        },
+        "estimatedActual": {
+          "title": "Estimated",
+          "time": "11:55",
+          "ampm": "PM",
+          "time24": "23:55",
+          "runway": false,
+          "timezone": "CET"
+        }
+      },
+      "date": "2026-10-26T23:35:00.000"
+    },
+    "divertedAirport": null,
+    "additionalFlightInfo": {
+      "equipment": {
+        "iata": "32A",
+        "name": "Airbus A320 (sharklets)",
+        "title": "Actual"
+      },
+      "flightDuration": "2h 15m"
+    },
+    "codeshares": [
+      {
+        "fs": "IB",
+        "name": "Iberia",
+        "flightNumber": "5662"
+      }
+    ],
+    "flightState": "en-route",
+    "positional": {
+      "departureAirportCode": "LPA",
+      "arrivalAirportCode": "SVQ",
+      "divertedAirportCode": null,
+      "flexFlightStatus": "A"
+    }
+  }
+}

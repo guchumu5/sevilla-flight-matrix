@@ -128,6 +128,14 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .flightaware-snapshot > header { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.65rem .75rem; border-bottom:1px solid var(--border); background:rgba(255,181,71,.08); }
 .flightaware-snapshot > header div { display:flex; align-items:center; gap:.45rem; }.flightaware-snapshot > header time { color:var(--muted); font-size:.68rem; }
 .flightaware-snapshot > p { margin:0; padding:.6rem .75rem 0; color:#ffd78b; font-size:.78rem; font-weight:800; }
+.flightstats-watch-line { display:grid; gap:.08rem; margin:.55rem 0 0; padding:.48rem .55rem; border:1px solid rgba(82,168,255,.38); border-radius:10px; background:rgba(18,58,96,.28); }
+.flightstats-watch-line span { color:#8fd3ff; font-size:.58rem; font-weight:950; letter-spacing:.08em; text-transform:uppercase; }
+.flightstats-watch-line strong { color:#e7f4ff; font-size:.78rem; line-height:1.3; }
+.flightstats-watch-line small { color:#8fa5bd; font-size:.62rem; }
+.flightstats-snapshot { border-color:rgba(82,168,255,.42); }
+.flightstats-snapshot > header { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.65rem .75rem; border-bottom:1px solid var(--border); background:rgba(82,168,255,.08); }
+.flightstats-snapshot > header div { display:flex; align-items:center; gap:.45rem; }.flightstats-snapshot > header time { color:var(--muted); font-size:.68rem; }
+.flightstats-snapshot > p { margin:0; padding:.6rem .75rem 0; color:#9ed8ff; font-size:.78rem; font-weight:800; }
 .canary-empty { width:100%; padding:.65rem; color:var(--muted); text-align:center; }
 .night-week-panel { border-color:rgba(82,168,255,.35); }
 .night-week-toolbar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.65rem; }

@@ -51,16 +51,20 @@ jobs:
           php scripts/matrix-engine.test.php
           php scripts/operational-policy.test.php
           php scripts/migration-integrity.test.php
+          php scripts/flightstats-parser.test.php
 
       - name: Validar recolector Aena
         run: |
           node --check scripts/aena-collector.mjs
           node --check scripts/flightaware-collector.mjs
+          node --check scripts/flightstats-collector.mjs
+          node --check scripts/flightstats-parser.mjs
           node --check public/assets/js/app.js
           node --check public/sw.js
           npm run test:aena-status
           npm run test:aena-identity
           npm run test:flightaware
+          npm run test:flightstats
           node scripts/web-push-encryption.test.mjs
 
       - name: Crear esquema MySQL
@@ -91,6 +95,11 @@ jobs:
         run: |
           mysql -h127.0.0.1 -uroot -proot sevilla_matrix -e 'INSERT INTO flightaware_snapshots (flight_id,observed_at,public_url,status_text,aircraft_type,speed_mph,distance_mi) SELECT id,NOW(),"https://www.flightaware.com/live/flight/VLG3051","EN ROUTE","Airbus A320 (A320)",448,895 FROM flights LIMIT 1'
           php -r 'require "src/bootstrap.php"; $f=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-24")[0]??[]; if (($f["flightaware"]["speed_mph"]??null)!==448 && (int)($f["flightaware"]["speed_mph"]??0)!==448) exit(1);'
+
+      - name: Comprobar instantánea FlightStats separada
+        run: |
+          mysql -h127.0.0.1 -uroot -proot sevilla_matrix -e 'INSERT INTO flightstats_snapshots (flight_id,observed_at,public_url,iata_carrier,iata_number,status_text,delay_minutes,eta,actual_departure) SELECT id,NOW(),"https://www.flightstats.com/v2/flight-tracker/VY/3049?year=2026&month=9&date=24","VY","3049","Departed · Delayed by 20m",20,"2026-09-24 10:20:00","2026-09-24 07:05:00" FROM flights LIMIT 1'
+          php -r 'require "src/bootstrap.php"; $f=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-24")[0]??[]; if (($f["source"]??null)!=="aena" || ($f["belt"]??null)!=="2" || (int)($f["flightstats"]["delay_minutes"]??0)!==20) { fwrite(STDERR,json_encode($f,JSON_PRETTY_PRINT)); exit(1); }'
 
       - name: Comprobar semana de Canarias
         run: |
@@ -137,3 +146,8 @@ jobs:
           php -r 'require "src/bootstrap.php"; $rows=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-25"); $f=$rows[0]??[]; if (($f["prediction_correct"]??null)!==1 || ($f["prediction_exact"]??null)!==0) { fwrite(STDERR,json_encode($f,JSON_PRETTY_PRINT)); exit(1); }'
           mysql -h127.0.0.1 -uroot -proot sevilla_matrix -e 'UPDATE observations o INNER JOIN flights f ON f.id=o.flight_id SET o.hall="B",o.belt="7" WHERE f.flight_date="2026-09-25" AND f.physical_flight="VLG3049" AND o.source="aena"'
           php -r 'require "src/bootstrap.php"; $rows=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->board("2026-09-25"); $f=$rows[0]??[]; if (($f["prediction_correct"]??null)!==0 || ($f["prediction_exact"]??null)!==0) { fwrite(STDERR,json_encode($f,JSON_PRETTY_PRINT)); exit(1); }'
+
+      - name: Comprobar conciliación FlightStats sin tocar Aena
+        run: |
+          php bin/sync-json.php --file=database/examples/sync_flights.flightstats.example.json
+          php -r 'require "src/bootstrap.php"; $pdo=SevillaMatrix\Database::connection(); $f=(new SevillaMatrix\FlightRepository($pdo))->board("2026-09-24")[0]??[]; if (($f["source"]??null)!=="aena" || ($f["belt"]??null)!=="2") { fwrite(STDERR,json_encode($f,JSON_PRETTY_PRINT)); exit(1); } $eta=(int)$pdo->query("SELECT COUNT(*) FROM flight_events WHERE source=\"flightstats\" AND event_type=\"eta_published\"")->fetchColumn(); $dep=(int)$pdo->query("SELECT COUNT(*) FROM flight_events WHERE source=\"flightstats\" AND event_type=\"departure_recorded\"")->fetchColumn(); if ($eta<1 || $dep<1) { fwrite(STDERR,"faltan eventos flightstats\n"); exit(1); }'

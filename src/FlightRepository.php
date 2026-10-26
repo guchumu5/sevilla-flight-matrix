@@ -46,6 +46,7 @@ final class FlightRepository
         $this->attachBeltAttention($rows);
         $this->attachTelemetryTrails($rows);
         $this->attachFlightAwareSnapshots($rows);
+        $this->attachFlightStatsSnapshots($rows);
         return $rows;
     }
 
@@ -754,6 +755,45 @@ SQL;
             'SELECT id,flight_id,observed_at,public_url,status_text,aircraft_type,altitude_ft,
                     speed_mph,distance_mi,duration_text,departure_text,arrival_text
              FROM flightaware_snapshots WHERE flight_id=? ORDER BY observed_at DESC,id DESC LIMIT 1'
+        );
+        $stmt->execute([$flightId]);
+        $row = $stmt->fetch();
+        return is_array($row) ? $row : null;
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function attachFlightStatsSnapshots(array &$rows): void
+    {
+        foreach ($rows as &$row) $row['flightstats'] = null;
+        unset($row);
+        if (!$this->tableExists('flightstats_snapshots')) return;
+        $ids = array_map('intval', array_column($rows, 'id'));
+        if ($ids === []) return;
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT s.id,s.flight_id,s.observed_at,s.public_url,s.iata_carrier,s.iata_number,s.status_text,
+                    s.delay_minutes,s.eta,s.actual_departure,s.actual_arrival,s.departure_text,s.arrival_text,s.phase
+             FROM flightstats_snapshots s
+             WHERE s.flight_id IN ($placeholders)
+               AND s.id=(SELECT s2.id FROM flightstats_snapshots s2
+                         WHERE s2.flight_id=s.flight_id ORDER BY s2.observed_at DESC,s2.id DESC LIMIT 1)"
+        );
+        $stmt->execute($ids);
+        $indexed = [];
+        foreach ($stmt->fetchAll() as $snapshot) $indexed[(int)$snapshot['flight_id']] = $snapshot;
+        foreach ($rows as &$row) {
+            $row['flightstats'] = $indexed[(int)$row['id']] ?? null;
+        }
+        unset($row);
+    }
+
+    public function flightStatsSnapshot(int $flightId): ?array
+    {
+        if (!$this->tableExists('flightstats_snapshots')) return null;
+        $stmt = $this->pdo->prepare(
+            'SELECT id,flight_id,observed_at,public_url,iata_carrier,iata_number,status_text,delay_minutes,
+                    eta,actual_departure,actual_arrival,departure_text,arrival_text,phase
+             FROM flightstats_snapshots WHERE flight_id=? ORDER BY observed_at DESC,id DESC LIMIT 1'
         );
         $stmt->execute([$flightId]);
         $row = $stmt->fetch();

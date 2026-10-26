@@ -615,6 +615,7 @@
     flight.telemetry_observed_at,
     flight.secondary_belt_at,
     flight.flightaware?.observed_at,
+    flight.flightstats?.observed_at,
   ].map(parseDate).filter(Boolean).sort((a,b) => b.getTime() - a.getTime())[0] || null;
 
   function watchUpdateScheduleMarkup(flight) {
@@ -662,6 +663,7 @@
         <span><small>Cinta confirmada</small><b>${esc(official)}</b></span>
         <span><small>Predicción</small><b>${esc(predicted)}</b></span>
       </div>
+      ${flightStatsWatchMarkup(flight)}
       <div class="focus-hero-actions">
         <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${disabled?'disabled':''}>↻ ${esc(buttonLabel)}</button>
         ${allowExpand ? `<button class="btn btn-outline-light w-100" type="button" data-open-flight="${Number(flight.id)}">Ampliar vuelo</button>` : ''}
@@ -689,6 +691,20 @@
   const flightAwareLink = (flight, compact = false) => `<a class="flightaware-link ${compact?'flightaware-link-compact':''}"
     data-flightaware-link href="${flightAwareUrl(flight)}" target="_blank" rel="noopener noreferrer"
     title="Abrir mapa y ficha pública de ${esc(flight.physical_flight || 'este vuelo')} en FlightAware">🛰️ ${compact?'Mapa':'Mapa y ficha en FlightAware'} ↗</a>`;
+  function flightStatsWatchMarkup(flight) {
+    const snapshot = flight?.flightstats;
+    if (!snapshot) return '';
+    const delay = Number(snapshot.delay_minutes);
+    const delayText = Number.isFinite(delay) && delay !== 0 ? `${delay > 0 ? '+' : ''}${delay} min` : '';
+    const eta = snapshot.eta || snapshot.actual_arrival;
+    const bits = [
+      snapshot.status_text || 'FlightStats',
+      delayText,
+      eta ? `ETA ${time(eta)}` : '',
+      snapshot.actual_departure ? `salió ${time(snapshot.actual_departure)}` : '',
+    ].filter(Boolean);
+    return `<p class="flightstats-watch-line"><span>FlightStats</span><strong>${esc(bits.join(' · '))}</strong><small>secundario · no sustituye a Aena</small></p>`;
+  }
   const canarySnapshotKey = flight => `${flight.flight_date || els.date.value}|${flight.physical_flight}|${flight.origin_iata}`;
   const alertValue = value => value === null || value === undefined || value === '' ? 'pendiente' : String(value);
 
@@ -1016,6 +1032,12 @@
       if (!response.ok || !data.ok) throw new Error(data.error || 'No se pudo forzar la comprobación.');
       state.pushLastError = '';
       state.pushLastAt = data.sent_at || new Date().toISOString();
+      if (data.flightstats) {
+        const id = Number(flightId);
+        state.flights = state.flights.map(item => Number(item.id) === id ? {...item, flightstats: data.flightstats} : item);
+        state.watchedFlightsBrief = state.watchedFlightsBrief.map(item => Number(item.id) === id ? {...item, flightstats: data.flightstats} : item);
+        renderTrackedFocus();
+      }
       if (els.pushStatusLine) {
         els.pushStatusLine.className = 'push-status-line push-status-ready';
         els.pushStatusLine.textContent = (data.body || 'Comprobación enviada.') + ' En iPhone bloquea o sal de la app.';
@@ -1251,7 +1273,8 @@
           state.watchedFlightsBrief = [...state.watchedFlightsBrief, {
             id:Number(flight.id), flight_date:flight.flight_date, physical_flight:flight.physical_flight,
             origin_iata:flight.origin_iata, origin_name:flight.origin_name,
-            scheduled_arrival:flight.scheduled_arrival, is_canary:Number(flight.is_canary)
+            scheduled_arrival:flight.scheduled_arrival, is_canary:Number(flight.is_canary),
+            flightstats: flight.flightstats || null
           }];
         }
         pinFlight(flightId);
@@ -1592,7 +1615,8 @@
       els.trackedFocusBody.innerHTML = `<div class="tracked-other-day">
         <div><small>${esc(relativeDayLabel(current.date))} · ${esc(dayName(current.date))}</small>
         <strong>${esc(current.label)} · ${esc(current.origin)}</strong>
-        <span>Programado a las ${time(current.brief.scheduled_arrival)}. Estás viendo ${esc(dayName(els.date.value))}.</span></div>
+        <span>Programado a las ${time(current.brief.scheduled_arrival)}. Estás viendo ${esc(dayName(els.date.value))}.</span>
+        ${flightStatsWatchMarkup(current.brief)}</div>
         <button class="btn btn-info" type="button" data-goto-date="${esc(current.date)}">Ver ${esc(relativeDayLabel(current.date).toLowerCase())}</button>
       </div>`;
       return;
@@ -2506,6 +2530,25 @@
     </section>`;
   }
 
+  function flightStatsSnapshotMarkup(snapshot) {
+    if (!snapshot) return '';
+    const delay = Number(snapshot.delay_minutes);
+    const delayLabel = Number.isFinite(delay) ? `${delay > 0 ? '+' : ''}${delay} min` : '—';
+    return `<section class="telemetry-card flightstats-snapshot mb-4">
+      <header><div><strong>FlightStats web</strong><span class="badge text-bg-info">secundario</span></div><time>${dateTime(snapshot.observed_at)}</time></header>
+      <p>${esc(snapshot.status_text || 'Estado público sin descripción')}</p>
+      <div class="telemetry-values">
+        <div><small>Retraso</small><strong>${esc(delayLabel)}</strong></div>
+        <div><small>ETA</small><strong>${time(snapshot.eta)}</strong></div>
+        <div><small>Salida real</small><strong>${time(snapshot.actual_departure)}</strong></div>
+        <div><small>Llegada real</small><strong>${time(snapshot.actual_arrival)}</strong></div>
+        <div><small>Fase</small><strong>${esc(snapshot.phase || '—')}</strong></div>
+        <div><small>Hitos</small><strong>${esc(snapshot.arrival_text || snapshot.departure_text || '—')}</strong></div>
+      </div>
+      <small class="telemetry-note">Lectura pública de retraso y ETA. Aena sigue siendo la autoridad de cinta, sala y equipaje.</small>
+    </section>`;
+  }
+
   function stopFlightAwarePolling() {
     if (state.flightAwarePollTimer) window.clearTimeout(state.flightAwarePollTimer);
     state.flightAwarePollTimer = null;
@@ -2836,6 +2879,7 @@
       </div>`
         + summary + watchSupport + beltIntelligence(flight)
         + `<div data-flightaware-snapshot>${flightAwareSnapshotMarkup(payload.flightaware)}</div>`
+        + `<div data-flightstats-snapshot>${flightStatsSnapshotMarkup(payload.flightstats || flight.flightstats)}</div>`
         + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
       bindFocusRefreshButtons(els.detailBody);
       bindWatchButtons(els.detailBody);

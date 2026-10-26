@@ -12,7 +12,8 @@ use Throwable;
 
 final class FlightReconciliationService
 {
-    private const OBSERVATION_SOURCES = ['aena', 'airlabs', 'opensky', 'manual', 'aviationweather'];
+    private const OBSERVATION_SOURCES = ['aena', 'airlabs', 'opensky', 'manual', 'aviationweather', 'flightstats'];
+    private bool $createMissing = true;
     private const MODES = ['full_window', 'delta', 'manual'];
     private const CONFIDENCE = ['confirmado', 'probable', 'provisional'];
     private const OPERATIONAL_FIELDS = [
@@ -44,6 +45,7 @@ final class FlightReconciliationService
         $windowFrom = $this->nullableDateTime($context['window_from'] ?? null, 'window_from');
         $windowTo = $this->nullableDateTime($context['window_to'] ?? null, 'window_to');
         $complete = filter_var($context['complete'] ?? false, FILTER_VALIDATE_BOOL);
+        $this->createMissing = filter_var($context['create_missing'] ?? true, FILTER_VALIDATE_BOOL);
         $withdrawAfter = max(2, min(10, (int)($context['withdraw_after'] ?? 3)));
 
         if (!in_array($provider, self::OBSERVATION_SOURCES, true)) {
@@ -220,6 +222,9 @@ final class FlightReconciliationService
         $isNew = !$flight;
 
         if ($isNew) {
+            if (!$this->createMissing) {
+                return;
+            }
             $flightId = $this->insertFlight($record);
             $flight = $this->flightById($flightId);
             $counts['flights_created']++;
@@ -233,7 +238,8 @@ final class FlightReconciliationService
                 $this->promotePhysicalCode($flightId, $flight, $record, $runId, $provider, $counts);
                 $flight = $this->flightById($flightId);
             }
-            if ($this->updateCoreFields($flightId, $flight, $record, $runId, $provider, $counts)) {
+            if ($provider !== 'flightstats'
+                && $this->updateCoreFields($flightId, $flight, $record, $runId, $provider, $counts)) {
                 $counts['flights_updated']++;
                 $flight = $this->flightById($flightId);
             }

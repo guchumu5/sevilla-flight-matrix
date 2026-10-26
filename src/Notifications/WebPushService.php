@@ -6,6 +6,7 @@ namespace SevillaMatrix\Notifications;
 use PDO;
 use RuntimeException;
 use SevillaMatrix\Env;
+use SevillaMatrix\Sync\FlightStatsIngestService;
 use SevillaMatrix\TrackingCadence;
 
 final class WebPushService
@@ -173,6 +174,13 @@ final class WebPushService
         }
 
         $queued = $this->requeueFlightAware($flightId);
+        $statsQueued = $this->requeueFlightStats($flightId);
+        $snapshot = null;
+        try {
+            $snapshot = (new FlightStatsIngestService($this->pdo))->captureOne($flightId)['snapshot'] ?? null;
+        } catch (\Throwable) {
+            // La comprobación sigue con Aena y, si existe, la última lectura FlightStats.
+        }
         $notice = $this->forceCheckNotice($flightId);
         $path = $this->testNoticePath($deviceToken);
         $directory = dirname($path);
@@ -210,6 +218,9 @@ final class WebPushService
             'ok' => true,
             'sent' => $sent,
             'flightaware_queued' => $queued,
+            'flightstats_queued' => $statsQueued,
+            'flightstats_captured' => is_array($snapshot),
+            'flightstats' => $snapshot,
             'body' => $notice['body'],
             'title' => $notice['title'],
             'http_status' => $mine['http_status'] ?? null,
@@ -247,6 +258,8 @@ final class WebPushService
              ORDER BY f.scheduled_arrival LIMIT 20'
         );
         $watchedFlights->execute(['subscription_id' => $subscription['id']]);
+        $watchedRows = $watchedFlights->fetchAll();
+        $statsByFlight = $this->latestFlightStats(array_map(static fn(array $row): int => (int)$row['id'], $watchedRows));
         $pending = $this->pdo->prepare('SELECT COUNT(*) FROM push_outbox WHERE subscription_id=:subscription_id AND pushed_at IS NULL AND attempts<4');
         $pending->execute(['subscription_id' => $subscription['id']]);
         return [
@@ -265,7 +278,8 @@ final class WebPushService
                 'origin_name' => (string)$row['origin_name'],
                 'scheduled_arrival' => (string)$row['scheduled_arrival'],
                 'is_canary' => (int)$row['is_canary'],
-            ], $watchedFlights->fetchAll()),
+                'flightstats' => $statsByFlight[(int)$row['id']] ?? null,
+            ], $watchedRows),
             'pending_notifications' => (int)$pending->fetchColumn(),
         ];
     }
@@ -427,13 +441,17 @@ final class WebPushService
                  (w.id IS NOT NULL AND e.detected_at>=w.updated_at)
                  OR (s.watch_canary_all=1 AND f.is_canary=1 AND e.detected_at>=s.updated_at)
                )
-               AND (e.event_type IN ('departure_recorded','arrival_recorded','arrival_reminder') OR e.source='aena')
+               AND (
+                 e.event_type IN ('departure_recorded','arrival_recorded','arrival_reminder')
+                 OR e.source='aena'
+                 OR (e.source='flightstats' AND e.event_type IN ('eta_changed','eta_published','departure_recorded'))
+               )
                AND NOT (
                  e.event_type='eta_changed'
                  AND ABS(TIMESTAMPDIFF(MINUTE,e.before_value,e.after_value))<5
                )
                AND NOT (
-                 e.event_type='eta_published'
+                 e.event_type IN ('eta_changed','eta_published')
                  AND ABS(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value))<5
                )"
         );
@@ -595,18 +613,19 @@ final class WebPushService
         $aenaBit .= ' · ' . $belt;
 
         $parts = ['Comprobación forzada · ' . $aenaBit];
-        $stats = $this->flightStatsSnapshot((string)$ctx['physical_flight'], (string)$ctx['flight_date'], $flightId);
+        $stats = $this->latestFlightStats([$flightId])[$flightId] ?? null;
         if ($stats) {
             $fs = 'FlightStats';
-            if (!empty($stats['delay_minutes'])) $fs .= ' retraso ' . (int)$stats['delay_minutes'] . ' min';
-            if (!empty($stats['dep_actual'])) {
-                $fs .= ' · salió ' . $stats['dep_actual'];
-                if (!empty($stats['dep_sched'])) $fs .= ' (prog. ' . $stats['dep_sched'] . ')';
+            if (isset($stats['delay_minutes']) && $stats['delay_minutes'] !== null && $stats['delay_minutes'] !== '') {
+                $fs .= ' retraso ' . (int)$stats['delay_minutes'] . ' min';
+            } elseif (!empty($stats['status_text'])) {
+                $fs .= ' ' . $stats['status_text'];
             }
-            if (!empty($stats['arr_est'])) {
-                $fs .= ' · ETA ' . $stats['arr_est'];
-                if (!empty($stats['arr_sched'])) $fs .= ' (prog. ' . $stats['arr_sched'] . ')';
+            if (!empty($stats['actual_departure'])) {
+                $fs .= ' · salió ' . date('H:i', strtotime((string)$stats['actual_departure']));
             }
+            $fsEta = (string)($stats['eta'] ?: $stats['actual_arrival'] ?: '');
+            if ($fsEta !== '') $fs .= ' · ETA ' . date('H:i', strtotime($fsEta));
             $parts[] = $fs;
         }
         if (!empty($ctx['airlabs_departure'])) {
@@ -639,62 +658,47 @@ final class WebPushService
         return true;
     }
 
-    /** @return array<string,string|int>|null */
-    private function flightStatsSnapshot(string $physical, string $flightDate, int $flightId): ?array
+    private function requeueFlightStats(int $flightId): bool
     {
-        $iata = $this->iataFlightCode($physical, $flightId);
-        if (!preg_match('/^([A-Z]{2})(\d{1,4})$/', $iata, $match)) return null;
-        $date = date_create((string)substr($flightDate, 0, 10));
-        if (!$date) return null;
-        $url = sprintf(
-            'https://www.flightstats.com/v2/flight-tracker/%s/%s?year=%s&month=%s&date=%s',
-            rawurlencode($match[1]),
-            rawurlencode($match[2]),
-            $date->format('Y'),
-            $date->format('n'),
-            $date->format('j')
-        );
-        $curl = curl_init($url);
-        if ($curl === false) return null;
-        curl_setopt_array($curl, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_CONNECTTIMEOUT => 4,
-            CURLOPT_TIMEOUT => 8,
-            CURLOPT_USERAGENT => 'MatrizSVQ/1.0',
-        ]);
-        $html = curl_exec($curl);
-        curl_close($curl);
-        if (!is_string($html) || $html === '') return null;
-        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $text = (string)preg_replace('/\s+/', ' ', $text);
-        $out = [];
-        if (preg_match('/Delayed by (\d+)\s*m/i', $text, $found)) $out['delay_minutes'] = (int)$found[1];
-        if (preg_match('/Scheduled\s+(\d{1,2}:\d{2})\s+WET\s+Actual\s+(\d{1,2}:\d{2})\s+WET/', $text, $found)) {
-            $out['dep_sched'] = $found[1];
-            $out['dep_actual'] = $found[2];
+        try {
+            return (new FlightStatsIngestService($this->pdo))->requeue($flightId);
+        } catch (\Throwable) {
+            return false;
         }
-        if (preg_match('/Scheduled\s+(\d{1,2}:\d{2})\s+CET\s+Estimated\s+(\d{1,2}:\d{2})\s+CET/', $text, $found)) {
-            $out['arr_sched'] = $found[1];
-            $out['arr_est'] = $found[2];
-        } elseif (preg_match('/Scheduled\s+(\d{1,2}:\d{2})\s+CET\s+Actual\s+(\d{1,2}:\d{2})\s+CET/', $text, $found)) {
-            $out['arr_sched'] = $found[1];
-            $out['arr_est'] = $found[2];
-        }
-        return $out === [] ? null : $out;
     }
 
-    private function iataFlightCode(string $physical, int $flightId): string
+    /**
+     * @param list<int> $flightIds
+     * @return array<int,array<string,mixed>>
+     */
+    private function latestFlightStats(array $flightIds): array
     {
-        $physical = strtoupper(trim($physical));
-        if (preg_match('/^VLG(\d+)$/', $physical, $match)) return 'VY' . $match[1];
-        $stmt = $this->pdo->prepare('SELECT flight_code FROM flight_codes WHERE flight_id=:id');
-        $stmt->execute(['id' => $flightId]);
-        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $code) {
-            $code = strtoupper(trim((string)$code));
-            if (preg_match('/^[A-Z]{2}\d{1,4}$/', $code)) return $code;
+        $flightIds = array_values(array_unique(array_filter(array_map('intval', $flightIds))));
+        if ($flightIds === []) return [];
+        try {
+            $ready = (int)$this->pdo->query(
+                "SELECT COUNT(*) FROM information_schema.tables
+                 WHERE table_schema=DATABASE() AND table_name='flightstats_snapshots'"
+            )->fetchColumn();
+            if ($ready !== 1) return [];
+        } catch (\Throwable) {
+            return [];
         }
-        return $physical;
+        $placeholders = implode(',', array_fill(0, count($flightIds), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT s.id,s.flight_id,s.observed_at,s.public_url,s.iata_carrier,s.iata_number,s.status_text,
+                    s.delay_minutes,s.eta,s.actual_departure,s.actual_arrival,s.departure_text,s.arrival_text,s.phase
+             FROM flightstats_snapshots s
+             WHERE s.flight_id IN ({$placeholders})
+               AND s.id=(SELECT s2.id FROM flightstats_snapshots s2
+                         WHERE s2.flight_id=s.flight_id ORDER BY s2.observed_at DESC,s2.id DESC LIMIT 1)"
+        );
+        $stmt->execute($flightIds);
+        $out = [];
+        foreach ($stmt->fetchAll() as $row) {
+            $out[(int)$row['flight_id']] = $row;
+        }
+        return $out;
     }
 
     /** @return array<string,mixed>|null */

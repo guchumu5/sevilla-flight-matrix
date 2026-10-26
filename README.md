@@ -1,5 +1,28 @@
 # Matriz Operativa de Cintas · Sevilla
 
+## Versión 1.26.0 · FlightStats periódico en vuelos vigilados
+
+- **FlightStats para ETA y retraso.** Mientras no hay API Cirium, un recolector
+  propio lee el JSON público
+  `https://www.flightstats.com/v2/api-next/flight-tracker/{IATA}/{número}/{año}/{mes}/{día}`
+  (ejemplo VY/3190). No usa Playwright ni la librería abandonada
+  evilsaloon/flightstats-web-api. Si el JSON falla, cae a la ficha HTML.
+- **Solo vuelos vigilados.** El workflow **FlightStats vuelos vigilados**
+  pregunta cada 5 minutos; si la cola está vacía no consulta nada. Coge hasta
+  8 vuelos con vigilancia individual (y Canarias si hay avisos globales), con
+  ventana de 8 h atrás a 16 h adelante. VLG3190 se consulta como VY/3190 en el
+  día operativo de `scheduled_arrival`.
+- **Aena sigue mandando en cinta.** FlightStats no escribe sala, cinta ni
+  equipaje. Sí crea observaciones `source=flightstats` y eventos
+  `eta_published` / `eta_changed` / `departure_recorded`. Web Push avisa esos
+  hitos si el desvío respecto a la programada es ≥ 5 min, también con
+  Canarias global.
+- **Tarjeta vigilada.** El vuelo en seguimiento muestra retraso y ETA de
+  FlightStats. **Comprobar ahora** reutiliza la misma lectura JSON, la guarda
+  y manda el aviso. Aplica en **Actualizar MySQL** el paquete
+  `20261026_012_flightstats_web`. El workflow usa el mismo
+  `MATRIX_INGEST_TOKEN`.
+
 ## Versión 1.25.0 · varios vuelos en seguimiento, semana canaria y móvil
 
 - **Fecha siempre visible.** La barra superior muestra el día operativo que se
@@ -48,9 +71,10 @@
   HTTP/2; si PHP cae a HTTP/1.1 el aviso no llega. Mientras el vuelo está
   vigilado, un pulso actualiza cada 15 min
   (cada 5 min desde T−20) cuánto falta y a qué cinta va. **Comprobar ahora**
-  reencola FlightAware y manda un aviso con Aena más FlightStats/AirLabs, sin
-  inventar datos de Aena. Cada ingesta de Aena o AirLabs despacha la cola. La
-  cola de FlightAware retiene peticiones 8 horas.
+  reencola FlightAware, lee FlightStats (JSON público) y manda un aviso con
+  Aena más FlightStats/AirLabs, sin inventar datos de Aena. Cada ingesta de
+  Aena, AirLabs o FlightStats despacha la cola. La cola de FlightAware retiene
+  peticiones 8 horas; FlightStats cubre vigilados de 8 h atrás a 16 h adelante.
 - **Errores de MySQL ocultos.** El navegador recibe un mensaje genérico; el
   detalle queda en el log de PHP (salvo con `APP_DEBUG`).
 - **Móvil.** Diseño en una columna para el vuelo vigilado, tamaños de letra
