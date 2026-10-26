@@ -52,13 +52,14 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
       <div><label class="form-label small" for="operationLimit">Máximo OpenSky</label><input class="form-control" id="operationLimit" type="number" min="1" max="25" value="10" style="width:9rem"></div>
     </div>
     <div class="row g-3">
+      <div class="col-sm-6 col-xl"><button class="btn btn-success w-100 operation-button" data-action="aena">Actualizar Aena</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-primary w-100 operation-button" data-action="airlabs">Actualizar AirLabs</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-info w-100 operation-button" data-action="opensky">Actualizar OpenSky</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-light w-100 operation-button" data-action="weather">Actualizar tiempo</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-warning w-100 operation-button" data-action="push">🔔 Despachar avisos</button></div>
-      <div class="col-sm-6 col-xl"><button class="btn btn-success w-100 operation-button" data-action="all">Actualizar fuentes</button></div>
+      <div class="col-sm-6 col-xl"><button class="btn btn-outline-success w-100 operation-button" data-action="all">Actualizar fuentes</button></div>
     </div>
-    <p class="small text-secondary mt-3 mb-0">Aena se recoge mediante el barrido automático de Infovuelos y prevalece en estado, sala y cinta. AirLabs consulta las llegadas en bloque, rota las claves configuradas y entra como fuente provisional; OpenSky solo añade telemetría y AviationWeather el METAR. «Despachar avisos» prueba desde la web la misma cola que ejecuta el cron.</p>
+    <p class="small text-secondary mt-3 mb-0">«Actualizar Aena» no corre Infovuelos dentro de Plesk: pide el barrido de GitHub Actions (Chromium). Si hay <code>GITHUB_DISPATCH_TOKEN</code> en <code>.env</code>, se lanza al momento; si no, el siguiente ciclo (máx. 5 min) lo ejecuta aunque la última captura sea reciente. Aena prevalece en estado, sala y cinta. AirLabs entra como fuente provisional; OpenSky solo añade telemetría y AviationWeather el METAR. «Despachar avisos» prueba desde la web la misma cola que ejecuta el cron.</p>
   </section>
 
   <section class="panel p-3 p-md-4 mb-4">

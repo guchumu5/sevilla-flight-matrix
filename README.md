@@ -696,6 +696,11 @@ de entrega debe ejecutarse cada minuto en Plesk:
 La web debe servirse por HTTPS y `storage/keys/` debe ser escribible para que
 PHP pueda conservar la identidad VAPID del servidor.
 
+El **Centro de procesos** incluye **Actualizar Aena**: no abre Infovuelos en
+Plesk; marca la captura como urgente y, si existe `GITHUB_DISPATCH_TOKEN`,
+dispara el workflow `aena-live.yml`. Sin ese token, el siguiente ciclo de
+GitHub (máximo 5 min) la ejecuta aunque la última lectura sea reciente.
+
 La versión 1.20.1 incorpora en **Centro de procesos** el botón **Despachar
 avisos**. Ejecuta exactamente el mismo servicio que `bin/dispatch-push.php` y
 muestra desde la web cuántos avisos fueron enviados, fallaron o quedaron

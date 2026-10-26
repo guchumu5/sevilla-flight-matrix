@@ -15,7 +15,7 @@ use Throwable;
 
 final class WebOperationsService
 {
-    private const ACTIONS = ['airlabs', 'opensky', 'weather', 'push', 'all'];
+    private const ACTIONS = ['aena', 'airlabs', 'opensky', 'weather', 'push', 'all'];
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -294,12 +294,100 @@ final class WebOperationsService
         }
 
         return match ($action) {
+            'aena' => $this->requestAenaSweep(),
             'airlabs' => $this->recordFetch('airlabs', fn(): array => $this->withLock('airlabs', fn(): array => $this->airLabs($this->clamp($limit, 1, 50)))),
             'opensky' => $this->recordFetch('opensky', fn(): array => $this->withLock('opensky', fn(): array => $this->openSky($this->clamp($limit, 1, 25)))),
             'weather' => $this->recordFetch('aviationweather', fn(): array => $this->withLock('weather', fn(): array => $this->weather())),
             'push' => $this->dispatchPush(),
             'all' => $this->runAll($this->clamp($limit, 1, 10)),
         };
+    }
+
+    public static function aenaForcePath(): string
+    {
+        return PROJECT_ROOT . '/storage/cache/aena-force.json';
+    }
+
+    public static function aenaForcePending(int $maxAgeSeconds = 1200): bool
+    {
+        $path = self::aenaForcePath();
+        if (!is_file($path)) return false;
+        $data = json_decode((string)file_get_contents($path), true);
+        $requested = (int)($data['requested_at'] ?? 0);
+        return $requested > 0 && (time() - $requested) < $maxAgeSeconds;
+    }
+
+    public static function clearAenaForce(): void
+    {
+        $path = self::aenaForcePath();
+        if (is_file($path)) @unlink($path);
+    }
+
+    /** @return array<string,mixed> */
+    private function requestAenaSweep(): array
+    {
+        $path = self::aenaForcePath();
+        $directory = dirname($path);
+        if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
+            throw new RuntimeException('No se pudo marcar la captura Aena.');
+        }
+        file_put_contents($path, json_encode([
+            'requested_at' => time(),
+            'requested_at_iso' => date('c'),
+            'by' => 'admin',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+
+        $dispatch = $this->dispatchGithubWorkflow('aena-live.yml');
+        if ($dispatch['ok']) {
+            return [
+                'ok' => true,
+                'useful' => true,
+                'action' => 'aena',
+                'dispatched' => true,
+                'message' => 'Captura Aena pedida a GitHub Actions. Infovuelos se leerá en uno o dos minutos; no corre dentro de Plesk.',
+            ];
+        }
+        return [
+            'ok' => true,
+            'useful' => true,
+            'action' => 'aena',
+            'dispatched' => false,
+            'message' => 'Captura Aena marcada como urgente. El siguiente ciclo de GitHub (como máximo 5 min) la ejecutará aunque la última lectura sea reciente.'
+                . ($dispatch['error'] !== '' ? ' Disparo inmediato no configurado: ' . $dispatch['error'] : ''),
+        ];
+    }
+
+    /** @return array{ok:bool,error:string} */
+    private function dispatchGithubWorkflow(string $workflow): array
+    {
+        $token = trim((string)Env::get('GITHUB_DISPATCH_TOKEN', Env::get('GH_TOKEN', '')));
+        $repository = trim((string)Env::get('GITHUB_REPOSITORY', 'guchumu5/sevilla-flight-matrix'));
+        $ref = trim((string)Env::get('GITHUB_DISPATCH_REF', 'main'));
+        if ($token === '' || !preg_match('#^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$#', $repository)) {
+            return ['ok' => false, 'error' => 'añade GITHUB_DISPATCH_TOKEN (PAT con actions:write) en .env'];
+        }
+        $curl = curl_init('https://api.github.com/repos/' . $repository . '/actions/workflows/' . rawurlencode($workflow) . '/dispatches');
+        curl_setopt_array($curl, [
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode(['ref' => $ref], JSON_UNESCAPED_SLASHES),
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 20,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/vnd.github+json',
+                'Authorization: Bearer ' . $token,
+                'Content-Type: application/json',
+                'User-Agent: sevilla-flight-matrix',
+                'X-GitHub-Api-Version: 2022-11-28',
+            ],
+        ]);
+        $body = (string)curl_exec($curl);
+        $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        $error = curl_error($curl);
+        curl_close($curl);
+        if ($status === 204) return ['ok' => true, 'error' => ''];
+        $decoded = json_decode($body, true);
+        $detail = is_array($decoded) ? (string)($decoded['message'] ?? '') : '';
+        return ['ok' => false, 'error' => trim($detail !== '' ? $detail : ($error !== '' ? $error : 'GitHub HTTP ' . $status))];
     }
 
     /** @return array<string,mixed> */

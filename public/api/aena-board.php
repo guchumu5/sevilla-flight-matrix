@@ -93,6 +93,7 @@ try {
             'UPDATE fetch_runs SET finished_at=NOW(),ok=1,records_count=:count WHERE id=:id'
         );
         $finish->execute(['count' => count($records), 'id' => $fetchRunId]);
+        \SevillaMatrix\Operations\WebOperationsService::clearAenaForce();
 
         // Los eventos de esta captura se despachan ya; el cron de Plesk sigue
         // cubriendo los recordatorios y los reintentos.

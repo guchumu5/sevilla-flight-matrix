@@ -7,6 +7,7 @@ use SevillaMatrix\Database;
 use SevillaMatrix\Env;
 use SevillaMatrix\FlightRepository;
 use SevillaMatrix\OperationalDay;
+use SevillaMatrix\Operations\WebOperationsService;
 use SevillaMatrix\Response;
 use SevillaMatrix\TrackingCadence;
 
@@ -100,10 +101,11 @@ try {
     )->fetchColumn();
     $lastTimestamp = $last ? strtotime((string)$last) : false;
     $ageMinutes = $lastTimestamp === false ? null : max(0, (int)floor((time() - $lastTimestamp) / 60));
+    $forced = WebOperationsService::aenaForcePending();
 
     Response::json([
         'ok' => true,
-        'critical' => $critical !== [],
+        'critical' => $critical !== [] || $forced,
         'critical_count' => count($critical),
         'critical_flights' => $critical,
         'individual_watches' => count($watchedIds),
@@ -111,8 +113,9 @@ try {
         'canary_watch_active' => $canaryGlobal,
         'last_aena_success_at' => $last ?: null,
         'last_aena_age_minutes' => $ageMinutes,
-        'normal_due' => $ageMinutes === null || $ageMinutes >= 12,
-        'recommended_interval_minutes' => $critical !== [] ? 5 : 15,
+        'normal_due' => $forced || $ageMinutes === null || $ageMinutes >= 12,
+        'forced' => $forced,
+        'recommended_interval_minutes' => ($critical !== [] || $forced) ? 5 : 15,
         'policy' => 'Vuelo vigilado: cada 15 min durante la última hora; cada 5 min desde T-20 hasta finalizar equipaje. Los casos críticos de cinta mantienen 5 min.',
     ]);
 } catch (Throwable $error) {
