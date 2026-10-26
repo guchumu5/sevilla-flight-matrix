@@ -1777,11 +1777,16 @@
     const confirmedBelt = f.source === 'aena' && f.belt ? beltPosition(f) : null;
     const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
     const note = flightScore10(f);
+    const greens = Number(f.belt_coincidence?.green_count || 0);
+    const reds = Number(f.belt_coincidence?.red_count || 0);
     const top = note === bestOfDay && bestOfDay >= 7;
     const otherDay = f.operational_date && f.operational_date !== today;
     return `<article class="canary-card night-card canary score-${note} ${top?'best':''}" data-flight-id="${Number(f.id)}" data-goto-date="${esc(f.operational_date || '')}" tabindex="0">
       <div class="night-card-kicker"><small>${esc(f.origin_iata || '')}</small>${top ? '<b>Mejor de la noche</b>' : ''}</div>
-      <div class="night-score" aria-label="Nota ${note} de 10"><strong>${note}</strong><small>/10</small></div>
+      <div class="night-score" aria-label="Nota ${note} de 10 · ${greens} verdes · ${reds} rojas">
+        <div class="night-score-note"><strong>${note}</strong><small>/10</small></div>
+        <span class="night-score-belts"><i class="green">${greens} verde${greens===1?'':'s'}</i><i class="red">${reds} roja${reds===1?'':'s'}</i></span>
+      </div>
       <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${time(arrival)}</span></div>
       ${coincidenceBadge(f)}
       <div class="canary-flight-code">${esc(f.physical_flight)}</div>
