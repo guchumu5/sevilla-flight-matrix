@@ -75,6 +75,14 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     </button>
   </div>
 
+  <section class="panel push-panel mb-3" aria-label="Avisos del teléfono">
+    <div class="push-actions">
+      <button class="btn btn-outline-info" id="drillPushNotification" type="button">Simulacro de un vuelo</button>
+      <button class="btn btn-outline-info" id="testPushNotification" type="button">Probar aviso real</button>
+    </div>
+    <div class="push-status-line" id="pushStatusLine" aria-live="polite">Comprobando avisos del dispositivo…</div>
+  </section>
+
   <section class="panel mb-3 overflow-hidden radar-collapsed-panel filters-panel" aria-label="Filtros del tablero">
     <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
       <span><strong>Sala y búsqueda</strong><small>El día se cambia arriba · día operativo de 02:00 a 01:59</small></span><b aria-hidden="true">⌄</b>
@@ -143,11 +151,6 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
         <span class="canary-watch-mark" aria-hidden="true">🌴</span>
       </div>
     </header>
-    <div class="push-actions">
-      <button class="btn btn-outline-info" id="drillPushNotification" type="button">Simulacro de un vuelo</button>
-      <button class="btn btn-outline-info" id="testPushNotification" type="button">Probar aviso real</button>
-    </div>
-    <div class="push-status-line" id="pushStatusLine" aria-live="polite">Comprobando avisos del dispositivo…</div>
     <nav class="canary-week" id="canaryWeek" aria-label="Días de la semana con vuelos canarios"></nav>
     <nav class="canary-origins" id="canaryOrigins" aria-label="Filtrar Canarias por origen, noche o semana"></nav>
     <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>

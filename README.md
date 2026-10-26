@@ -40,8 +40,9 @@
 - **Avisos Web Push reales.** Los avisos se envían cifrados (RFC 8291,
   `aes128gcm`), así iOS siempre muestra la notificación aunque el service worker
   no pueda consultar el servidor. Al vigilar un vuelo el servidor manda ya un
-  aviso con origen, hora y cinta. **Simulacro de un vuelo** muestra seis avisos
-  locales de ejemplo (despegue, ETA, cinta, 40 min, aterrizaje, equipaje) y
+  aviso con origen, hora y cinta. **Simulacro de un vuelo** está arriba del
+  tablero (no hace falta vigilar un vuelo): muestra seis avisos locales de
+  ejemplo (despegue, ETA, cinta, 40 min, aterrizaje, equipaje) y
   uno cifrado desde el servidor. En iPhone hay que salir de la PWA o bloquear
   la pantalla: Safari en pestaña no recibe Web Push. El envío a Apple va por
   HTTP/2; si PHP cae a HTTP/1.1 el aviso no llega. Mientras el vuelo está
