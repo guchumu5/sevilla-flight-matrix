@@ -11,7 +11,8 @@ final class FlightRepository
     {
     }
 
-    public const NIGHT_FROM_HOUR = 21;
+    public const NIGHT_FROM_HOUR = 22;
+    public const EVENING_FROM_HOUR = 18;
 
     public function board(string $date): array
     {
@@ -49,15 +50,17 @@ final class FlightRepository
     }
 
     /**
-     * Llegadas nocturnas de varios días operativos (21:00–01:59), con
+     * Llegadas nocturnas de varios días operativos (por defecto 22:00–01:59), con
      * coincidencia calculada sobre toda la jornada para poder comparar
-     * cuál es la mejor noche de la semana.
+     * cuál es la mejor noche de la semana. El contexto incluye desde las 18:00
+     * para que el cliente pueda cambiar la hora de inicio en Ajustes.
      *
      * @return array{from:string,night_from_hour:int,days:list<array<string,mixed>>,flights:list<array<string,mixed>>,context:list<array<string,mixed>>}
      */
-    public function nightWeek(string $fromDate, int $days = 7): array
+    public function nightWeek(string $fromDate, int $days = 7, int $nightFromHour = self::NIGHT_FROM_HOUR): array
     {
         $days = max(1, min(14, $days));
+        $nightFromHour = max(self::EVENING_FROM_HOUR, min(23, $nightFromHour));
         $from = new \DateTimeImmutable($fromDate);
         $dates = [];
         for ($i = 0; $i < $days; $i++) {
@@ -84,7 +87,7 @@ final class FlightRepository
             if (!$this->isEveningArrival($arrival)) continue;
             $card = $this->nightCard($row, $day);
             $context[] = $card;
-            if (!$this->isNightArrival($arrival)) continue;
+            if (!$this->isNightArrival($arrival, $nightFromHour)) continue;
             $night[] = $card;
             $summary[$day]['count']++;
             $rating = (string)($card['belt_coincidence']['rating'] ?? 'bajo');
@@ -93,7 +96,7 @@ final class FlightRepository
         usort($night, [$this, 'nightRank']);
         return [
             'from' => $fromDate,
-            'night_from_hour' => self::NIGHT_FROM_HOUR,
+            'night_from_hour' => $nightFromHour,
             'days' => array_values($summary),
             'flights' => $night,
             'context' => $context,
@@ -294,16 +297,16 @@ SQL;
         return strcmp((string)$a['expected_arrival'], (string)$b['expected_arrival']);
     }
 
-    private function isNightArrival(string $dateTime): bool
+    private function isNightArrival(string $dateTime, int $fromHour = self::NIGHT_FROM_HOUR): bool
     {
-        return $this->arrivalHour($dateTime) >= self::NIGHT_FROM_HOUR
-            || $this->arrivalHour($dateTime) < OperationalDay::CUTOFF_HOUR;
+        $hour = $this->arrivalHour($dateTime);
+        return $hour >= $fromHour || $hour < OperationalDay::CUTOFF_HOUR;
     }
 
     private function isEveningArrival(string $dateTime): bool
     {
         $hour = $this->arrivalHour($dateTime);
-        return $hour >= self::NIGHT_FROM_HOUR - 2 || $hour < OperationalDay::CUTOFF_HOUR;
+        return $hour >= self::EVENING_FROM_HOUR || $hour < OperationalDay::CUTOFF_HOUR;
     }
 
     private function arrivalHour(string $dateTime): int

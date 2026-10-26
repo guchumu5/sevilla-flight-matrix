@@ -18,6 +18,8 @@
     canaryWeekScope: localStorage.getItem('matrix.canaryWeekScope') === '1',
     canaryScrollDate: '',
     nightWeek: null, nightContext: [], nightSort: localStorage.getItem('matrix.nightSort') || 'best',
+    nightOrigin: localStorage.getItem('matrix.nightOrigin') || '',
+    nightDate: '',
     pendingFlightId: 0, pendingFlightDate: '',
     detailFlightId: null, flightAwarePollTimer: null,
     focusStatus: null, focusNotice: '', redListOpen: false, pinnedFlightId: Number(localStorage.getItem('matrix.focusFlightId') || 0)
@@ -67,6 +69,8 @@
     greenWindowRange: document.querySelector('#greenWindowRange'), redWindowRange: document.querySelector('#redWindowRange'),
     spanWindowInput: document.querySelector('#spanWindowInput'), spanWindowRange: document.querySelector('#spanWindowRange'),
     resetCoincidenceWindows: document.querySelector('#resetCoincidenceWindows'),
+    nightFromInput: document.querySelector('#nightFromInput'), nightFromRange: document.querySelector('#nightFromRange'),
+    nightDays: document.querySelector('#nightDays'), nightOrigins: document.querySelector('#nightOrigins'),
     nightWeekStrip: document.querySelector('#nightWeekStrip'), nightWeekToggleLabel: document.querySelector('#nightWeekToggleLabel'),
     mobileNightLabel: document.querySelector('#mobileNightLabel'), nightWeekCollapse: document.querySelector('#nightWeekCollapse')
   };
@@ -375,6 +379,12 @@
   };
 
   const COINCIDENCE_DEFAULTS = {green:15, red:20, span:30};
+  const NIGHT_FROM_DEFAULT = 22;
+  const clampNightHour = value => Math.max(18, Math.min(23, Math.round(Number(value) || NIGHT_FROM_DEFAULT)));
+  const readNightFromHour = () => clampNightHour(localStorage.getItem('matrix.nightFromHour') || NIGHT_FROM_DEFAULT);
+  const saveNightFromHour = hour => localStorage.setItem('matrix.nightFromHour', String(clampNightHour(hour)));
+  const nightHourLabel = hour => `${String(clampNightHour(hour)).padStart(2, '0')}:00`;
+  const nightRangeText = () => `${nightHourLabel(readNightFromHour())}–01:59`;
   const clampWindow = (value, min = 5, max = 90) => Math.max(min, Math.min(max, Math.round(Number(value) || 0)));
   const readCoincidenceWindows = () => ({
     green: clampWindow(localStorage.getItem('matrix.greenWindow') || COINCIDENCE_DEFAULTS.green, 5, 60),
@@ -510,6 +520,16 @@
     if (els.greenWindowRange) els.greenWindowRange.value = String(windows.green);
     if (els.redWindowRange) els.redWindowRange.value = String(windows.red);
     if (els.spanWindowRange) els.spanWindowRange.value = String(windows.span);
+    const nightFrom = readNightFromHour();
+    if (els.nightFromInput) els.nightFromInput.value = String(nightFrom);
+    if (els.nightFromRange) els.nightFromRange.value = String(nightFrom);
+  }
+
+  function updateNightFromHour(hour) {
+    saveNightFromHour(hour);
+    syncCoincidenceSettings();
+    renderNightWeek();
+    renderCanaryWatch();
   }
 
   function updateCoincidenceWindows(green, red, span) {
@@ -1483,12 +1503,11 @@
     renderCanaryWatch();
   }
 
-  const NIGHT_FROM_HOUR = 21;
   const isNightFlight = flight => {
     const arrival = parseDate(flight.expected_arrival || effectiveArrival(flight) || flight.scheduled_arrival);
     if (!arrival) return false;
     const hour = arrival.getHours();
-    return hour >= NIGHT_FROM_HOUR || hour < 2;
+    return hour >= readNightFromHour() || hour < 2;
   };
   const canaryOriginMatches = flight => !state.canaryOrigin || String(flight.origin_iata) === state.canaryOrigin;
   const canaryMatches = flight => canaryOriginMatches(flight) && (!state.canaryNight || isNightFlight(flight));
@@ -1626,7 +1645,7 @@
     els.canaryWatch.classList.toggle('week-scope', state.canaryWeekScope);
     if (!flights.length) {
       const originName = canaryOriginName(state.canaryOrigin);
-      const nightHint = state.canaryNight ? ' nocturnos (21:00–01:59)' : '';
+      const nightHint = state.canaryNight ? ` nocturnos (${nightRangeText()})` : '';
       const scopeHint = state.canaryWeekScope ? 'en la semana' : relativeDayLabel(els.date.value).toLowerCase();
       els.canaryWatch.innerHTML = `<div class="canary-empty">${state.canaryOrigin || state.canaryNight
         ? `No hay vuelos${nightHint}${state.canaryOrigin ? ` desde ${esc(originName)}` : ''} ${esc(scopeHint)}. Prueba otro filtro.`
@@ -1675,7 +1694,8 @@
   async function loadNightWeek() {
     try {
       const today = madridNow().operationalDate;
-      const response = await fetch(`api/night-week.php?from=${encodeURIComponent(today)}&days=7`, {headers:{Accept:'application/json'}, cache:'no-store'});
+      const nightFrom = readNightFromHour();
+      const response = await fetch(`api/night-week.php?from=${encodeURIComponent(today)}&days=7&night_from=${nightFrom}`, {headers:{Accept:'application/json'}, cache:'no-store'});
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'Sin nocturnos');
       state.nightWeek = payload;
@@ -1687,6 +1707,12 @@
     renderNightWeek();
     if (state.canaryWeekScope || state.canaryNight) renderCanaryWatch();
   }
+
+  const nightOriginMatches = flight => !state.nightOrigin || String(flight.origin_iata) === state.nightOrigin;
+  const nightCanaryFlights = () => {
+    const context = state.nightContext.length ? state.nightContext : (state.nightWeek?.flights || []);
+    return context.filter(f => isNightFlight(f) && Number(f.is_canary) === 1);
+  };
 
   function nightCardMarkup(f, today, bestOfDay) {
     const arrival = parseDate(f.expected_arrival || effectiveArrival(f));
@@ -1713,56 +1739,78 @@
   function renderNightWeek() {
     if (!els.nightWeekStrip) return;
     const today = madridNow().operationalDate;
-    const context = state.nightContext.length ? state.nightContext : (state.nightWeek?.flights || []);
-    const flights = context.filter(f => isNightFlight(f) && Number(f.is_canary) === 1);
-    const best = flights.reduce((max, flight) => Math.max(max, flightScore10(flight)), 0);
+    const all = nightCanaryFlights();
+    const weekDates = Array.isArray(state.nightWeek?.days) && state.nightWeek.days.length
+      ? state.nightWeek.days.map(day => day.date)
+      : Array.from({length:7}, (_, index) => shiftDate(today, index));
+    const days = weekDates.map(date => {
+      const flights = all.filter(flight => (flight.operational_date || operationalDateOf(flight.scheduled_arrival)) === date && nightOriginMatches(flight));
+      flights.sort((a, b) => state.nightSort === 'time'
+        ? String(a.expected_arrival || a.scheduled_arrival).localeCompare(String(b.expected_arrival || b.scheduled_arrival))
+        : flightScore10(b) - flightScore10(a) || String(a.expected_arrival || '').localeCompare(String(b.expected_arrival || '')));
+      return {
+        date,
+        flights,
+        best: flights.reduce((max, flight) => Math.max(max, flightScore10(flight)), 0)
+      };
+    });
+    if (!state.nightDate || !days.some(day => day.date === state.nightDate)) {
+      const todayGroup = days.find(day => day.date === today);
+      const withFlights = days.find(day => day.flights.length);
+      state.nightDate = (todayGroup?.flights.length ? today : withFlights?.date) || today;
+    }
+    const selected = days.find(day => day.date === state.nightDate) || days[0];
+    const visible = selected?.flights || [];
+    const best = all.filter(nightOriginMatches).reduce((max, flight) => Math.max(max, flightScore10(flight)), 0);
     if (els.nightWeekToggleLabel) {
       const open = els.nightWeekCollapse?.classList.contains('show');
-      els.nightWeekToggleLabel.textContent = `${open ? 'visible' : 'plegado'} · Canarias 21:00–01:59 · ${flights.length} vuelo${flights.length===1?'':'s'}${best ? ` · mejor ${best}/10` : ''}`;
+      els.nightWeekToggleLabel.textContent = `${open ? 'visible' : 'plegado'} · ${nightRangeText()} · ${all.length} vuelo${all.length===1?'':'s'}${best ? ` · mejor ${best}/10` : ''}`;
     }
     if (els.mobileNightLabel) {
-      els.mobileNightLabel.textContent = flights.length
-        ? `${flights.length} Canarias${best ? ` · ${best}/10` : ''}`
-        : 'Canarias noche';
+      els.mobileNightLabel.textContent = all.length
+        ? `${all.length} Canarias${best ? ` · ${best}/10` : ''}`
+        : `Canarias ${nightHourLabel(readNightFromHour())}`;
     }
     document.querySelectorAll('[data-night-sort]').forEach(button => {
       const on = button.dataset.nightSort === state.nightSort;
       button.classList.toggle('active', on);
       button.setAttribute('aria-pressed', on ? 'true' : 'false');
     });
-    if (!flights.length) {
-      els.nightWeekStrip.innerHTML = '<div class="canary-empty">No hay vuelos canarios de 21:00 a 01:59 en los próximos 7 días.</div>';
+    if (els.nightDays) {
+      els.nightDays.innerHTML = days.map(day => {
+        const diff = dayDifference(today, day.date);
+        const top = diff === 0 ? 'Hoy' : diff === 1 ? 'Mañana' : dayName(day.date, {weekday:'short'});
+        return `<button type="button" class="canary-day ${day.date===state.nightDate?'active':''} ${day.flights.length?'':'empty'}" data-night-date="${esc(day.date)}" aria-pressed="${day.date===state.nightDate?'true':'false'}">
+          <small>${esc(top)}</small><strong>${esc(dayName(day.date, {day:'numeric'}))}</strong>
+          <span>${day.flights.length} vuelo${day.flights.length===1?'':'s'}</span>${day.best ? `<i>mejor ${day.best}/10</i>` : ''}
+        </button>`;
+      }).join('');
+    }
+    if (els.nightOrigins) {
+      const origins = new Map();
+      all.forEach(item => {
+        if (item.origin_iata && !origins.has(item.origin_iata)) origins.set(item.origin_iata, item.origin_name || item.origin_iata);
+      });
+      if (state.nightOrigin && !origins.has(state.nightOrigin)) origins.set(state.nightOrigin, state.nightOrigin);
+      const chips = [['', 'Todas'], ...[...origins.entries()].sort((a, b) => a[1].localeCompare(b[1], 'es'))];
+      els.nightOrigins.innerHTML = chips.map(([iata, name]) => {
+        const count = all.filter(item => (!iata || item.origin_iata === iata) && (item.operational_date || operationalDateOf(item.scheduled_arrival)) === state.nightDate).length;
+        return `<button type="button" class="canary-origin ${state.nightOrigin===iata?'active':''}" data-night-origin="${esc(iata)}" aria-pressed="${state.nightOrigin===iata?'true':'false'}">${esc(name)} <b>${count}</b></button>`;
+      }).join('');
+    }
+    if (!all.length) {
+      els.nightWeekStrip.innerHTML = `<div class="canary-empty">No hay vuelos canarios de ${esc(nightRangeText())} en los próximos 7 días.</div>`;
       return;
     }
-    const days = [];
-    flights.forEach(flight => {
-      const date = flight.operational_date || operationalDateOf(flight.scheduled_arrival);
-      if (!date) return;
-      let group = days.find(item => item.date === date);
-      if (!group) {
-        group = {date, flights: []};
-        days.push(group);
-      }
-      group.flights.push(flight);
-    });
-    days.sort((a, b) => a.date.localeCompare(b.date));
-    days.forEach(group => {
-      group.flights.sort((a, b) => state.nightSort === 'time'
-        ? String(a.expected_arrival || a.scheduled_arrival).localeCompare(String(b.expected_arrival || b.scheduled_arrival))
-        : flightScore10(b) - flightScore10(a) || String(a.expected_arrival || '').localeCompare(String(b.expected_arrival || '')));
-      group.best = group.flights.reduce((max, flight) => Math.max(max, flightScore10(flight)), 0);
-    });
-    els.nightWeekStrip.innerHTML = days.map(group => {
-      const diff = dayDifference(today, group.date);
-      const label = diff === 0 ? 'Hoy' : diff === 1 ? 'Mañana' : dayName(group.date, {weekday:'long', day:'numeric', month:'short'});
-      return `<section class="night-day">
-        <header class="night-day-header">
-          <div><small>${esc(label)}</small><strong>${esc(dayName(group.date, {weekday:'short', day:'numeric'}))}</strong></div>
-          <span>${group.flights.length} vuelo${group.flights.length===1?'':'s'} · mejor <b>${group.best}/10</b></span>
-        </header>
-        <div class="night-day-strip">${group.flights.map(flight => nightCardMarkup(flight, today, group.best)).join('')}</div>
-      </section>`;
-    }).join('');
+    if (!visible.length) {
+      const originName = all.find(item => item.origin_iata === state.nightOrigin)?.origin_name || state.nightOrigin;
+      els.nightWeekStrip.innerHTML = `<div class="canary-empty">${state.nightOrigin
+        ? `No hay vuelos desde ${esc(originName)} ${esc(relativeDayLabel(state.nightDate).toLowerCase())}. Elige otro día u origen.`
+        : `No hay vuelos canarios ${esc(relativeDayLabel(state.nightDate).toLowerCase())} de ${esc(nightRangeText())}.`}</div>`;
+      return;
+    }
+    els.nightWeekStrip.innerHTML = visible.map(flight => nightCardMarkup(flight, today, selected.best)).join('');
+    els.nightWeekStrip.scrollLeft = 0;
     bindFlightOpeners();
   }
 
@@ -2721,6 +2769,20 @@
       renderNightWeek();
       return;
     }
+    const nightDay = event.target.closest('[data-night-date]');
+    if (nightDay) {
+      state.nightDate = nightDay.dataset.nightDate || '';
+      renderNightWeek();
+      return;
+    }
+    const nightOrigin = event.target.closest('[data-night-origin]');
+    if (nightOrigin) {
+      state.nightOrigin = nightOrigin.dataset.nightOrigin || '';
+      if (state.nightOrigin) localStorage.setItem('matrix.nightOrigin', state.nightOrigin);
+      else localStorage.removeItem('matrix.nightOrigin');
+      renderNightWeek();
+      return;
+    }
     const gotoDate = event.target.closest('[data-goto-date]');
     if (gotoDate) {
       if (gotoDate.closest('.night-card, .canary-card')) return;
@@ -2821,7 +2883,14 @@
   bindWindowPair(els.spanWindowInput, els.spanWindowRange, 'span');
   els.resetCoincidenceWindows?.addEventListener('click', () => {
     updateCoincidenceWindows(COINCIDENCE_DEFAULTS.green, COINCIDENCE_DEFAULTS.red, COINCIDENCE_DEFAULTS.span);
+    updateNightFromHour(NIGHT_FROM_DEFAULT);
   });
+  const applyNightFrom = value => updateNightFromHour(value);
+  els.nightFromInput?.addEventListener('change', () => applyNightFrom(els.nightFromInput.value));
+  els.nightFromRange?.addEventListener('input', () => {
+    if (els.nightFromInput) els.nightFromInput.value = els.nightFromRange.value;
+  });
+  els.nightFromRange?.addEventListener('change', () => applyNightFrom(els.nightFromRange.value));
   syncCoincidenceSettings();
   if (els.enableNotifications) els.enableNotifications.addEventListener('click', async () => {
     try {

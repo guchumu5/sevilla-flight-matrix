@@ -71,7 +71,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <span aria-hidden="true">⚠</span><span><small>Vigilancia de cintas</small><strong id="mobileBeltWatchLabel">Comprobando</strong></span>
     </button>
     <button class="mobile-command mobile-night-command" type="button" data-bs-toggle="collapse" data-bs-target="#nightWeekCollapse" aria-controls="nightWeekCollapse" aria-expanded="false">
-      <span aria-hidden="true">☾</span><span><small>Canarias noche</small><strong id="mobileNightLabel">21:00 a 01:59</strong></span>
+      <span aria-hidden="true">☾</span><span><small>Canarias noche</small><strong id="mobileNightLabel">22:00 a 01:59</strong></span>
     </button>
   </div>
 
@@ -136,7 +136,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <header class="panel-header d-flex align-items-center justify-content-between gap-2">
       <div>
         <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias · semana</h2>
-        <p class="mb-0 text-secondary small">Filtra por origen, solo noche (21:00–01:59) o mira toda la semana. «Activar avisos» cubre despegue, ETA, cinta, incidencias, aterrizaje y equipaje.</p>
+        <p class="mb-0 text-secondary small">Filtra por origen, solo noche (hora en Ajustes, 22:00 de serie) o mira toda la semana. «Activar avisos» cubre despegue, ETA, cinta, incidencias, aterrizaje y equipaje.</p>
       </div>
       <div class="d-flex align-items-center gap-2">
         <button class="btn btn-sm btn-outline-info d-none" id="testPushNotification" type="button">Probar aviso real</button>
@@ -152,16 +152,18 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
 
   <section class="panel night-week-panel mb-3 overflow-hidden radar-collapsed-panel" aria-labelledby="nightWeekTitle">
     <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#nightWeekCollapse" aria-expanded="false" aria-controls="nightWeekCollapse">
-      <span><strong id="nightWeekTitle">Canarias noche · semana</strong><small id="nightWeekToggleLabel">plegado · 21:00 a 01:59 · nota 1 a 10</small></span><b aria-hidden="true">⌄</b>
+      <span><strong id="nightWeekTitle">Canarias noche · semana</strong><small id="nightWeekToggleLabel">plegado · 22:00 a 01:59 · nota 1 a 10</small></span><b aria-hidden="true">⌄</b>
     </button>
     <div class="collapse" id="nightWeekCollapse">
       <header class="panel-header night-week-toolbar">
-        <p class="mb-0 text-secondary small">Solo Canarias, noche a noche. El 10 es 2 cintas rojas y 3 verdes. Las rojas valen el 70 % y las verdes el 30 %. Pulsa una tarjeta para abrirla.</p>
+        <p class="mb-0 text-secondary small">Elige día y origen. En el teléfono las tarjetas van una a la derecha de la otra. El 10 es 2 cintas rojas y 3 verdes. La hora de la noche se cambia en Ajustes.</p>
         <div class="night-week-sort" role="group" aria-label="Orden de las tarjetas nocturnas">
           <button type="button" class="night-sort active" data-night-sort="best" aria-pressed="true">Mejor nota</button>
           <button type="button" class="night-sort" data-night-sort="time" aria-pressed="false">Por hora</button>
         </div>
       </header>
+      <nav class="canary-week" id="nightDays" aria-label="Elegir noche"></nav>
+      <nav class="canary-origins" id="nightOrigins" aria-label="Filtrar Canarias noche por origen"></nav>
       <div class="night-strip" id="nightWeekStrip" aria-live="polite"></div>
     </div>
   </section>
@@ -312,7 +314,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content settings-modal">
       <div class="modal-header">
-        <div><small class="text-secondary">AJUSTES</small><h2 class="modal-title h5" id="settingsModalLabel">Coincidencia de cintas</h2></div>
+        <div><small class="text-secondary">AJUSTES</small><h2 class="modal-title h5" id="settingsModalLabel">Cintas y noche</h2></div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
@@ -342,6 +344,15 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
             <span class="input-group-text">±</span>
             <input class="form-control" type="number" id="redWindowInput" min="5" max="60" step="1" inputmode="numeric">
             <span class="input-group-text">min</span>
+          </div>
+        </div>
+        <label class="form-label mt-4" for="nightFromInput">Canarias noche · empieza a las</label>
+        <p class="text-secondary small mb-2">Por defecto 22:00. Cuenta hasta las 01:59 del día operativo.</p>
+        <div class="settings-window">
+          <input type="range" id="nightFromRange" min="18" max="23" step="1" aria-label="Hora de inicio de la noche canaria">
+          <div class="input-group">
+            <input class="form-control" type="number" id="nightFromInput" min="18" max="23" step="1" inputmode="numeric">
+            <span class="input-group-text">:00</span>
           </div>
         </div>
       </div>

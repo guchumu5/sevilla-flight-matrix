@@ -13,15 +13,16 @@
   llegadas irán a las cintas 7 y 8 en la jornada: oficiales de Aena, asignadas,
   predichas e históricas (por vuelo u origen con al menos tres muestras).
 - **Canarias noche.** El apartado **Canarias noche · semana** muestra los
-  vuelos canarios de 21:00 a 01:59, día a día, con una nota del 1 al 10. El 10
-  es 2 cintas rojas y 3 verdes: las rojas pesan el 70 % (35 % una, 70 % dos) y
-  las verdes el 30 %. Endpoint `api/night-week.php`. En el teléfono cada
-  tarjeta ocupa el ancho y se pasa entera.
+  vuelos canarios de la noche (22:00 a 01:59 de serie; la hora se cambia en
+  **Ajustes**), un día a la vez, con filtro de origen y una nota del 1 al 10.
+  El 10 es 2 cintas rojas y 3 verdes: las rojas pesan el 70 % (35 % una, 70 %
+  dos) y las verdes el 30 %. Endpoint `api/night-week.php`. En el teléfono las
+  tarjetas van una a la derecha de la otra y se pasa entera.
 - **Canarias toda la semana.** El nuevo endpoint `api/canary-week.php` devuelve
   siete días de vuelos canarios. El panel permite cambiar de día y filtrar por
   origen (Tenerife Norte, Tenerife Sur, Lanzarote, Gran Canaria…). Los chips
-  **Noche** y **Semana** muestran solo llegadas de 21:00 a 01:59 o todos los
-  vuelos de los siete días, agrupados día a día.
+  **Noche** y **Semana** muestran solo llegadas nocturnas (hora en Ajustes) o
+  todos los vuelos de los siete días, agrupados día a día.
 - **Coincidencia de cintas (`belt_coincidence_v1`).** La nube muestra las
   llegadas de una franja visible (por defecto ±30 min). Solo se colorean y
   cuentan las que caen en el tiempo operativo: verdes ±15 min y rojas ±20 min.

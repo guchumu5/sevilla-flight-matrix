@@ -98,7 +98,7 @@ jobs:
 
       - name: Comprobar semana nocturna
         run: |
-          php -r 'require "src/bootstrap.php"; $week=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->nightWeek("2026-09-22"); if (count($week["days"]??[])!==7 || !isset($week["flights"],$week["context"]) || ($week["night_from_hour"]??0)!==21) { fwrite(STDERR,json_encode($week,JSON_PRETTY_PRINT)); exit(1); }'
+          php -r 'require "src/bootstrap.php"; $week=(new SevillaMatrix\FlightRepository(SevillaMatrix\Database::connection()))->nightWeek("2026-09-22"); if (count($week["days"]??[])!==7 || !isset($week["flights"],$week["context"]) || ($week["night_from_hour"]??0)!==22) { fwrite(STDERR,json_encode($week,JSON_PRETTY_PRINT)); exit(1); }'
 
       - name: Comprobar idempotencia e historico
         run: |

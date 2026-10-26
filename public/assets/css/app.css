@@ -130,7 +130,8 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .night-week-sort { display:flex; gap:.35rem; }
 .night-sort { min-height:40px; padding:.3rem .75rem; border:1px solid var(--border); border-radius:999px; background:transparent; color:#dbeaff; font-size:.82rem; font-weight:850; }
 .night-sort.active { border-color:var(--blue); background:rgba(82,168,255,.2); color:#fff; }
-.night-strip { display:grid; gap:1rem; padding:.85rem 1rem 1rem; }
+.night-strip { display:flex; gap:.75rem; overflow-x:auto; padding:.85rem 1rem 1.1rem; scroll-snap-type:x mandatory; scrollbar-color:var(--orange) transparent; -webkit-overflow-scrolling:touch; }
+.night-strip > .canary-empty { flex:1 0 100%; }
 .night-day { min-width:0; }
 .night-day-header { display:flex; align-items:flex-end; justify-content:space-between; gap:.75rem; margin:0 .15rem .45rem; }
 .night-day-header small { display:block; color:#9ed8ff; font-size:.68rem; font-weight:900; letter-spacing:.04em; text-transform:uppercase; }
@@ -374,7 +375,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   .flights-table td:nth-child(7)::before{content:"Cinta: ";color:var(--muted)}.flights-table td:nth-child(8)::before{content:"Sala: ";color:var(--muted)}
   .flights-table td:nth-child(9){display:none}
   .mobile-command-grid{grid-template-columns:1fr 1fr}.mobile-night-command{grid-column:1/-1}
-  .canary-strip,.night-day-strip,.upcoming-strip{scroll-snap-type:x mandatory;scroll-padding-inline:.7rem;-webkit-overflow-scrolling:touch}
+  .canary-strip,.night-strip,.night-day-strip,.upcoming-strip{scroll-snap-type:x mandatory;scroll-padding-inline:.7rem;-webkit-overflow-scrolling:touch}
   .canary-strip.week-scope{overflow:visible;scroll-snap-type:none}
   .canary-card,.night-card{flex:0 0 100%;max-width:100%;padding:.8rem;scroll-snap-align:start;scroll-snap-stop:always}.canary-card>div:first-child strong{font-size:1.05rem}.canary-flight-code{font-size:.85rem}.canary-card-actions{grid-template-columns:1fr 1fr}.canary-quick-watch,.canary-card-actions .flightaware-link{min-height:42px;font-size:.78rem}.canary-belt-line span,.canary-belt-line small{font-size:.68rem}.canary-belt-line b{font-size:1.08rem}
   .night-card{padding-top:1.2rem}.night-score strong{font-size:1.9rem}
