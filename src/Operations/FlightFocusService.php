@@ -126,7 +126,7 @@ final class FlightFocusService
             'flight' => (string)$flight['physical_flight'],
             'flight_date' => (string)$flight['flight_date'],
             'aena_priority_minutes' => self::AENA_PRIORITY_MINUTES,
-            'aena_message' => 'Aena queda marcado para seguimiento: cada 15 min durante la última hora y cada 5 min desde T-20 hasta finalizar el equipaje.',
+            'aena_message' => 'Aena queda marcado para seguimiento: cada 5 min hasta finalizar el equipaje.',
             'aircraft' => $aircraft,
             'flightaware' => $flightAware,
             'opensky' => $openSky,

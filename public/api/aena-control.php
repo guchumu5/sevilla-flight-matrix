@@ -62,8 +62,7 @@ try {
         $monitored = isset($watchedIds[(int)$flight['id']])
             || isset($focusedIds[(int)$flight['id']])
             || ($canaryGlobal && (int)$flight['is_canary'] === 1);
-        // La captura general ya se ejecuta aproximadamente cada 15 min. Solo
-        // se eleva a 5 min durante los 20 min finales y hasta resolver equipaje.
+        // Los vigilados y las cintas críticas van a 5 min; el resto, 15 min.
         $priorityWatch = TrackingCadence::intervalMinutes(
             $minutesToArrival,
             $monitored,
@@ -116,7 +115,7 @@ try {
         'normal_due' => $forced || $ageMinutes === null || $ageMinutes >= 12,
         'forced' => $forced,
         'recommended_interval_minutes' => ($critical !== [] || $forced) ? 5 : 15,
-        'policy' => 'Vuelo vigilado: cada 15 min durante la última hora; cada 5 min desde T-20 hasta finalizar equipaje. Los casos críticos de cinta mantienen 5 min.',
+        'policy' => 'Vuelo vigilado: cada 5 min hasta finalizar el equipaje. El resto de la matriz, 15 min. Las cintas críticas también van a 5 min.',
     ]);
 } catch (Throwable $error) {
     Response::json(['error' => $error->getMessage()], 500);

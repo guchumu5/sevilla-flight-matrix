@@ -444,7 +444,9 @@ final class WebPushService
                AND (
                  e.event_type IN ('departure_recorded','arrival_recorded','arrival_reminder')
                  OR e.source='aena'
-                 OR (e.source='flightstats' AND e.event_type IN ('eta_changed','eta_published','departure_recorded'))
+                 OR (e.source IN ('flightstats','airlabs') AND e.event_type IN (
+                   'eta_changed','eta_published','departure_recorded','arrival_recorded'
+                 ))
                )
                AND NOT (
                  e.event_type='eta_changed'

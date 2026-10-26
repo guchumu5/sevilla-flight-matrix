@@ -663,7 +663,7 @@
         <span><small>Cinta confirmada</small><b>${esc(official)}</b></span>
         <span><small>Predicción</small><b>${esc(predicted)}</b></span>
       </div>
-      ${flightStatsWatchMarkup(flight)}
+      ${flightStatsWatchMarkup(flight)}${flight.secondary_eta && flight.secondary_eta !== flight.eta && flight.secondary_eta !== (flight.flightstats && flight.flightstats.eta) ? `<p class="flightstats-watch-line"><span>${esc((flight.secondary_eta_source || 'API').toUpperCase())}</span><strong>ETA ${time(flight.secondary_eta)}${flight.secondary_actual_departure ? ' · salió ' + time(flight.secondary_actual_departure) : ''}${flight.secondary_actual_arrival ? ' · aterrizó ' + time(flight.secondary_actual_arrival) : ''}</strong><small>secundario · no sustituye a Aena</small></p>` : ''}
       <div class="focus-hero-actions">
         <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${disabled?'disabled':''}>↻ ${esc(buttonLabel)}</button>
         ${allowExpand ? `<button class="btn btn-outline-light w-100" type="button" data-open-flight="${Number(flight.id)}">Ampliar vuelo</button>` : ''}
@@ -848,6 +848,91 @@
     });
     try { localStorage.setItem(storageKey, JSON.stringify(current)); } catch (_) {}
     state.alertDate = date;
+  }
+
+  function watchSnapshot(flight) {
+    const stats = flight.flightstats || {};
+    return {
+      status: flight.status || '',
+      eta: flight.eta || '',
+      actual_arrival: flight.actual_arrival || '',
+      belt: flight.belt ? `${flight.hall || '?'}/${flight.belt}` : '',
+      baggage: flight.baggage_state || '',
+      secondary_eta: flight.secondary_eta || stats.eta || '',
+      secondary_arrival: flight.secondary_actual_arrival || stats.actual_arrival || '',
+      secondary_departure: flight.secondary_actual_departure || stats.actual_departure || '',
+      secondary_source: flight.secondary_eta_source || '',
+      fs_delay: stats.delay_minutes == null || stats.delay_minutes === '' ? '' : String(stats.delay_minutes)
+    };
+  }
+
+  async function notifyWatchedChange(flight, title, body, tag) {
+    try {
+      const registration = await ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '');
+      await registration.showNotification(title, {
+        body,
+        tag: tag || ('matrix-watch-' + flight.id),
+        renotify: true,
+        data: {url: `index.php?date=${encodeURIComponent(els.date.value)}&flight=${flight.id}`}
+      });
+    } catch (_) {}
+  }
+
+  function processWatchAlerts(incoming) {
+    if (!state.watchedFlightIds.length) return;
+    const storageKey = 'matrix.watchSnapshots';
+    let previous = {};
+    try { previous = JSON.parse(localStorage.getItem(storageKey) || '{}') || {}; } catch (_) { previous = {}; }
+    const current = {...previous};
+    incoming.filter(flight => flightIsWatched(flight.id)).forEach(flight => {
+      const snap = watchSnapshot(flight);
+      const before = previous[String(flight.id)];
+      current[String(flight.id)] = snap;
+      if (!before) return;
+      const title = `${flight.origin_name} · ${flight.physical_flight}`;
+      if (before.actual_arrival !== snap.actual_arrival && snap.actual_arrival) {
+        notifyWatchedChange(flight, title, '🛬 Aterriza · ' + time(snap.actual_arrival), 'matrix-watch-' + flight.id + '-arr');
+      } else if (before.secondary_arrival !== snap.secondary_arrival && snap.secondary_arrival && !snap.actual_arrival) {
+        notifyWatchedChange(flight, title, '🛬 Aterrizaje (AirLabs/FlightStats) · ' + time(snap.secondary_arrival), 'matrix-watch-' + flight.id + '-arr2');
+      }
+      if (before.eta !== snap.eta && snap.eta) {
+        const scheduled = parseDate(flight.scheduled_arrival);
+        const etaAt = parseDate(snap.eta);
+        const delay = scheduled && etaAt ? Math.round((etaAt.getTime() - scheduled.getTime()) / 60000) : null;
+        if (delay !== null && Math.abs(delay) >= 5) {
+          notifyWatchedChange(flight, title, `⏱️ ETA ${time(snap.eta)} · ${delay > 0 ? '+' : ''}${delay} min sobre programada`, 'matrix-watch-' + flight.id + '-eta');
+        }
+      }
+      if (before.secondary_eta !== snap.secondary_eta && snap.secondary_eta && snap.secondary_eta !== snap.eta) {
+        const scheduled = parseDate(flight.scheduled_arrival);
+        const etaAt = parseDate(snap.secondary_eta);
+        const delay = scheduled && etaAt ? Math.round((etaAt.getTime() - scheduled.getTime()) / 60000) : null;
+        if (delay !== null && Math.abs(delay) >= 5) {
+          const source = (snap.secondary_source || 'API').toUpperCase();
+          notifyWatchedChange(flight, title, `⏱️ Retraso ${source} · ETA ${time(snap.secondary_eta)} · ${delay > 0 ? '+' : ''}${delay} min`, 'matrix-watch-' + flight.id + '-eta2');
+        }
+      }
+      if (before.fs_delay !== snap.fs_delay && snap.fs_delay !== '' && Math.abs(Number(snap.fs_delay)) >= 5) {
+        notifyWatchedChange(flight, title, `⏱️ FlightStats ${Number(snap.fs_delay) > 0 ? '+' : ''}${snap.fs_delay} min`, 'matrix-watch-' + flight.id + '-fs');
+      }
+      if (before.belt !== snap.belt && snap.belt) {
+        notifyWatchedChange(flight, title, (before.belt ? '⚠️ Cambio de cinta · ' + before.belt + ' → ' : '🧳 Asignación de cinta · ') + snap.belt, 'matrix-watch-' + flight.id + '-belt');
+      }
+      if (before.baggage !== snap.baggage && snap.baggage && snap.baggage !== 'pendiente') {
+        const bag = snap.baggage === 'finalizado' || snap.baggage === 'final'
+          ? '✅ Entrega de equipaje finalizada'
+          : ('🧳 En la cinta' + (snap.belt ? ' · ' + snap.belt : ''));
+        notifyWatchedChange(flight, title, bag, 'matrix-watch-' + flight.id + '-bag');
+      }
+      if (before.status !== snap.status && snap.status) {
+        notifyWatchedChange(flight, title, snap.status, 'matrix-watch-' + flight.id + '-st');
+      }
+      if (before.secondary_departure !== snap.secondary_departure && snap.secondary_departure) {
+        notifyWatchedChange(flight, title, '✈️ Despega · ' + time(snap.secondary_departure), 'matrix-watch-' + flight.id + '-dep');
+      }
+    });
+    Object.keys(current).forEach(id => { if (!flightIsWatched(id)) delete current[id]; });
+    try { localStorage.setItem(storageKey, JSON.stringify(current)); } catch (_) {}
   }
 
   function updateNotificationButton() {
@@ -1349,6 +1434,7 @@
       }
       const incoming = payload.flights || [];
       processCanaryAlerts(incoming, els.date.value);
+      processWatchAlerts(incoming);
       state.flights = incoming;
       applyBeltCoincidence(state.flights);
       const important = incoming.filter(f => Boolean(f.belt_attention));
@@ -2867,7 +2953,7 @@
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
       const watched = flightIsWatched(id);
       const watch = `<div class="detail-watch-quick"><button class="btn ${watched?'btn-warning':'btn-outline-warning'} w-100" type="button" data-watch-flight="${Number(id)}" data-watching="${watched?'1':'0'}">${watched?'🔔 Vuelo vigilado · desactivar':'🔔 Vigilar este vuelo'}</button></div>`;
-      const watchSupport = `<p class="watch-explanation mb-3">Durante la última hora: Aena cada 15 min; desde 20 min antes, cada 5 min hasta resolver el equipaje. Incluye avisos de despegue, ETA, cinta, incidencias, aterrizaje y aproximadamente 40 min antes de llegar.</p>
+      const watchSupport = `<p class="watch-explanation mb-3">Mientras lo vigilas, Aena se comprueba cada 5 min hasta el equipaje. El teléfono avisa también si AirLabs o FlightStats publican retraso o aterrizaje. Incluye despegue, ETA, cinta, aterrizaje y el aviso de 40 min.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita al abrir la ficha o al buscar matrícula y telemetría.</small></div>`;
       els.detailBody.innerHTML = watch + `<div class="tracked-focus-layout detail-focus-layout">
         <aside class="tracked-focus-summary">

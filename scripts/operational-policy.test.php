@@ -18,10 +18,10 @@ expectSame('2026-10-20', OperationalDay::current(new DateTimeImmutable('2026-10-
 expectSame(true, OperationalDay::contains('2026-10-20 00:15:00', '2026-10-19'), 'Una llegada de madrugada debe permanecer en la jornada de salida.');
 expectSame(false, OperationalDay::contains('2026-10-20 02:00:00', '2026-10-19'), 'Las 02:00 deben quedar fuera de la jornada anterior.');
 
-expectSame(15, TrackingCadence::intervalMinutes(61, true, false), 'Antes de la última hora no debe elevar la frecuencia.');
-expectSame(15, TrackingCadence::intervalMinutes(60, true, false), 'T-60 debe consultar cada 15 minutos.');
-expectSame(15, TrackingCadence::intervalMinutes(21, true, false), 'T-21 todavía debe consultar cada 15 minutos.');
-expectSame(5, TrackingCadence::intervalMinutes(20, true, false), 'T-20 debe activar la consulta cada 5 minutos.');
+expectSame(5, TrackingCadence::intervalMinutes(61, true, false), 'Un vuelo vigilado debe consultarse cada 5 minutos aunque falte más de una hora.');
+expectSame(5, TrackingCadence::intervalMinutes(60, true, false), 'T-60 vigilado debe consultar cada 5 minutos.');
+expectSame(5, TrackingCadence::intervalMinutes(21, true, false), 'T-21 vigilado debe consultar cada 5 minutos.');
+expectSame(5, TrackingCadence::intervalMinutes(20, true, false), 'T-20 debe conservar la consulta cada 5 minutos.');
 expectSame(5, TrackingCadence::intervalMinutes(-25, true, false), 'La entrega de equipaje debe conservar los 5 minutos.');
 expectSame(5, TrackingCadence::intervalMinutes(-180, true, false), 'El refuerzo no debe caducar antes de que el vuelo finalice.');
 expectSame(15, TrackingCadence::intervalMinutes(-25, true, true), 'Un vuelo finalizado debe abandonar el refuerzo.');

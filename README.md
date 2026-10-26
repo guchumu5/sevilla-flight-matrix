@@ -69,8 +69,7 @@
   uno cifrado desde el servidor. En iPhone hay que salir de la PWA o bloquear
   la pantalla: Safari en pestaña no recibe Web Push. El envío a Apple va por
   HTTP/2; si PHP cae a HTTP/1.1 el aviso no llega. Mientras el vuelo está
-  vigilado, un pulso actualiza cada 15 min
-  (cada 5 min desde T−20) cuánto falta y a qué cinta va. **Comprobar ahora**
+  vigilado, Aena y el pulso van cada 5 min hasta el equipaje. **Comprobar ahora**
   reencola FlightAware, lee FlightStats (JSON público) y manda un aviso con
   Aena más FlightStats/AirLabs, sin inventar datos de Aena. Cada ingesta de
   Aena, AirLabs o FlightStats despacha la cola. La cola de FlightAware retiene
@@ -329,10 +328,11 @@ página permanezca abierta o en segundo plano. No repite eventos ya vistos.
 La actualización `20260929_005_push_watch` añade avisos Web Push reales. Tras
 aplicarla desde **Actualizar MySQL**, existen dos niveles independientes:
 
-- **Vigilar este vuelo** mantiene Aena cada 15 minutos durante la última hora,
-  refuerza a 5 minutos desde T−20 hasta resolver el equipaje, avisa de cambios
-  operativos y genera una alerta aproximadamente 40 minutos antes de la llegada
-  para salir a recoger al pasajero.
+- **Vigilar este vuelo** mantiene Aena cada 5 minutos hasta resolver el
+  equipaje. Avisa también si AirLabs o FlightStats publican retraso o
+  aterrizaje (aunque Aena siga en hora) y genera una alerta aproximadamente
+  40 minutos antes de la llegada para salir a recoger al pasajero. El iPhone
+  muestra esos avisos también en local mientras la PWA está abierta.
 - **Activar avisos Canarias** suscribe el dispositivo a todos los vuelos de
   LPA, TFN, TFS, ACE y FUE; el mismo botón permite desactivarlos.
 
