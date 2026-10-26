@@ -118,20 +118,40 @@ final class WebPushService
     }
 
     /**
-     * Envía al dispositivo una secuencia real de avisos operativos de ejemplo,
-     * para comprobar Web Push sin esperar a Aena.
+     * Un aviso cifrado de prueba desde el servidor. Los seis de ejemplo
+     * se muestran en el teléfono de forma local; este confirma el canal Apple.
      *
-     * @return array{ok:bool,sent:int,http_status:list<int>,sent_at:string}
+     * @return array{ok:bool,sent:int,http_status:int,encrypted:bool,http_version:?int,apple:bool,sent_at:string}
      */
     public function drill(string $deviceToken): array
     {
-        $statuses = [];
-        foreach ($this->drillNotices() as $index => $notice) {
-            $delivery = $this->deliverToDevice($deviceToken, $notice);
-            $statuses[] = $delivery['http_status'];
-            if ($index < 5) usleep(700_000);
+        $notice = [
+            'title' => 'Simulacro servidor · Gran Canaria · VLGTEST',
+            'body' => 'Este aviso ha salido del servidor. En iPhone aparece al salir de la app o bloquear la pantalla.',
+            'target_url' => 'index.php',
+            'tag' => 'matrix-drill-server',
+        ];
+        $path = $this->testNoticePath($deviceToken);
+        $directory = dirname($path);
+        if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
+            throw new RuntimeException('No se pudo preparar el simulacro Web Push.');
         }
-        return ['ok' => true, 'sent' => count($statuses), 'http_status' => $statuses, 'sent_at' => date('Y-m-d H:i:s')];
+        file_put_contents($path, json_encode($notice, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+        try {
+            $delivery = $this->deliverToDevice($deviceToken, $notice);
+        } catch (\Throwable $error) {
+            @unlink($path);
+            throw $error;
+        }
+        return [
+            'ok' => true,
+            'sent' => 1,
+            'http_status' => $delivery['http_status'],
+            'encrypted' => $delivery['encrypted'],
+            'http_version' => $delivery['http_version'] ?? null,
+            'apple' => $delivery['apple'] ?? false,
+            'sent_at' => $delivery['sent_at'],
+        ];
     }
 
     /** @return array<string,mixed> */
@@ -208,12 +228,6 @@ final class WebPushService
     public function test(string $deviceToken): array
     {
         $subscriptionId = $this->subscriptionId($deviceToken);
-        $stmt = $this->pdo->prepare('SELECT endpoint,p256dh,auth_secret FROM push_subscriptions WHERE id=:id AND active=1');
-        $stmt->execute(['id' => $subscriptionId]);
-        $subscription = $stmt->fetch();
-        $endpoint = (string)($subscription['endpoint'] ?? '');
-        if ($endpoint === '') throw new RuntimeException('La suscripción de este dispositivo no está activa.');
-
         $notice = [
             'title' => 'Matriz Sevilla · prueba real',
             'body' => 'Web Push funciona: este aviso ha viajado desde el servidor hasta el teléfono.',
@@ -232,17 +246,8 @@ final class WebPushService
         }
 
         try {
-            $delivery = $this->send($endpoint, (string)$subscription['p256dh'], (string)$subscription['auth_secret'], $notice + ['tag' => 'matrix-test']);
-            $status = $delivery['status'];
-            if (in_array($status, [404, 410], true)) {
-                $this->pdo->prepare('UPDATE push_subscriptions SET active=0,last_error=:error,updated_at=updated_at WHERE id=:id')
-                    ->execute(['error' => "Push HTTP {$status}", 'id' => $subscriptionId]);
-                throw new RuntimeException('La suscripción del teléfono ha caducado. Pulsa de nuevo «Activar avisos» para renovarla.');
-            }
-            if ($status < 200 || $status >= 300) throw new RuntimeException("Push HTTP {$status}");
-            $this->pdo->prepare('UPDATE push_subscriptions SET last_push_at=NOW(),last_error=NULL,updated_at=updated_at WHERE id=:id')
-                ->execute(['id' => $subscriptionId]);
-            return ['ok' => true, 'http_status' => $status, 'encrypted' => $delivery['encrypted'], 'sent_at' => date('Y-m-d H:i:s')];
+            $delivery = $this->deliverToDevice($deviceToken, $notice + ['tag' => 'matrix-test']);
+            return ['ok' => true] + $delivery;
         } catch (\Throwable $error) {
             @unlink($path);
             $this->pdo->prepare('UPDATE push_subscriptions SET last_error=:error,updated_at=updated_at WHERE id=:id')
@@ -544,31 +549,6 @@ final class WebPushService
         return $belt;
     }
 
-    /** @return list<array{title:string,body:string,target_url:string,tag:string}> */
-    private function drillNotices(): array
-    {
-        $title = 'Simulacro · Gran Canaria · VLGTEST';
-        $url = 'index.php';
-        $steps = [
-            '✈️ Despega · 20:15',
-            '⏱️ Nueva ETA 22:32 · -8 min sobre programada',
-            '🧳 Asignación de cinta · B/7',
-            '🚗 Aviso 40 min · llegada prevista 22:32',
-            '🛬 Aterriza · 22:33',
-            '🧳 En la cinta · B/7',
-        ];
-        $notices = [];
-        foreach ($steps as $index => $body) {
-            $notices[] = [
-                'title' => $title,
-                'body' => ($index + 1) . '/6 · ' . $body,
-                'target_url' => $url,
-                'tag' => 'matrix-drill-' . ($index + 1),
-            ];
-        }
-        return $notices;
-    }
-
     private function sendWatchPulses(): int
     {
         $stmt = $this->pdo->query(
@@ -706,7 +686,14 @@ final class WebPushService
         }
         $this->pdo->prepare('UPDATE push_subscriptions SET last_push_at=NOW(),last_error=NULL,updated_at=updated_at WHERE id=:id')
             ->execute(['id' => $subscriptionId]);
-        return ['ok' => true, 'http_status' => $status, 'encrypted' => $delivery['encrypted'], 'sent_at' => date('Y-m-d H:i:s')];
+        return [
+            'ok' => true,
+            'http_status' => $status,
+            'encrypted' => $delivery['encrypted'],
+            'http_version' => $delivery['http_version'] ?? null,
+            'apple' => (bool)($delivery['apple'] ?? false),
+            'sent_at' => date('Y-m-d H:i:s'),
+        ];
     }
 
     private function subscriptionId(string $token): int
@@ -725,23 +712,21 @@ final class WebPushService
      * las suscripciones que reciben pushes sin notificación visible.
      *
      * @param array<string,string> $notice
-     * @return array{status:int,encrypted:bool}
+     * @return array{status:int,encrypted:bool,http_version:?int,apple:bool}
      */
     private function send(string $endpoint, string $p256dh, string $auth, array $notice): array
     {
         $payload = json_encode($notice, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        try {
-            $body = $this->encryptPayload((string)$payload, $p256dh, $auth);
-        } catch (\Throwable) {
-            return ['status' => $this->post($endpoint, '', []), 'encrypted' => false];
+        $body = $this->encryptPayload((string)$payload, $p256dh, $auth);
+        $posted = $this->post($endpoint, $body, [
+            'Content-Encoding: aes128gcm',
+            'Content-Type: application/octet-stream',
+        ]);
+        $httpVersion = (int)($posted['http_version'] ?? 0);
+        if (!empty($posted['apple']) && ($httpVersion === 1 || $httpVersion === 2)) {
+            throw new RuntimeException('Plesk/PHP envió el aviso a Apple por HTTP/1.1. El iPhone no lo entrega. En PHP de Plesk hace falta curl con HTTP/2 (nghttp2).');
         }
-        return [
-            'status' => $this->post($endpoint, $body, [
-                'Content-Encoding: aes128gcm',
-                'Content-Type: application/octet-stream',
-            ]),
-            'encrypted' => true,
-        ];
+        return $posted + ['encrypted' => true];
     }
 
     /** RFC 8291 (aes128gcm) con un único registro. */
@@ -775,10 +760,14 @@ final class WebPushService
         return $salt . pack('N', 4096) . chr(strlen($localPublic)) . $localPublic . $cipher . $tag;
     }
 
-    /** @param list<string> $headers */
-    private function post(string $endpoint, string $body, array $headers): int
+    /**
+     * @param list<string> $headers
+     * @return array{status:int,http_version:?int,apple:bool}
+     */
+    private function post(string $endpoint, string $body, array $headers): array
     {
         $keys = $this->keys();
+        $host = strtolower((string)parse_url($endpoint, PHP_URL_HOST));
         $audience = parse_url($endpoint, PHP_URL_SCHEME) . '://' . parse_url($endpoint, PHP_URL_HOST);
         $header = $this->b64(json_encode(['typ' => 'JWT', 'alg' => 'ES256']));
         $claims = $this->b64(json_encode(['aud' => $audience, 'exp' => time() + 43200, 'sub' => (string)Env::get('VAPID_SUBJECT', 'mailto:admin@ojito.top')]));
@@ -788,20 +777,51 @@ final class WebPushService
         }
         $jwt = $unsigned . '.' . $this->b64($this->derToJose($der));
         $curl = curl_init($endpoint);
-        curl_setopt_array($curl, [
+        $options = [
             CURLOPT_POST => true,
             CURLOPT_POSTFIELDS => $body,
             CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 10,
             CURLOPT_TIMEOUT => 20,
             CURLOPT_HTTPHEADER => array_merge([
-                'TTL: 3600', 'Urgency: high', 'Content-Length: ' . strlen($body),
+                'TTL: 86400',
+                'Urgency: high',
                 'Authorization: vapid t=' . $jwt . ', k=' . $keys['public_key'],
             ], $headers),
-        ]);
+        ];
+        if (defined('CURL_HTTP_VERSION_2TLS')) {
+            $options[CURLOPT_HTTP_VERSION] = CURL_HTTP_VERSION_2TLS;
+        } elseif (defined('CURL_HTTP_VERSION_2_0')) {
+            $options[CURLOPT_HTTP_VERSION] = CURL_HTTP_VERSION_2_0;
+        }
+        curl_setopt_array($curl, $options);
         curl_exec($curl);
         $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        $version = curl_getinfo($curl, CURLINFO_HTTP_VERSION);
+        $error = curl_error($curl);
         curl_close($curl);
-        return $status;
+        $apple = str_contains($host, 'push.apple.com');
+        $this->logPush(sprintf(
+            'host=%s status=%d http=%s bytes=%d apple=%s err=%s',
+            $host,
+            $status,
+            (string)$version,
+            strlen($body),
+            $apple ? '1' : '0',
+            $error !== '' ? $error : '-'
+        ));
+        if ($status === 0) {
+            throw new RuntimeException('No se pudo contactar el servicio Push' . ($error !== '' ? ': ' . $error : '.'));
+        }
+        return ['status' => $status, 'http_version' => is_numeric($version) ? (int)$version : null, 'apple' => $apple];
+    }
+
+    private function logPush(string $line): void
+    {
+        $file = PROJECT_ROOT . '/storage/logs/push.log';
+        $directory = dirname($file);
+        if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) return;
+        @file_put_contents($file, date('c') . ' ' . $line . PHP_EOL, FILE_APPEND | LOCK_EX);
     }
 
     private function p256PublicPem(string $point): string

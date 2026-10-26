@@ -3,16 +3,24 @@ const CONFIG_CACHE = 'matrix-push-config-v1';
 self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 self.addEventListener('message', event => {
-  if (!event.data || event.data.type !== 'matrix-device-token') return;
-  event.waitUntil(caches.open(CONFIG_CACHE).then(cache => cache.put('/matrix-device-token', new Response(String(event.data.token || '')))));
+  if (!event.data) return;
+  if (event.data.type === 'matrix-device-token') {
+    event.waitUntil(caches.open(CONFIG_CACHE).then(cache => cache.put('/matrix-device-token', new Response(String(event.data.token || '')))));
+    return;
+  }
+  if (event.data.type === 'matrix-show-notice' && event.data.notice) {
+    event.waitUntil(show(event.data.notice));
+  }
 });
 
-const show = notice => self.registration.showNotification(notice.title || 'Matriz Sevilla', {
-  body: notice.body || 'Actualización operativa',
-  tag: notice.tag || 'matrix-' + (notice.target_url || 'flight'),
-  renotify: true,
-  data: {url: notice.target_url || 'index.php'}
-});
+function show(notice) {
+  return self.registration.showNotification(notice.title || 'Matriz Sevilla', {
+    body: notice.body || 'Actualización operativa',
+    tag: notice.tag || 'matrix-' + (notice.target_url || 'flight'),
+    renotify: true,
+    data: {url: notice.target_url || 'index.php'}
+  });
+}
 
 const payloadNotice = event => {
   if (!event.data) return null;

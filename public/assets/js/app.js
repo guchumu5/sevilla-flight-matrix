@@ -946,30 +946,56 @@
   }
 
   async function sendPushDrill() {
-    let token = localStorage.getItem('matrix.pushDevice');
-    if (!token) token = await enablePushNotifications();
+    const token = await enablePushNotifications();
     if (!token) throw new Error('No existe una suscripción Web Push válida en este dispositivo.');
-    await ensureServiceWorker(token);
+    const registration = await ensureServiceWorker(token);
     const button = els.drillPushNotification;
     if (button) {
       button.disabled = true;
-      button.textContent = 'Enviando 6 avisos…';
+      button.textContent = 'Mostrando avisos…';
     }
+    const samples = [
+      ['Simulacro · Gran Canaria · VLGTEST', '1/6 · Despega · 20:15'],
+      ['Simulacro · Gran Canaria · VLGTEST', '2/6 · Nueva ETA 22:32 · -8 min sobre programada'],
+      ['Simulacro · Gran Canaria · VLGTEST', '3/6 · Asignación de cinta · B/7'],
+      ['Simulacro · Gran Canaria · VLGTEST', '4/6 · Aviso 40 min · llegada prevista 22:32'],
+      ['Simulacro · Gran Canaria · VLGTEST', '5/6 · Aterriza · 22:33'],
+      ['Simulacro · Gran Canaria · VLGTEST', '6/6 · En la cinta · B/7']
+    ];
     try {
-      const response = await fetch('api/push.php', {
-        method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
-        body:JSON.stringify({action:'drill',device_token:token})
-      });
-      const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.error || 'El servidor no pudo enviar el simulacro.');
-      state.pushLastError = '';
-      state.pushLastAt = data.sent_at || new Date().toISOString();
+      for (const [index, sample] of samples.entries()) {
+        await registration.showNotification(sample[0], {
+          body: sample[1],
+          tag: 'matrix-drill-local-' + (index + 1),
+          renotify: true,
+          data: {url:'index.php'}
+        });
+        await new Promise(resolve => window.setTimeout(resolve, 280));
+      }
+      let serverNote = 'Los 6 avisos locales están en el centro de notificaciones del iPhone (baja el panel o bloquea la pantalla: con la app abierta iOS no enseña banner).';
+      try {
+        const response = await fetch('api/push.php', {
+          method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+          body:JSON.stringify({action:'drill',device_token:token})
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || 'El aviso del servidor falló.');
+        state.pushLastError = '';
+        state.pushLastAt = data.sent_at || new Date().toISOString();
+        const via = data.apple
+          ? ('Apple HTTP/' + (Number(data.http_version) >= 3 ? '2' : '1.1'))
+          : ('HTTP ' + (data.http_status || ''));
+        serverNote += ` El del servidor (${via}) llega al salir de la app o bloquear.`;
+      } catch (serverError) {
+        state.pushLastError = serverError.message || 'El aviso del servidor falló.';
+        serverNote += ' El del servidor no salió: ' + state.pushLastError;
+      }
       if (els.pushStatusLine) {
         els.pushStatusLine.className = 'push-status-line push-status-ready';
-        els.pushStatusLine.textContent = `${Number(data.sent || 0)} avisos de simulacro enviados (despegue, ETA, cinta, 40 min, aterrizaje, equipaje). Deben aparecer en el teléfono en unos segundos.`;
+        els.pushStatusLine.textContent = serverNote;
       }
       if (button) button.textContent = 'Simulacro enviado ✓';
-      window.setTimeout(() => updateNotificationButton(), 8000);
+      window.setTimeout(() => updateNotificationButton(), 12000);
     } catch (error) {
       state.pushLastError = error.message || 'No se pudo enviar el simulacro.';
       updateNotificationButton();
