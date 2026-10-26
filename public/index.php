@@ -136,7 +136,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <header class="panel-header d-flex align-items-center justify-content-between gap-2">
       <div>
         <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias · semana</h2>
-        <p class="mb-0 text-secondary small">Elige día y origen. «Activar avisos» cubre despegue, ETA, cinta, incidencias, aterrizaje y equipaje.</p>
+        <p class="mb-0 text-secondary small">Filtra por origen, solo noche (21:00–01:59) o mira toda la semana. «Activar avisos» cubre despegue, ETA, cinta, incidencias, aterrizaje y equipaje.</p>
       </div>
       <div class="d-flex align-items-center gap-2">
         <button class="btn btn-sm btn-outline-info d-none" id="testPushNotification" type="button">Probar aviso real</button>
@@ -146,7 +146,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     </header>
     <div class="push-status-line" id="pushStatusLine" aria-live="polite">Comprobando avisos del dispositivo…</div>
     <nav class="canary-week" id="canaryWeek" aria-label="Días de la semana con vuelos canarios"></nav>
-    <nav class="canary-origins" id="canaryOrigins" aria-label="Filtrar por origen canario"></nav>
+    <nav class="canary-origins" id="canaryOrigins" aria-label="Filtrar Canarias por origen, noche o semana"></nav>
     <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
   </section>
 

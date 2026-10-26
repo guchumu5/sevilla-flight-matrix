@@ -14,6 +14,9 @@
     canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushPending: 0, pushWatches: 0,
     watchedFlightIds: [], watchedFlightsBrief: [], queuedReload: false,
     canaryWeek: null, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
+    canaryNight: localStorage.getItem('matrix.canaryNight') === '1',
+    canaryWeekScope: localStorage.getItem('matrix.canaryWeekScope') === '1',
+    canaryScrollDate: '',
     nightWeek: null, nightContext: [], nightSort: localStorage.getItem('matrix.nightSort') || 'best',
     pendingFlightId: 0, pendingFlightDate: '',
     detailFlightId: null, flightAwarePollTimer: null,
@@ -1346,9 +1349,11 @@
     document.querySelectorAll('.flight-row, .canary-card, .night-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-belt.has-flight, .belt-change-card').forEach(item => {
       if (item.dataset.flightOpenerBound === '1') return;
       item.dataset.flightOpenerBound = '1';
-      const open = () => item.classList.contains('night-card')
-        ? openNightFlight(item.dataset.flightId, item.dataset.gotoDate)
-        : openDetail(item.dataset.flightId);
+      const open = () => {
+        const date = item.dataset.gotoDate;
+        if (date && date !== els.date.value) openNightFlight(item.dataset.flightId, date);
+        else openDetail(item.dataset.flightId);
+      };
       item.addEventListener('click', open);
       item.addEventListener('keydown', event => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -1475,10 +1480,55 @@
     } catch (_) {
       // La franja diaria sigue funcionando con los datos del tablero.
     }
-    renderCanaryWeek();
+    renderCanaryWatch();
   }
 
+  const NIGHT_FROM_HOUR = 21;
+  const isNightFlight = flight => {
+    const arrival = parseDate(flight.expected_arrival || effectiveArrival(flight) || flight.scheduled_arrival);
+    if (!arrival) return false;
+    const hour = arrival.getHours();
+    return hour >= NIGHT_FROM_HOUR || hour < 2;
+  };
   const canaryOriginMatches = flight => !state.canaryOrigin || String(flight.origin_iata) === state.canaryOrigin;
+  const canaryMatches = flight => canaryOriginMatches(flight) && (!state.canaryNight || isNightFlight(flight));
+  const canaryWeekFlights = () => Array.isArray(state.canaryWeek?.flights) ? state.canaryWeek.flights : [];
+  const canaryOriginName = iata => state.canaryWeek?.origins?.find(item => item.iata === iata)?.name
+    || state.flights.find(f => f.origin_iata === iata)?.origin_name
+    || iata;
+
+  function hydrateCanaryFlight(item) {
+    const id = Number(item.id);
+    const board = state.flights.find(f => Number(f.id) === id);
+    if (board) {
+      return {...board, operational_date: item.operational_date || operationalDateOf(board.scheduled_arrival) || els.date.value};
+    }
+    const night = (state.nightContext || []).find(f => Number(f.id) === id);
+    if (night) return night;
+    const official = item.official_belt ?? item.belt ?? null;
+    return {
+      ...item,
+      expected_arrival: item.effective_arrival || item.scheduled_arrival,
+      belt: official,
+      hall: official == null ? null : (Number(official) >= 7 ? 'B' : 'A'),
+      source: official ? 'aena' : null,
+      predicted_hall: item.predicted_hall || (Number(item.predicted_belt) >= 7 ? 'B' : 'A'),
+      is_canary: 1,
+      indicator: item.indicator || '',
+      canary_thin: true
+    };
+  }
+
+  function canaryFlightsForScope() {
+    if (state.canaryWeekScope) {
+      const byId = new Map();
+      canaryWeekFlights().map(hydrateCanaryFlight).filter(canaryMatches).forEach(flight => byId.set(Number(flight.id), flight));
+      return [...byId.values()].sort((a, b) =>
+        String(a.operational_date || '').localeCompare(String(b.operational_date || ''))
+        || String(a.expected_arrival || a.scheduled_arrival).localeCompare(String(b.expected_arrival || b.scheduled_arrival)));
+    }
+    return state.flights.filter(f => Number(f.is_canary) === 1 && canaryMatches(f));
+  }
 
   function renderCanaryWeek() {
     if (!els.canaryWeek || !els.canaryOrigins) return;
@@ -1487,9 +1537,11 @@
     const days = Array.isArray(week?.days) && week.days.length
       ? week.days
       : Array.from({length:7}, (_,index) => ({date:shiftDate(today, index)}));
-    const weekFlights = Array.isArray(week?.flights) ? week.flights : [];
+    const weekFlights = canaryWeekFlights();
+    const inScope = item => (state.canaryWeekScope || item.operational_date === els.date.value)
+      && (!state.canaryNight || isNightFlight(item));
     els.canaryWeek.innerHTML = days.map(day => {
-      const flights = weekFlights.filter(item => item.operational_date === day.date && canaryOriginMatches(item));
+      const flights = weekFlights.filter(item => item.operational_date === day.date && canaryMatches(item));
       const red = flights.filter(item => Number(item.official_belt) >= 7 || (!item.official_belt && Number(item.predicted_belt) >= 7)).length;
       const diff = dayDifference(today, day.date);
       const top = diff === 0 ? 'Hoy' : diff === 1 ? 'Mañana' : dayName(day.date, {weekday:'short'});
@@ -1502,65 +1554,122 @@
     [...weekFlights, ...state.flights.filter(f => Number(f.is_canary) === 1)].forEach(item => {
       if (item.origin_iata && !origins.has(item.origin_iata)) origins.set(item.origin_iata, item.origin_name || item.origin_iata);
     });
-    if (state.canaryOrigin && !origins.has(state.canaryOrigin)) origins.set(state.canaryOrigin, state.canaryOrigin);
-    const chips = [['', 'Todas'], ...[...origins.entries()].sort((a,b) => a[1].localeCompare(b[1], 'es'))];
-    els.canaryOrigins.innerHTML = chips.map(([iata, name]) => {
-      const count = weekFlights.filter(item => (!iata || item.origin_iata === iata) && item.operational_date === els.date.value).length;
+    if (state.canaryOrigin && !origins.has(state.canaryOrigin)) origins.set(state.canaryOrigin, canaryOriginName(state.canaryOrigin));
+    const countFor = predicate => weekFlights.filter(item => inScope(item) && predicate(item)).length;
+    const nightCount = countFor(item => isNightFlight(item) && canaryOriginMatches(item));
+    const weekCount = weekFlights.filter(item => canaryMatches(item)).length;
+    const modeChips = [
+      `<button type="button" class="canary-origin mode night ${state.canaryNight?'active':''}" data-canary-filter="night" aria-pressed="${state.canaryNight?'true':'false'}">Noche${week ? ` <b>${nightCount}</b>` : ''}</button>`,
+      `<button type="button" class="canary-origin mode week ${state.canaryWeekScope?'active':''}" data-canary-filter="week" aria-pressed="${state.canaryWeekScope?'true':'false'}">Semana${week ? ` <b>${weekCount}</b>` : ''}</button>`
+    ];
+    const originChips = [['', 'Todas'], ...[...origins.entries()].sort((a,b) => a[1].localeCompare(b[1], 'es'))].map(([iata, name]) => {
+      const count = countFor(item => !iata || item.origin_iata === iata);
       return `<button type="button" class="canary-origin ${state.canaryOrigin===iata?'active':''}" data-canary-origin="${esc(iata)}" aria-pressed="${state.canaryOrigin===iata?'true':'false'}">${esc(name)}${week ? ` <b>${count}</b>` : ''}</button>`;
-    }).join('');
+    });
+    els.canaryOrigins.innerHTML = [...originChips.slice(0, 1), ...modeChips, ...originChips.slice(1)].join('');
+  }
+
+  function canaryCardMarkup(f, now) {
+    const onBoard = state.flights.some(item => Number(item.id) === Number(f.id));
+    const date = f.operational_date || operationalDateOf(f.scheduled_arrival) || els.date.value;
+    const otherDay = date && date !== els.date.value;
+    const arrival = parseDate(effectiveArrival(f) || f.expected_arrival || f.scheduled_arrival);
+    const past = !otherDay && date === now.operationalDate && arrival && arrival.getTime() < now.nowMs - 45 * 60 * 1000;
+    const confirmedBelt = f.source === 'aena' && f.belt ? beltPosition(f)
+      : (f.official_belt ? `${Number(f.official_belt) >= 7 ? 'B' : 'A'}/${f.official_belt}` : null);
+    const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
+    const beltClass = ['7','8'].includes(String(f.belt || f.official_belt)) || ['7','8'].includes(String(f.predicted_belt)) || f.belt_attention ? 'danger' : '';
+    const sharedCodes = onBoard ? codeshareCodes(f) : [];
+    const watched = flightIsWatched(f.id);
+    const night = isNightFlight(f);
+    const goto = `data-goto-date="${esc(date || '')}"`;
+    if (!onBoard) {
+      return `<article class="canary-card ${past?'past':''} ${beltClass} ${night?'is-night':''}" data-flight-id="${Number(f.id)}" ${goto} tabindex="0">
+        <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${night ? '☾ ' : ''}${time(arrival)}</span></div>
+        ${coincidenceBadge(f)}
+        <div class="canary-flight-code">${esc(f.physical_flight)}</div>
+        <div class="canary-belts">
+          <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>
+          <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b></div>
+        </div>
+        ${beltOccupancyMarkup(f)}
+        <div class="canary-card-actions">
+          <button class="canary-quick-watch ${watched?'active':''}" type="button" data-watch-flight="${Number(f.id)}" data-watch-compact="1" data-watching="${watched?'1':'0'}" aria-pressed="${watched?'true':'false'}"><span aria-hidden="true">${watched?'🔔':'🔕'}</span> ${watched?'Vigilando':'Vigilar'}</button>
+          ${otherDay ? `<button class="btn btn-sm btn-outline-info" type="button" data-goto-date="${esc(date)}">Ver ${esc(relativeDayLabel(date).toLowerCase())}</button>` : (flightAwareLink(f, true) || '<span></span>')}
+        </div>
+      </article>`;
+    }
+    return `<article class="canary-card ${past?'past':''} ${beltClass} ${night?'is-night':''}" data-flight-id="${Number(f.id)}" ${goto} tabindex="0">
+      <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${night ? '☾ ' : ''}${esc(f.indicator)}</span></div>
+      ${coincidenceBadge(f)}
+      ${timingMarkup(f, 'canary-card-timing')}
+      <div class="canary-flight-code">${esc(f.physical_flight)}</div>
+      ${sharedCodes.length ? `<div class="canary-codeshare"><span>Compartido:</span> <strong>${sharedCodes.map(esc).join(' · ')}</strong></div>` : ''}
+      <div class="canary-belts">
+        <div class="canary-belt-line canary-belt-predicted"><span>Predicción matriz</span><b>${esc(predictedBelt || 'sin predicción')}</b><small>${predictedBelt ? `${Number(f.prediction_score || 0)}% · ${esc(f.prediction_confidence || 'baja')}` : 'histórico insuficiente'}</small></div>
+        <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Confirmada Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b><small>${confirmedBelt ? 'dato oficial prevalente' : 'todavía no publicada'}</small></div>
+      </div>
+      ${beltOccupancyMarkup(f)}
+      ${f.belt_attention ? `<div class="canary-important"><b>IMPORTANTE</b><span>${esc(f.belt_attention_reason)}</span></div>` : ''}
+      ${f.secondary_belt_state === 'candidate' ? `<small class="canary-proposal">● ${esc((f.secondary_belt_source||'API').toUpperCase())}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}</small>` : ''}
+      <div class="canary-card-actions">
+        <button class="canary-quick-watch ${watched?'active':''}" type="button" data-watch-flight="${Number(f.id)}" data-watch-compact="1" data-watching="${watched?'1':'0'}" aria-pressed="${watched?'true':'false'}"><span aria-hidden="true">${watched?'🔔':'🔕'}</span> ${watched?'Vigilando':'Vigilar'}</button>
+        ${otherDay ? `<button class="btn btn-sm btn-outline-info" type="button" data-goto-date="${esc(date)}">Ver ${esc(relativeDayLabel(date).toLowerCase())}</button>` : flightAwareLink(f, true)}
+      </div>
+    </article>`;
   }
 
   function renderCanaryWatch() {
-    const canaryDay = state.flights.filter(f => Number(f.is_canary) === 1);
-    const flights = canaryDay.filter(canaryOriginMatches);
+    if (!els.canaryWatch) return;
+    const flights = canaryFlightsForScope();
+    const now = madridNow();
+    els.canaryWatch.classList.toggle('week-scope', state.canaryWeekScope);
     if (!flights.length) {
-      const originName = canaryDay.find(f => f.origin_iata === state.canaryOrigin)?.origin_name
-        || state.canaryWeek?.origins?.find(item => item.iata === state.canaryOrigin)?.name || state.canaryOrigin;
-      els.canaryWatch.innerHTML = `<div class="canary-empty">${canaryDay.length && state.canaryOrigin
-        ? `No hay vuelos desde ${esc(originName)} ${esc(relativeDayLabel(els.date.value).toLowerCase())}. Elige otro día u origen.`
-        : `No hay vuelos canarios para ${esc(dayName(els.date.value))}.`}</div>`;
+      const originName = canaryOriginName(state.canaryOrigin);
+      const nightHint = state.canaryNight ? ' nocturnos (21:00–01:59)' : '';
+      const scopeHint = state.canaryWeekScope ? 'en la semana' : relativeDayLabel(els.date.value).toLowerCase();
+      els.canaryWatch.innerHTML = `<div class="canary-empty">${state.canaryOrigin || state.canaryNight
+        ? `No hay vuelos${nightHint}${state.canaryOrigin ? ` desde ${esc(originName)}` : ''} ${esc(scopeHint)}. Prueba otro filtro.`
+        : `No hay vuelos canarios ${esc(scopeHint)}.`}</div>`;
       renderCanaryWeek();
       return;
     }
-    const now = madridNow();
-    els.canaryWatch.innerHTML = flights.map(f => {
-      const arrival = parseDate(effectiveArrival(f))?.getTime();
-      const past = els.date.value === now.operationalDate && arrival !== undefined && arrival < now.nowMs - 45 * 60 * 1000;
-      const confirmedBelt = f.source === 'aena' && f.belt ? beltPosition(f) : null;
-      const predictedBelt = f.predicted_belt ? `${f.predicted_hall || (Number(f.predicted_belt) >= 7 ? 'B' : 'A')}/${f.predicted_belt}` : null;
-      const beltClass = ['7','8'].includes(String(f.belt)) || ['7','8'].includes(String(f.predicted_belt)) || f.belt_attention ? 'danger' : '';
-      const sharedCodes = codeshareCodes(f);
-      const watched = flightIsWatched(f.id);
-      return `<article class="canary-card ${past?'past':''} ${beltClass}" data-flight-id="${Number(f.id)}" tabindex="0">
-        <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${esc(f.indicator)}</span></div>
-        ${coincidenceBadge(f)}
-        ${timingMarkup(f, 'canary-card-timing')}
-        <div class="canary-flight-code">${esc(f.physical_flight)}</div>
-        ${sharedCodes.length ? `<div class="canary-codeshare"><span>Compartido:</span> <strong>${sharedCodes.map(esc).join(' · ')}</strong></div>` : ''}
-        <div class="canary-belts">
-          <div class="canary-belt-line canary-belt-predicted"><span>Predicción matriz</span><b>${esc(predictedBelt || 'sin predicción')}</b><small>${predictedBelt ? `${Number(f.prediction_score || 0)}% · ${esc(f.prediction_confidence || 'baja')}` : 'histórico insuficiente'}</small></div>
-          <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Confirmada Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b><small>${confirmedBelt ? 'dato oficial prevalente' : 'todavía no publicada'}</small></div>
-        </div>
-        ${beltOccupancyMarkup(f)}
-        ${f.belt_attention ? `<div class="canary-important"><b>IMPORTANTE</b><span>${esc(f.belt_attention_reason)}</span></div>` : ''}
-        ${f.secondary_belt_state === 'candidate' ? `<small class="canary-proposal">● ${esc((f.secondary_belt_source||'API').toUpperCase())}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}</small>` : ''}
-        <div class="canary-card-actions">
-          <button class="canary-quick-watch ${watched?'active':''}" type="button" data-watch-flight="${Number(f.id)}" data-watch-compact="1" data-watching="${watched?'1':'0'}" aria-pressed="${watched?'true':'false'}"><span aria-hidden="true">${watched?'🔔':'🔕'}</span> ${watched?'Vigilando':'Vigilar'}</button>
-          ${flightAwareLink(f, true)}
-        </div>
-      </article>`;
-    }).join('');
+    if (state.canaryWeekScope) {
+      const days = [];
+      flights.forEach(flight => {
+        const date = flight.operational_date || operationalDateOf(flight.scheduled_arrival);
+        if (!date) return;
+        let group = days.find(item => item.date === date);
+        if (!group) {
+          group = {date, flights: []};
+          days.push(group);
+        }
+        group.flights.push(flight);
+      });
+      days.sort((a, b) => a.date.localeCompare(b.date));
+      els.canaryWatch.innerHTML = days.map(group => {
+        const diff = dayDifference(now.operationalDate, group.date);
+        const label = diff === 0 ? 'Hoy' : diff === 1 ? 'Mañana' : dayName(group.date, {weekday:'long', day:'numeric', month:'short'});
+        return `<section class="night-day" id="canary-day-${esc(group.date)}">
+          <header class="night-day-header">
+            <div><small>${esc(label)}</small><strong>${esc(dayName(group.date, {weekday:'short', day:'numeric'}))}</strong></div>
+            <span>${group.flights.length} vuelo${group.flights.length===1?'':'s'}</span>
+          </header>
+          <div class="night-day-strip">${group.flights.map(flight => canaryCardMarkup(flight, now)).join('')}</div>
+        </section>`;
+      }).join('');
+    } else {
+      els.canaryWatch.innerHTML = flights.map(flight => canaryCardMarkup(flight, now)).join('');
+    }
     bindWatchButtons(els.canaryWatch);
+    bindFlightOpeners();
     renderCanaryWeek();
+    if (state.canaryScrollDate) {
+      const node = document.getElementById(`canary-day-${state.canaryScrollDate}`);
+      state.canaryScrollDate = '';
+      node?.scrollIntoView({behavior:'smooth', block:'nearest'});
+    }
   }
-
-  const NIGHT_FROM_HOUR = 21;
-  const isNightFlight = flight => {
-    const arrival = parseDate(flight.expected_arrival || effectiveArrival(flight) || flight.scheduled_arrival);
-    if (!arrival) return false;
-    const hour = arrival.getHours();
-    return hour >= NIGHT_FROM_HOUR || hour < 2;
-  };
   const nightRankValue = flight => flightScore10(flight);
 
   async function loadNightWeek() {
@@ -1576,6 +1685,7 @@
       if (!state.nightWeek) state.nightWeek = {flights:[], days:[]};
     }
     renderNightWeek();
+    if (state.canaryWeekScope || state.canaryNight) renderCanaryWatch();
   }
 
   function nightCardMarkup(f, today, bestOfDay) {
@@ -2613,13 +2723,31 @@
     }
     const gotoDate = event.target.closest('[data-goto-date]');
     if (gotoDate) {
-      if (gotoDate.closest('.night-card')) return;
+      if (gotoDate.closest('.night-card, .canary-card')) return;
       setBoardDate(gotoDate.dataset.gotoDate);
       return;
     }
     const canaryDay = event.target.closest('[data-canary-date]');
     if (canaryDay) {
-      if (canaryDay.dataset.canaryDate !== els.date.value) setBoardDate(canaryDay.dataset.canaryDate);
+      const date = canaryDay.dataset.canaryDate;
+      if (state.canaryWeekScope) state.canaryScrollDate = date;
+      if (date !== els.date.value) setBoardDate(date);
+      else renderCanaryWatch();
+      return;
+    }
+    const canaryFilter = event.target.closest('[data-canary-filter]');
+    if (canaryFilter) {
+      const kind = canaryFilter.dataset.canaryFilter;
+      if (kind === 'night') {
+        state.canaryNight = !state.canaryNight;
+        if (state.canaryNight) localStorage.setItem('matrix.canaryNight', '1');
+        else localStorage.removeItem('matrix.canaryNight');
+      } else if (kind === 'week') {
+        state.canaryWeekScope = !state.canaryWeekScope;
+        if (state.canaryWeekScope) localStorage.setItem('matrix.canaryWeekScope', '1');
+        else localStorage.removeItem('matrix.canaryWeekScope');
+      }
+      renderCanaryWatch();
       return;
     }
     const canaryOrigin = event.target.closest('[data-canary-origin]');

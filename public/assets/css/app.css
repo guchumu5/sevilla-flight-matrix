@@ -375,6 +375,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   .flights-table td:nth-child(9){display:none}
   .mobile-command-grid{grid-template-columns:1fr 1fr}.mobile-night-command{grid-column:1/-1}
   .canary-strip,.night-day-strip,.upcoming-strip{scroll-snap-type:x mandatory;scroll-padding-inline:.7rem;-webkit-overflow-scrolling:touch}
+  .canary-strip.week-scope{overflow:visible;scroll-snap-type:none}
   .canary-card,.night-card{flex:0 0 100%;max-width:100%;padding:.8rem;scroll-snap-align:start;scroll-snap-stop:always}.canary-card>div:first-child strong{font-size:1.05rem}.canary-flight-code{font-size:.85rem}.canary-card-actions{grid-template-columns:1fr 1fr}.canary-quick-watch,.canary-card-actions .flightaware-link{min-height:42px;font-size:.78rem}.canary-belt-line span,.canary-belt-line small{font-size:.68rem}.canary-belt-line b{font-size:1.08rem}
   .night-card{padding-top:1.2rem}.night-score strong{font-size:1.9rem}
   .upcoming-strip{display:flex;gap:.55rem}.upcoming-flight{flex:0 0 100%;max-width:100%;scroll-snap-stop:always}#flightMap{height:240px}.airport-scene-large{height:980px}.airport-flow{max-height:280px}.flow-flight{flex-basis:170px}
@@ -470,6 +471,13 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .canary-origin { flex:0 0 auto; min-height:38px; padding:.3rem .8rem; border:1px solid #4d4128; border-radius:999px; background:transparent; color:#e8d4ad; font-size:.82rem; font-weight:800; white-space:nowrap; }
 .canary-origin b { margin-left:.2rem; color:#ffd47d; }
 .canary-origin.active { border-color:var(--orange); background:rgba(255,181,71,.22); color:#fff; }
+.canary-origin.mode { border-style:dashed; }
+.canary-origin.mode.night.active { border-style:solid; border-color:#75c8ff; background:rgba(82,168,255,.22); color:#fff; }
+.canary-origin.mode.night.active b { color:#9ed8ff; }
+.canary-origin.mode.week.active { border-style:solid; border-color:#78efbc; background:rgba(47,211,138,.16); color:#fff; }
+.canary-origin.mode.week.active b { color:#78efbc; }
+.canary-card.is-night { box-shadow:inset 0 0 0 1px rgba(82,168,255,.28); }
+.canary-strip.week-scope { display:grid; gap:1rem; overflow:visible; scroll-snap-type:none; }
 
 /* Hora visible en los aviones de la infografía */
 .scene-plane-time { display:flex !important; align-items:baseline; gap:.3rem; }

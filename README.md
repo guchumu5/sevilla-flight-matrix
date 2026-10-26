@@ -19,7 +19,9 @@
   tarjeta ocupa el ancho y se pasa entera.
 - **Canarias toda la semana.** El nuevo endpoint `api/canary-week.php` devuelve
   siete días de vuelos canarios. El panel permite cambiar de día y filtrar por
-  origen (Tenerife Norte, Tenerife Sur, Lanzarote, Gran Canaria…).
+  origen (Tenerife Norte, Tenerife Sur, Lanzarote, Gran Canaria…). Los chips
+  **Noche** y **Semana** muestran solo llegadas de 21:00 a 01:59 o todos los
+  vuelos de los siete días, agrupados día a día.
 - **Coincidencia de cintas (`belt_coincidence_v1`).** La nube muestra las
   llegadas de una franja visible (por defecto ±30 min). Solo se colorean y
   cuentan las que caen en el tiempo operativo: verdes ±15 min y rojas ±20 min.
