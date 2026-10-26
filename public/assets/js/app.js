@@ -63,7 +63,9 @@
     dateNext: document.querySelector('#dateNext'), dateToday: document.querySelector('#dateToday'),
     canaryWeek: document.querySelector('#canaryWeek'), canaryOrigins: document.querySelector('#canaryOrigins'),
     pushStatusLine: document.querySelector('#pushStatusLine'),
-    testPushNotification: document.querySelector('#testPushNotification'), dailyBeltModalBody: document.querySelector('#dailyBeltModalBody'),
+    testPushNotification: document.querySelector('#testPushNotification'),
+    drillPushNotification: document.querySelector('#drillPushNotification'),
+    dailyBeltModalBody: document.querySelector('#dailyBeltModalBody'),
     detailTitle: document.querySelector('#flightDetailLabel'), detailBody: document.querySelector('#detailBody'),
     greenWindowInput: document.querySelector('#greenWindowInput'), redWindowInput: document.querySelector('#redWindowInput'),
     greenWindowRange: document.querySelector('#greenWindowRange'), redWindowRange: document.querySelector('#redWindowRange'),
@@ -838,6 +840,7 @@
     if (capabilityError) {
       els.enableNotifications.classList.add('d-none');
       els.testPushNotification?.classList.add('d-none');
+      els.drillPushNotification?.classList.add('d-none');
       if (els.pushStatusLine) {
         els.pushStatusLine.className = 'push-status-line push-status-warning';
         els.pushStatusLine.textContent = capabilityError;
@@ -861,6 +864,11 @@
       els.testPushNotification.classList.toggle('d-none', !pushReady);
       els.testPushNotification.disabled = !pushReady;
       els.testPushNotification.textContent = 'Probar aviso real';
+    }
+    if (els.drillPushNotification) {
+      els.drillPushNotification.classList.toggle('d-none', !pushReady);
+      els.drillPushNotification.disabled = !pushReady;
+      els.drillPushNotification.textContent = 'Simulacro de un vuelo';
     }
     if (els.pushStatusLine) {
       els.pushStatusLine.className = `push-status-line ${state.pushLastError?'push-status-error':pushReady?'push-status-ready':''}`;
@@ -934,6 +942,40 @@
       updateNotificationButton();
     } finally {
       els.enableNotifications.disabled = false;
+    }
+  }
+
+  async function sendPushDrill() {
+    let token = localStorage.getItem('matrix.pushDevice');
+    if (!token) token = await enablePushNotifications();
+    if (!token) throw new Error('No existe una suscripción Web Push válida en este dispositivo.');
+    await ensureServiceWorker(token);
+    const button = els.drillPushNotification;
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Enviando 6 avisos…';
+    }
+    try {
+      const response = await fetch('api/push.php', {
+        method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({action:'drill',device_token:token})
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || 'El servidor no pudo enviar el simulacro.');
+      state.pushLastError = '';
+      state.pushLastAt = data.sent_at || new Date().toISOString();
+      if (els.pushStatusLine) {
+        els.pushStatusLine.className = 'push-status-line push-status-ready';
+        els.pushStatusLine.textContent = `${Number(data.sent || 0)} avisos de simulacro enviados (despegue, ETA, cinta, 40 min, aterrizaje, equipaje). Deben aparecer en el teléfono en unos segundos.`;
+      }
+      if (button) button.textContent = 'Simulacro enviado ✓';
+      window.setTimeout(() => updateNotificationButton(), 8000);
+    } catch (error) {
+      state.pushLastError = error.message || 'No se pudo enviar el simulacro.';
+      updateNotificationButton();
+      throw error;
+    } finally {
+      if (button) button.disabled = false;
     }
   }
 
@@ -1154,7 +1196,23 @@
           }];
         }
         pinFlight(flightId);
-        await showPushConfirmation();
+        if (data.notified) {
+          state.pushLastError = '';
+          state.pushLastAt = data.sent_at || new Date().toISOString();
+          if (els.pushStatusLine) {
+            els.pushStatusLine.className = 'push-status-line push-status-ready';
+            els.pushStatusLine.textContent = 'Aviso real enviado para este vuelo (origen, hora y cinta). Si no aparece en el teléfono, Web Push no está llegando.';
+          }
+        } else {
+          await showPushConfirmation();
+          if (data.push_error) {
+            state.pushLastError = data.push_error;
+            if (els.pushStatusLine) {
+              els.pushStatusLine.className = 'push-status-line push-status-error';
+              els.pushStatusLine.textContent = `Vigilancia guardada, pero el aviso del servidor falló: ${data.push_error}`;
+            }
+          }
+        }
       } else {
         state.watchedFlightIds = state.watchedFlightIds.filter(id => Number(id) !== Number(flightId));
         state.watchedFlightsBrief = state.watchedFlightsBrief.filter(item => Number(item.id) !== Number(flightId));
@@ -2901,6 +2959,11 @@
   if (els.testPushNotification) els.testPushNotification.addEventListener('click', async () => {
     try {
       await sendPushTest();
+    } catch (error) { window.alert(error.message); }
+  });
+  if (els.drillPushNotification) els.drillPushNotification.addEventListener('click', async () => {
+    try {
+      await sendPushDrill();
     } catch (error) { window.alert(error.message); }
   });
   if (els.radarCollapse) els.radarCollapse.addEventListener('shown.bs.collapse', () => {

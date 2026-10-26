@@ -6,6 +6,7 @@ namespace SevillaMatrix\Notifications;
 use PDO;
 use RuntimeException;
 use SevillaMatrix\Env;
+use SevillaMatrix\TrackingCadence;
 
 final class WebPushService
 {
@@ -76,7 +77,8 @@ final class WebPushService
         $stmt->execute(['enabled' => $enabled ? 1 : 0, 'id' => $subscriptionId]);
     }
 
-    public function setWatch(string $deviceToken, int $flightId, bool $enabled): void
+    /** @return array{notified:bool,sent_at:?string,http_status:?int,push_error:?string} */
+    public function setWatch(string $deviceToken, int $flightId, bool $enabled): array
     {
         $subscriptionId = $this->subscriptionId($deviceToken);
         $flight = $this->pdo->prepare('SELECT id FROM flights WHERE id=:id');
@@ -87,6 +89,49 @@ final class WebPushService
              ON DUPLICATE KEY UPDATE enabled=VALUES(enabled),updated_at=NOW()'
         );
         $stmt->execute(['subscription_id' => $subscriptionId, 'flight_id' => $flightId, 'enabled' => $enabled ? 1 : 0]);
+        if (!$enabled) {
+            return ['notified' => false, 'sent_at' => null, 'http_status' => null, 'push_error' => null];
+        }
+        $endpointStmt = $this->pdo->prepare('SELECT endpoint FROM push_subscriptions WHERE id=:id');
+        $endpointStmt->execute(['id' => $subscriptionId]);
+        if (!$this->isLivePushEndpoint((string)$endpointStmt->fetchColumn())) {
+            return ['notified' => false, 'sent_at' => null, 'http_status' => null, 'push_error' => null];
+        }
+        try {
+            $notice = $this->watchStatusNotice($flightId, true);
+            $delivery = $this->deliverToDevice($deviceToken, $notice);
+            $this->markWatchPulse($subscriptionId, $flightId);
+            return [
+                'notified' => true,
+                'sent_at' => $delivery['sent_at'],
+                'http_status' => $delivery['http_status'],
+                'push_error' => null,
+            ];
+        } catch (\Throwable $error) {
+            return [
+                'notified' => false,
+                'sent_at' => null,
+                'http_status' => null,
+                'push_error' => substr($error->getMessage(), 0, 500),
+            ];
+        }
+    }
+
+    /**
+     * Envía al dispositivo una secuencia real de avisos operativos de ejemplo,
+     * para comprobar Web Push sin esperar a Aena.
+     *
+     * @return array{ok:bool,sent:int,http_status:list<int>,sent_at:string}
+     */
+    public function drill(string $deviceToken): array
+    {
+        $statuses = [];
+        foreach ($this->drillNotices() as $index => $notice) {
+            $delivery = $this->deliverToDevice($deviceToken, $notice);
+            $statuses[] = $delivery['http_status'];
+            if ($index < 5) usleep(700_000);
+        }
+        return ['ok' => true, 'sent' => count($statuses), 'http_status' => $statuses, 'sent_at' => date('Y-m-d H:i:s')];
     }
 
     /** @return array<string,mixed> */
@@ -375,7 +420,13 @@ final class WebPushService
                 $failed++;
             }
         }
-        return ['queued' => (int)$this->pdo->query('SELECT COUNT(*) FROM push_outbox WHERE pushed_at IS NULL')->fetchColumn(), 'sent' => $sent, 'failed' => $failed];
+        $pulses = $this->sendWatchPulses();
+        return [
+            'queued' => (int)$this->pdo->query('SELECT COUNT(*) FROM push_outbox WHERE pushed_at IS NULL')->fetchColumn(),
+            'sent' => $sent,
+            'failed' => $failed,
+            'pulses' => $pulses,
+        ];
     }
 
     private function createArrivalReminders(): void
@@ -420,6 +471,242 @@ final class WebPushService
              ) due
              WHERE TIMESTAMPDIFF(MINUTE,NOW(),due.arrival_at) BETWEEN 36 AND 40"
         );
+    }
+
+    /** @return array<string,string> */
+    private function watchStatusNotice(int $flightId, bool $justStarted = false): array
+    {
+        $ctx = $this->flightNoticeContext($flightId);
+        if ($ctx === null) throw new RuntimeException('El vuelo ya no existe.');
+        $belt = $this->beltLabel($ctx['hall'], $ctx['belt']);
+        $arrival = (string)($ctx['actual_arrival'] ?: $ctx['aena_arrival'] ?: $ctx['scheduled_arrival']);
+        $minutes = $arrival !== '' ? (int)round((strtotime($arrival) - time()) / 60) : null;
+        $when = $arrival !== '' ? date('H:i', strtotime($arrival)) : '—';
+        if ($ctx['baggage_state'] === 'entrega') {
+            $body = '🧳 En la cinta · ' . $belt;
+        } elseif ($ctx['baggage_state'] === 'finalizado') {
+            $body = '✅ Equipaje finalizado · ' . $belt;
+        } elseif ($ctx['actual_arrival']) {
+            $body = '🛬 Aterrizó a las ' . $when . ' · ' . $belt;
+        } elseif ($minutes !== null && $minutes > 0) {
+            $body = 'Faltan ' . $minutes . ' min · prevista ' . $when . ' · ' . $belt;
+        } elseif ($minutes !== null && $minutes <= 0) {
+            $body = 'En hora de llegada · prevista ' . $when . ' · ' . $belt;
+        } else {
+            $body = 'Programada ' . $when . ' · ' . $belt;
+        }
+        if ($justStarted) {
+            $body = 'Vigilando este vuelo · ' . $body;
+        }
+        $title = ((int)$ctx['is_canary'] === 1 ? 'Canarias · ' : '') . $ctx['origin_name'] . ' · ' . $ctx['physical_flight'];
+        $date = substr((string)$ctx['flight_date'], 0, 10);
+        return [
+            'title' => $title,
+            'body' => $body,
+            'target_url' => 'index.php?date=' . rawurlencode($date) . '&flight=' . $flightId,
+            'tag' => 'matrix-watch-' . $flightId,
+        ];
+    }
+
+    /** @return array<string,mixed>|null */
+    private function flightNoticeContext(int $flightId): ?array
+    {
+        $stmt = $this->pdo->prepare(
+            "SELECT f.id,f.physical_flight,f.origin_name,f.flight_date,f.scheduled_arrival,f.is_canary,
+                    (SELECT COALESCE(o.actual_arrival,o.eta) FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena'
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS aena_arrival,
+                    (SELECT o.actual_arrival FROM observations o
+                     WHERE o.flight_id=f.id AND o.actual_arrival IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS actual_arrival,
+                    (SELECT o.belt FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena' AND NULLIF(o.belt,'') IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS belt,
+                    (SELECT o.hall FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena' AND NULLIF(o.hall,'') IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS hall,
+                    (SELECT o.baggage_state FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena'
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS baggage_state
+             FROM flights f WHERE f.id=:id LIMIT 1"
+        );
+        $stmt->execute(['id' => $flightId]);
+        $row = $stmt->fetch();
+        return $row ?: null;
+    }
+
+    private function beltLabel(?string $hall, ?string $belt): string
+    {
+        $belt = trim((string)$belt);
+        if ($belt === '') return 'cinta pendiente';
+        $hall = trim((string)$hall);
+        if ($hall !== '' && !str_contains($belt, '/')) return $hall . '/' . $belt;
+        return $belt;
+    }
+
+    /** @return list<array{title:string,body:string,target_url:string,tag:string}> */
+    private function drillNotices(): array
+    {
+        $title = 'Simulacro · Gran Canaria · VLGTEST';
+        $url = 'index.php';
+        $steps = [
+            '✈️ Despega · 20:15',
+            '⏱️ Nueva ETA 22:32 · -8 min sobre programada',
+            '🧳 Asignación de cinta · B/7',
+            '🚗 Aviso 40 min · llegada prevista 22:32',
+            '🛬 Aterriza · 22:33',
+            '🧳 En la cinta · B/7',
+        ];
+        $notices = [];
+        foreach ($steps as $index => $body) {
+            $notices[] = [
+                'title' => $title,
+                'body' => ($index + 1) . '/6 · ' . $body,
+                'target_url' => $url,
+                'tag' => 'matrix-drill-' . ($index + 1),
+            ];
+        }
+        return $notices;
+    }
+
+    private function sendWatchPulses(): int
+    {
+        $stmt = $this->pdo->query(
+            "SELECT s.id,w.subscription_id,w.flight_id,s.endpoint,s.p256dh,s.auth_secret,
+                    f.physical_flight,f.origin_name,f.flight_date,f.scheduled_arrival,f.is_canary,
+                    (SELECT COALESCE(o.actual_arrival,o.eta) FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena'
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS aena_arrival,
+                    (SELECT o.actual_arrival FROM observations o
+                     WHERE o.flight_id=f.id AND o.actual_arrival IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS actual_arrival,
+                    (SELECT o.belt FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena' AND NULLIF(o.belt,'') IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS belt,
+                    (SELECT o.hall FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena' AND NULLIF(o.hall,'') IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS hall,
+                    (SELECT o.baggage_state FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena'
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS baggage_state
+             FROM flight_watches w
+             INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1
+             INNER JOIN flights f ON f.id=w.flight_id
+             WHERE w.enabled=1
+               AND f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 8 HOUR)
+                                           AND DATE_ADD(NOW(),INTERVAL 2 DAY)
+             LIMIT 40"
+        );
+        $sent = 0;
+        foreach ($stmt->fetchAll() as $row) {
+            $finished = in_array((string)$row['baggage_state'], ['finalizado', 'final'], true);
+            $arrival = (string)($row['actual_arrival'] ?: $row['aena_arrival'] ?: $row['scheduled_arrival']);
+            $minutes = $arrival !== '' ? (int)round((strtotime($arrival) - time()) / 60) : null;
+            if ($finished) continue;
+            if ($row['actual_arrival'] && $minutes !== null && $minutes < -90) continue;
+            $interval = TrackingCadence::intervalMinutes($minutes, true, false);
+            $subscriptionId = (int)$row['subscription_id'];
+            $flightId = (int)$row['flight_id'];
+            if (!$this->isLivePushEndpoint((string)$row['endpoint'])) continue;
+            if (!$this->watchPulseDue($subscriptionId, $flightId, $interval)) continue;
+            try {
+                $this->deliverToRow($row, $this->watchStatusNotice($flightId, false));
+                $this->markWatchPulse($subscriptionId, $flightId);
+                $sent++;
+            } catch (\Throwable) {
+                // El siguiente despacho reintenta este pulso.
+            }
+        }
+        return $sent;
+    }
+
+    private function watchPulseDue(int $subscriptionId, int $flightId, int $intervalMinutes): bool
+    {
+        $pulses = $this->readWatchPulses();
+        $last = (int)($pulses[$this->watchPulseKey($subscriptionId, $flightId)] ?? 0);
+        return $last <= time() - max(4, $intervalMinutes) * 60;
+    }
+
+    private function markWatchPulse(int $subscriptionId, int $flightId): void
+    {
+        $pulses = $this->readWatchPulses();
+        $pulses[$this->watchPulseKey($subscriptionId, $flightId)] = time();
+        if (count($pulses) > 400) {
+            asort($pulses);
+            $pulses = array_slice($pulses, -200, null, true);
+        }
+        $path = $this->watchPulsePath();
+        $directory = dirname($path);
+        if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) return;
+        file_put_contents($path, json_encode($pulses), LOCK_EX);
+    }
+
+    /** @return array<string,int> */
+    private function readWatchPulses(): array
+    {
+        $path = $this->watchPulsePath();
+        if (!is_file($path)) return [];
+        $data = json_decode((string)file_get_contents($path), true);
+        if (!is_array($data)) return [];
+        $out = [];
+        foreach ($data as $key => $value) {
+            $out[(string)$key] = (int)$value;
+        }
+        return $out;
+    }
+
+    private function watchPulseKey(int $subscriptionId, int $flightId): string
+    {
+        return $subscriptionId . '-' . $flightId;
+    }
+
+    private function watchPulsePath(): string
+    {
+        return PROJECT_ROOT . '/storage/cache/watch-pulses.json';
+    }
+
+    private function isLivePushEndpoint(string $endpoint): bool
+    {
+        $host = strtolower((string)parse_url($endpoint, PHP_URL_HOST));
+        return $host !== '' && $host !== 'localhost' && !str_ends_with($host, '.invalid');
+    }
+
+    /** @param array<string,string> $notice @return array{ok:bool,http_status:int,encrypted:bool,sent_at:string} */
+    private function deliverToDevice(string $deviceToken, array $notice): array
+    {
+        $subscriptionId = $this->subscriptionId($deviceToken);
+        $stmt = $this->pdo->prepare('SELECT id,endpoint,p256dh,auth_secret FROM push_subscriptions WHERE id=:id AND active=1');
+        $stmt->execute(['id' => $subscriptionId]);
+        $subscription = $stmt->fetch();
+        if (!$subscription) throw new RuntimeException('La suscripción de este dispositivo no está activa.');
+        return $this->deliverToRow($subscription, $notice);
+    }
+
+    /**
+     * @param array<string,mixed> $subscription
+     * @param array<string,string> $notice
+     * @return array{ok:bool,http_status:int,encrypted:bool,sent_at:string}
+     */
+    private function deliverToRow(array $subscription, array $notice): array
+    {
+        $subscriptionId = (int)$subscription['id'];
+        $endpoint = (string)($subscription['endpoint'] ?? '');
+        if ($endpoint === '') throw new RuntimeException('La suscripción de este dispositivo no está activa.');
+        $delivery = $this->send($endpoint, (string)$subscription['p256dh'], (string)$subscription['auth_secret'], $notice);
+        $status = $delivery['status'];
+        if (in_array($status, [404, 410], true)) {
+            $this->pdo->prepare('UPDATE push_subscriptions SET active=0,last_error=:error,updated_at=updated_at WHERE id=:id')
+                ->execute(['error' => "Push HTTP {$status}", 'id' => $subscriptionId]);
+            throw new RuntimeException('La suscripción del teléfono ha caducado. Pulsa de nuevo «Activar avisos» para renovarla.');
+        }
+        if ($status < 200 || $status >= 300) {
+            $this->pdo->prepare('UPDATE push_subscriptions SET last_error=:error,updated_at=updated_at WHERE id=:id')
+                ->execute(['error' => substr("Push HTTP {$status}", 0, 500), 'id' => $subscriptionId]);
+            throw new RuntimeException("Push HTTP {$status}");
+        }
+        $this->pdo->prepare('UPDATE push_subscriptions SET last_push_at=NOW(),last_error=NULL,updated_at=updated_at WHERE id=:id')
+            ->execute(['id' => $subscriptionId]);
+        return ['ok' => true, 'http_status' => $status, 'encrypted' => $delivery['encrypted'], 'sent_at' => date('Y-m-d H:i:s')];
     }
 
     private function subscriptionId(string $token): int

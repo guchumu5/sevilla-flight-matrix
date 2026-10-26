@@ -136,10 +136,11 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <header class="panel-header d-flex align-items-center justify-content-between gap-2">
       <div>
         <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias · semana</h2>
-        <p class="mb-0 text-secondary small">Filtra por origen, solo noche (hora en Ajustes, 22:00 de serie) o mira toda la semana. «Activar avisos» cubre despegue, ETA, cinta, incidencias, aterrizaje y equipaje.</p>
+        <p class="mb-0 text-secondary small">Filtra por origen, solo noche (hora en Ajustes, 22:00 de serie) o mira toda la semana. «Simulacro de un vuelo» manda seis avisos reales a este teléfono. Al vigilar, llega origen, hora y cinta; luego un pulso cada 15 min (5 min cerca de la llegada).</p>
       </div>
       <div class="d-flex align-items-center gap-2">
         <button class="btn btn-sm btn-outline-info d-none" id="testPushNotification" type="button">Probar aviso real</button>
+        <button class="btn btn-sm btn-outline-info d-none" id="drillPushNotification" type="button">Simulacro de un vuelo</button>
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>
         <span class="canary-watch-mark" aria-hidden="true">🌴</span>
       </div>

@@ -39,9 +39,12 @@
   en un distintivo. La infografía también muestra la hora en cada avión.
 - **Avisos Web Push reales.** Los avisos se envían cifrados (RFC 8291,
   `aes128gcm`), así iOS siempre muestra la notificación aunque el service worker
-  no pueda consultar el servidor. Además, cada ingesta de Aena despacha la cola
-  sin esperar al cron, y la suscripción ya no descarta avisos de Canarias al
-  actualizar su fecha.
+  no pueda consultar el servidor. Al vigilar un vuelo el servidor manda ya un
+  aviso con origen, hora y cinta. **Simulacro de un vuelo** envía seis avisos
+  reales de ejemplo (despegue, ETA, cinta, 40 min, aterrizaje, equipaje) a ese
+  teléfono. Mientras el vuelo está vigilado, un pulso actualiza cada 15 min
+  (cada 5 min desde T−20) cuánto falta y a qué cinta va. Cada ingesta de Aena
+  despacha la cola sin esperar al cron.
 - **Errores de MySQL ocultos.** El navegador recibe un mensaje genérico; el
   detalle queda en el log de PHP (salvo con `APP_DEBUG`).
 - **Móvil.** Diseño en una columna para el vuelo vigilado, tamaños de letra

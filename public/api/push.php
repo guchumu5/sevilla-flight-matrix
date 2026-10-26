@@ -23,8 +23,11 @@ try {
         (string)($input['previous_device_token'] ?? '')
     ));
     if ($action === 'watch') {
-        $service->setWatch((string)($input['device_token'] ?? ''), (int)($input['flight_id'] ?? 0), (bool)($input['enabled'] ?? false));
-        Response::json(['ok' => true]);
+        Response::json(['ok' => true] + $service->setWatch(
+            (string)($input['device_token'] ?? ''),
+            (int)($input['flight_id'] ?? 0),
+            (bool)($input['enabled'] ?? false)
+        ));
     }
     if ($action === 'watch_canary_all') {
         $enabled = (bool)($input['enabled'] ?? false);
@@ -33,6 +36,9 @@ try {
     }
     if ($action === 'test') {
         Response::json($service->test((string)($input['device_token'] ?? '')));
+    }
+    if ($action === 'drill') {
+        Response::json($service->drill((string)($input['device_token'] ?? '')));
     }
     Response::json(['error' => 'Acción no permitida.'], 422);
 } catch (Throwable $error) {
