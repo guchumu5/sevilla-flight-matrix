@@ -84,7 +84,7 @@ try {
             "SELECT f.id,f.flight_date,f.physical_flight,f.origin_iata,f.origin_name,f.scheduled_arrival
              FROM flightaware_requests r
              INNER JOIN flights f ON f.id=r.flight_id
-             WHERE r.status='queued' AND r.requested_at>=DATE_SUB(NOW(),INTERVAL 30 MINUTE)
+             WHERE r.status='queued' AND r.requested_at>=DATE_SUB(NOW(),INTERVAL 8 HOUR)
              ORDER BY r.requested_at LIMIT 8"
         );
         Response::json([

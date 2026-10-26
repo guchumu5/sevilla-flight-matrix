@@ -40,6 +40,12 @@ try {
     if ($action === 'drill') {
         Response::json($service->drill((string)($input['device_token'] ?? '')));
     }
+    if ($action === 'force_check') {
+        Response::json($service->forceCheck(
+            (string)($input['device_token'] ?? ''),
+            (int)($input['flight_id'] ?? 0)
+        ));
+    }
     Response::json(['error' => 'Acción no permitida.'], 422);
 } catch (Throwable $error) {
     Response::json(['error' => $error->getMessage()], 500);

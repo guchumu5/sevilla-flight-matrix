@@ -463,6 +463,7 @@ final class WebOperationsService
         }
 
         $sync = null;
+        $push = null;
         if ($records !== []) {
             $sync = (new FlightReconciliationService($this->pdo))->sync($records, [
                 'provider' => 'airlabs',
@@ -478,6 +479,11 @@ final class WebOperationsService
                     'configured_keys' => count($keys),
                 ],
             ]);
+            try {
+                $push = (new WebPushService($this->pdo))->dispatch(50);
+            } catch (Throwable) {
+                $push = null;
+            }
         }
 
         return [
@@ -495,6 +501,7 @@ final class WebOperationsService
             'received' => count($records),
             'errors' => $errors,
             'sync' => $sync,
+            'push' => $push,
         ];
     }
 

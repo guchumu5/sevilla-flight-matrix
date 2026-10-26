@@ -47,8 +47,10 @@
   la pantalla: Safari en pestaña no recibe Web Push. El envío a Apple va por
   HTTP/2; si PHP cae a HTTP/1.1 el aviso no llega. Mientras el vuelo está
   vigilado, un pulso actualiza cada 15 min
-  (cada 5 min desde T−20) cuánto falta y a qué cinta va. Cada ingesta de Aena
-  despacha la cola sin esperar al cron.
+  (cada 5 min desde T−20) cuánto falta y a qué cinta va. **Comprobar ahora**
+  reencola FlightAware y manda un aviso con Aena más FlightStats/AirLabs, sin
+  inventar datos de Aena. Cada ingesta de Aena o AirLabs despacha la cola. La
+  cola de FlightAware retiene peticiones 8 horas.
 - **Errores de MySQL ocultos.** El navegador recibe un mensaje genérico; el
   detalle queda en el log de PHP (salvo con `APP_DEBUG`).
 - **Móvil.** Diseño en una columna para el vuelo vigilado, tamaños de letra

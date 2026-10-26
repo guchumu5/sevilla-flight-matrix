@@ -448,6 +448,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .tracked-focus-nav { display:flex; align-items:center; gap:.35rem; margin-left:auto; }
 .tracked-focus-nav span { min-width:58px; color:#cfe6fa; font-size:.84rem; font-weight:900; text-align:center; }
 .tracked-focus-step { display:grid; place-items:center; width:42px; height:42px; border:1px solid var(--blue); border-radius:10px; background:rgba(32,91,139,.3); color:#fff; font-size:1.5rem; line-height:1; }
+.tracked-focus-actions { display:flex; flex-wrap:wrap; gap:.35rem; }
 .tracked-focus-actions .btn { white-space:nowrap; }
 .tracked-focus-tab.other-day { border-style:dashed; }
 .tracked-other-day { display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:1rem; border:1px dashed rgba(82,168,255,.55); border-radius:12px; background:rgba(20,76,122,.15); }

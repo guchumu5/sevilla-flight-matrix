@@ -1000,6 +1000,44 @@
     }
   }
 
+  async function sendForceCheck(flightId, button) {
+    const token = await enablePushNotifications();
+    if (!token) throw new Error('No existe una suscripción Web Push válida en este dispositivo.');
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Comprobando…';
+    }
+    try {
+      const response = await fetch('api/push.php', {
+        method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({action:'force_check',device_token:token,flight_id:Number(flightId)})
+      });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || 'No se pudo forzar la comprobación.');
+      state.pushLastError = '';
+      state.pushLastAt = data.sent_at || new Date().toISOString();
+      if (els.pushStatusLine) {
+        els.pushStatusLine.className = 'push-status-line push-status-ready';
+        els.pushStatusLine.textContent = (data.body || 'Comprobación enviada.') + ' En iPhone bloquea o sal de la app.';
+      }
+      if (button) button.textContent = 'Aviso enviado ✓';
+      window.setTimeout(() => {
+        if (button) {
+          button.disabled = false;
+          button.textContent = 'Comprobar ahora';
+        }
+      }, 8000);
+    } catch (error) {
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Comprobar ahora';
+      }
+      state.pushLastError = error.message || 'No se pudo forzar la comprobación.';
+      updateNotificationButton();
+      throw error;
+    }
+  }
+
   async function sendPushTest() {
     let token = localStorage.getItem('matrix.pushDevice');
     if (!token) token = await enablePushNotifications();
@@ -1529,7 +1567,8 @@
     if (els.focusCounter) els.focusCounter.textContent = `${index + 1} de ${entries.length}`;
     if (els.trackedFocusActions) {
       els.trackedFocusActions.innerHTML = current.watched
-        ? `<button class="btn btn-sm btn-warning" type="button" data-watch-flight="${current.id}" data-watching="1" data-watch-compact="1">🔔 Vigilando</button>`
+        ? `<button class="btn btn-sm btn-outline-info" type="button" data-force-check="${current.id}">Comprobar ahora</button>
+           <button class="btn btn-sm btn-warning" type="button" data-watch-flight="${current.id}" data-watching="1" data-watch-compact="1">🔔 Vigilando</button>`
         : `<button class="btn btn-sm btn-outline-light" type="button" data-focus-unpin="${current.id}">Quitar</button>`;
       bindWatchButtons(els.trackedFocusActions);
     }
@@ -2990,6 +3029,13 @@
   if (els.drillPushNotification) els.drillPushNotification.addEventListener('click', async () => {
     try {
       await sendPushDrill();
+    } catch (error) { window.alert(error.message); }
+  });
+  document.addEventListener('click', async event => {
+    const button = event.target.closest('[data-force-check]');
+    if (!button) return;
+    try {
+      await sendForceCheck(button.dataset.forceCheck, button);
     } catch (error) { window.alert(error.message); }
   });
   if (els.radarCollapse) els.radarCollapse.addEventListener('shown.bs.collapse', () => {

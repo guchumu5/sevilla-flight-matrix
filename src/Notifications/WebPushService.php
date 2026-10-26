@@ -154,6 +154,72 @@ final class WebPushService
         ];
     }
 
+    /**
+     * Reencola FlightAware y manda un aviso honesto con Aena + fuentes secundarias.
+     * No escribe observaciones Aena.
+     *
+     * @return array<string,mixed>
+     */
+    public function forceCheck(string $deviceToken, int $flightId): array
+    {
+        if ($flightId < 1) throw new RuntimeException('Vuelo no válido.');
+        $subscriptionId = $this->subscriptionId($deviceToken);
+        $watch = $this->pdo->prepare(
+            'SELECT enabled FROM flight_watches WHERE subscription_id=:subscription_id AND flight_id=:flight_id'
+        );
+        $watch->execute(['subscription_id' => $subscriptionId, 'flight_id' => $flightId]);
+        if ((int)$watch->fetchColumn() !== 1) {
+            throw new RuntimeException('Vigila este vuelo para forzar la comprobación.');
+        }
+
+        $queued = $this->requeueFlightAware($flightId);
+        $notice = $this->forceCheckNotice($flightId);
+        $path = $this->testNoticePath($deviceToken);
+        $directory = dirname($path);
+        if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
+            throw new RuntimeException('No se pudo preparar la comprobación Web Push.');
+        }
+        file_put_contents($path, json_encode($notice, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
+
+        $stmt = $this->pdo->prepare(
+            'SELECT s.id,s.endpoint,s.p256dh,s.auth_secret
+             FROM push_subscriptions s
+             INNER JOIN flight_watches w ON w.subscription_id=s.id
+             WHERE w.flight_id=:flight_id AND w.enabled=1 AND s.active=1'
+        );
+        $stmt->execute(['flight_id' => $flightId]);
+        $sent = 0;
+        $mine = null;
+        $lastError = null;
+        foreach ($stmt->fetchAll() as $row) {
+            if (!$this->isLivePushEndpoint((string)$row['endpoint'])) continue;
+            try {
+                $delivery = $this->deliverToRow($row, $notice);
+                $this->markWatchPulse((int)$row['id'], $flightId);
+                $sent++;
+                if ((int)$row['id'] === $subscriptionId) $mine = $delivery;
+            } catch (\Throwable $error) {
+                $lastError = $error->getMessage();
+            }
+        }
+        if ($sent === 0) {
+            @unlink($path);
+            throw new RuntimeException($lastError ?: 'No se pudo enviar la comprobación a este teléfono.');
+        }
+        return [
+            'ok' => true,
+            'sent' => $sent,
+            'flightaware_queued' => $queued,
+            'body' => $notice['body'],
+            'title' => $notice['title'],
+            'http_status' => $mine['http_status'] ?? null,
+            'encrypted' => $mine['encrypted'] ?? true,
+            'http_version' => $mine['http_version'] ?? null,
+            'apple' => $mine['apple'] ?? false,
+            'sent_at' => $mine['sent_at'] ?? date('Y-m-d H:i:s'),
+        ];
+    }
+
     /** @return array<string,mixed> */
     public function status(string $deviceToken, ?int $flightId = null): array
     {
@@ -513,6 +579,124 @@ final class WebPushService
         ];
     }
 
+    /** @return array<string,string> */
+    private function forceCheckNotice(int $flightId): array
+    {
+        $ctx = $this->flightNoticeContext($flightId);
+        if ($ctx === null) throw new RuntimeException('El vuelo ya no existe.');
+        $belt = $this->beltLabel($ctx['hall'], $ctx['belt']);
+        $aenaWhen = $ctx['aena_arrival'] ? date('H:i', strtotime((string)$ctx['aena_arrival'])) : 'sin ETA';
+        $aenaDiff = null;
+        if ($ctx['aena_arrival'] && $ctx['scheduled_arrival']) {
+            $aenaDiff = (int)round((strtotime((string)$ctx['aena_arrival']) - strtotime((string)$ctx['scheduled_arrival'])) / 60);
+        }
+        $aenaBit = 'Aena ' . ($ctx['aena_status'] ?: 'sin estado') . ' ' . $aenaWhen;
+        if ($aenaDiff !== null) $aenaBit .= ' (' . ($aenaDiff > 0 ? '+' : '') . $aenaDiff . ' min)';
+        $aenaBit .= ' · ' . $belt;
+
+        $parts = ['Comprobación forzada · ' . $aenaBit];
+        $stats = $this->flightStatsSnapshot((string)$ctx['physical_flight'], (string)$ctx['flight_date'], $flightId);
+        if ($stats) {
+            $fs = 'FlightStats';
+            if (!empty($stats['delay_minutes'])) $fs .= ' retraso ' . (int)$stats['delay_minutes'] . ' min';
+            if (!empty($stats['dep_actual'])) {
+                $fs .= ' · salió ' . $stats['dep_actual'];
+                if (!empty($stats['dep_sched'])) $fs .= ' (prog. ' . $stats['dep_sched'] . ')';
+            }
+            if (!empty($stats['arr_est'])) {
+                $fs .= ' · ETA ' . $stats['arr_est'];
+                if (!empty($stats['arr_sched'])) $fs .= ' (prog. ' . $stats['arr_sched'] . ')';
+            }
+            $parts[] = $fs;
+        }
+        if (!empty($ctx['airlabs_departure'])) {
+            $parts[] = 'AirLabs despegue ' . date('H:i', strtotime((string)$ctx['airlabs_departure']));
+        }
+        $parts[] = 'En iPhone bloquea o sal de la app.';
+        $date = substr((string)$ctx['flight_date'], 0, 10);
+        return [
+            'title' => 'Comprobar · ' . ((int)$ctx['is_canary'] === 1 ? 'Canarias · ' : '') . $ctx['origin_name'] . ' · ' . $ctx['physical_flight'],
+            'body' => implode(' · ', $parts),
+            'target_url' => 'index.php?date=' . rawurlencode($date) . '&flight=' . $flightId,
+            'tag' => 'matrix-force-' . $flightId,
+        ];
+    }
+
+    private function requeueFlightAware(int $flightId): bool
+    {
+        $tables = (int)$this->pdo->query(
+            "SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_schema=DATABASE()
+               AND table_name IN ('flightaware_snapshots','flightaware_requests')"
+        )->fetchColumn();
+        if ($tables < 2) return false;
+        $this->pdo->prepare(
+            "INSERT INTO flightaware_requests (flight_id,requested_at,processed_at,request_count,status,last_error)
+             VALUES (:id,NOW(),NULL,1,'queued',NULL)
+             ON DUPLICATE KEY UPDATE requested_at=NOW(),processed_at=NULL,
+               request_count=request_count+1,status='queued',last_error=NULL"
+        )->execute(['id' => $flightId]);
+        return true;
+    }
+
+    /** @return array<string,string|int>|null */
+    private function flightStatsSnapshot(string $physical, string $flightDate, int $flightId): ?array
+    {
+        $iata = $this->iataFlightCode($physical, $flightId);
+        if (!preg_match('/^([A-Z]{2})(\d{1,4})$/', $iata, $match)) return null;
+        $date = date_create((string)substr($flightDate, 0, 10));
+        if (!$date) return null;
+        $url = sprintf(
+            'https://www.flightstats.com/v2/flight-tracker/%s/%s?year=%s&month=%s&date=%s',
+            rawurlencode($match[1]),
+            rawurlencode($match[2]),
+            $date->format('Y'),
+            $date->format('n'),
+            $date->format('j')
+        );
+        $curl = curl_init($url);
+        if ($curl === false) return null;
+        curl_setopt_array($curl, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_CONNECTTIMEOUT => 4,
+            CURLOPT_TIMEOUT => 8,
+            CURLOPT_USERAGENT => 'MatrizSVQ/1.0',
+        ]);
+        $html = curl_exec($curl);
+        curl_close($curl);
+        if (!is_string($html) || $html === '') return null;
+        $text = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $text = (string)preg_replace('/\s+/', ' ', $text);
+        $out = [];
+        if (preg_match('/Delayed by (\d+)\s*m/i', $text, $found)) $out['delay_minutes'] = (int)$found[1];
+        if (preg_match('/Scheduled\s+(\d{1,2}:\d{2})\s+WET\s+Actual\s+(\d{1,2}:\d{2})\s+WET/', $text, $found)) {
+            $out['dep_sched'] = $found[1];
+            $out['dep_actual'] = $found[2];
+        }
+        if (preg_match('/Scheduled\s+(\d{1,2}:\d{2})\s+CET\s+Estimated\s+(\d{1,2}:\d{2})\s+CET/', $text, $found)) {
+            $out['arr_sched'] = $found[1];
+            $out['arr_est'] = $found[2];
+        } elseif (preg_match('/Scheduled\s+(\d{1,2}:\d{2})\s+CET\s+Actual\s+(\d{1,2}:\d{2})\s+CET/', $text, $found)) {
+            $out['arr_sched'] = $found[1];
+            $out['arr_est'] = $found[2];
+        }
+        return $out === [] ? null : $out;
+    }
+
+    private function iataFlightCode(string $physical, int $flightId): string
+    {
+        $physical = strtoupper(trim($physical));
+        if (preg_match('/^VLG(\d+)$/', $physical, $match)) return 'VY' . $match[1];
+        $stmt = $this->pdo->prepare('SELECT flight_code FROM flight_codes WHERE flight_id=:id');
+        $stmt->execute(['id' => $flightId]);
+        foreach ($stmt->fetchAll(PDO::FETCH_COLUMN) as $code) {
+            $code = strtoupper(trim((string)$code));
+            if (preg_match('/^[A-Z]{2}\d{1,4}$/', $code)) return $code;
+        }
+        return $physical;
+    }
+
     /** @return array<string,mixed>|null */
     private function flightNoticeContext(int $flightId): ?array
     {
@@ -532,7 +716,13 @@ final class WebPushService
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS hall,
                     (SELECT o.baggage_state FROM observations o
                      WHERE o.flight_id=f.id AND o.source='aena'
-                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS baggage_state
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS baggage_state,
+                    (SELECT o.status FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena'
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS aena_status,
+                    (SELECT o.actual_departure FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='airlabs' AND o.actual_departure IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS airlabs_departure
              FROM flights f WHERE f.id=:id LIMIT 1"
         );
         $stmt->execute(['id' => $flightId]);
