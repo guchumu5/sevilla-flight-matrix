@@ -518,12 +518,14 @@ final class WebPushService
                 $failed++;
             }
         }
+        $summaries = $this->sendWatchFiveMinuteSummaries();
         $pulses = $this->sendWatchPulses();
         return [
             'queued' => (int)$this->pdo->query('SELECT COUNT(*) FROM push_outbox WHERE pushed_at IS NULL')->fetchColumn(),
             'sent' => $sent,
             'failed' => $failed,
             'pulses' => $pulses,
+            'summaries' => $summaries,
             'state_notices' => $stateNotices,
         ];
     }
@@ -595,7 +597,7 @@ final class WebPushService
             $body = 'Programada ' . $when . ' · ' . $belt;
         }
         if ($justStarted) {
-            $body = 'Vigilando este vuelo · ' . $body;
+            $body = 'Vigilando este vuelo · ' . $body . ' · en 5 min te mando el resumen';
         }
         $title = ((int)$ctx['is_canary'] === 1 ? 'Canarias · ' : '') . $ctx['origin_name'] . ' · ' . $ctx['physical_flight'];
         $date = substr((string)$ctx['flight_date'], 0, 10);
@@ -950,6 +952,93 @@ final class WebPushService
         $directory = dirname($path);
         if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) return;
         file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE), LOCK_EX);
+    }
+
+    /** @return array<string,string> */
+    private function watchSummaryNotice(int $flightId): array
+    {
+        $ctx = $this->flightNoticeContext($flightId);
+        if ($ctx === null) throw new RuntimeException('El vuelo ya no existe.');
+        $dep = (string)($ctx['airlabs_departure'] ?: $ctx['secondary_departure'] ?: '');
+        $salio = $dep !== '' ? 'Salió ' . date('H:i', strtotime($dep)) : 'Aún no ha salido';
+        $landed = (string)($ctx['actual_arrival'] ?: '');
+        if ($landed !== '') {
+            $llegada = 'Aterrizó ' . date('H:i', strtotime($landed));
+        } else {
+            $eta = (string)($ctx['aena_arrival'] ?: $ctx['aena_eta'] ?: $ctx['secondary_eta'] ?: $ctx['scheduled_arrival'] ?: '');
+            $llegada = $eta !== '' ? 'Llegada prevista ' . date('H:i', strtotime($eta)) : 'Llegada prevista —';
+        }
+        $belt = $this->beltLabel($ctx['hall'] ?? null, $ctx['belt'] ?? null);
+        $title = ((int)$ctx['is_canary'] === 1 ? 'Canarias · ' : '') . $ctx['origin_name'] . ' · ' . $ctx['physical_flight'];
+        $date = substr((string)$ctx['flight_date'], 0, 10);
+        return [
+            'title' => $title,
+            'body' => 'Resumen · ' . $salio . ' · ' . $llegada . ' · Cinta ' . $belt,
+            'target_url' => 'index.php?date=' . rawurlencode($date) . '&flight=' . $flightId,
+            'tag' => 'matrix-watch-' . $flightId . '-sum',
+        ];
+    }
+
+    private function sendWatchFiveMinuteSummaries(): int
+    {
+        $stmt = $this->pdo->query(
+            "SELECT s.id,s.id AS subscription_id,w.flight_id,w.updated_at,
+                    s.endpoint,s.p256dh,s.auth_secret
+             FROM flight_watches w
+             INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1
+             INNER JOIN flights f ON f.id=w.flight_id
+             WHERE w.enabled=1
+               AND TIMESTAMPDIFF(MINUTE,w.updated_at,NOW())>=5
+               AND f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 12 HOUR)
+                                           AND DATE_ADD(NOW(),INTERVAL 2 DAY)
+             LIMIT 40"
+        );
+        $sent = 0;
+        $done = $this->readWatchSummaries();
+        foreach ($stmt->fetchAll() as $row) {
+            if (!$this->isLivePushEndpoint((string)$row['endpoint'])) continue;
+            $key = $this->watchSummaryKey((int)$row['subscription_id'], (int)$row['flight_id'], (string)$row['updated_at']);
+            if (isset($done[$key])) continue;
+            try {
+                $this->deliverToRow($row, $this->watchSummaryNotice((int)$row['flight_id']));
+                $done[$key] = time();
+                $sent++;
+            } catch (\Throwable $error) {
+                $this->logPush('summary-fail flight=' . (int)$row['flight_id'] . ' sub=' . (int)$row['subscription_id'] . ' err=' . $error->getMessage());
+            }
+        }
+        if ($sent > 0) {
+            if (count($done) > 400) {
+                asort($done);
+                $done = array_slice($done, -200, null, true);
+            }
+            $this->writeJsonFile($this->watchSummaryPath(), $done);
+        }
+        return $sent;
+    }
+
+    private function watchSummaryKey(int $subscriptionId, int $flightId, string $updatedAt): string
+    {
+        return $subscriptionId . '-' . $flightId . '-' . (string)strtotime($updatedAt);
+    }
+
+    /** @return array<string,int> */
+    private function readWatchSummaries(): array
+    {
+        $path = $this->watchSummaryPath();
+        if (!is_file($path)) return [];
+        $data = json_decode((string)file_get_contents($path), true);
+        if (!is_array($data)) return [];
+        $out = [];
+        foreach ($data as $key => $value) {
+            $out[(string)$key] = (int)$value;
+        }
+        return $out;
+    }
+
+    private function watchSummaryPath(): string
+    {
+        return PROJECT_ROOT . '/storage/cache/watch-summaries.json';
     }
 
     private function sendWatchPulses(): int

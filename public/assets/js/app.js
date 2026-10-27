@@ -3037,7 +3037,7 @@
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
       const watched = flightIsWatched(id);
       const watch = `<div class="detail-watch-quick"><button class="btn ${watched?'btn-warning':'btn-outline-warning'} w-100" type="button" data-watch-flight="${Number(id)}" data-watching="${watched?'1':'0'}">${watched?'🔔 Vuelo vigilado · desactivar':'🔔 Vigilar este vuelo'}</button></div>`;
-      const watchSupport = `<p class="watch-explanation mb-3">Mientras lo vigilas, Aena se comprueba cada 5 min hasta el equipaje. El teléfono avisa también si AirLabs o FlightStats publican retraso o aterrizaje. Incluye despegue, ETA, cinta, aterrizaje y el aviso de 40 min.</p>
+      const watchSupport = `<p class="watch-explanation mb-3">A los 5 min te llega un resumen (salida, llegada prevista y cinta) para comprobar que el canal funciona. Luego avisa despegue, retraso, cinta, 40 min, aterrizaje y maletas. Con la app abierta iOS no enseña globo.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita al abrir la ficha o al buscar matrícula y telemetría.</small></div>`;
       els.detailBody.innerHTML = watch + `<div class="tracked-focus-layout detail-focus-layout">
         <aside class="tracked-focus-summary">
