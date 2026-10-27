@@ -867,6 +867,22 @@
     };
   }
 
+  async function notifyWatchSequenceStart(flight) {
+    if (!flight) return;
+    const title = `${flight.origin_name} · ${flight.physical_flight}`;
+    const body = `Vigilancia activa · ${flight.physical_flight}. En unos minutos te mando el itinerario.`;
+    try {
+      const registration = await ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '');
+      await registration.showNotification(title, {
+        body,
+        tag: 'matrix-watch-' + flight.id + '-on',
+        renotify: true,
+        data: {url: `index.php?date=${encodeURIComponent(els.date.value)}&flight=${flight.id}`}
+      });
+    } catch (_) {}
+    state.pushCheckNote = body + ' Baja el centro de notificaciones o bloquea el teléfono.';
+  }
+
   async function notifyWatchedChange(flight, title, body, tag) {
     try {
       const registration = await ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '');
@@ -1382,12 +1398,13 @@
           }];
         }
         pinFlight(flightId);
+        await notifyWatchSequenceStart(flight);
         if (data.notified) {
           state.pushLastError = '';
           state.pushLastAt = data.sent_at || new Date().toISOString();
           if (els.pushStatusLine) {
             els.pushStatusLine.className = 'push-status-line push-status-ready';
-            els.pushStatusLine.textContent = 'Aviso real enviado para este vuelo (origen, hora y cinta). Si no aparece en el teléfono, Web Push no está llegando.';
+            els.pushStatusLine.textContent = 'Vigilancia activa. Baja el centro de notificaciones o bloquea: ahora el de vigilancia, en unos minutos el itinerario.';
           }
         } else {
           await showPushConfirmation();
@@ -3037,7 +3054,7 @@
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
       const watched = flightIsWatched(id);
       const watch = `<div class="detail-watch-quick"><button class="btn ${watched?'btn-warning':'btn-outline-warning'} w-100" type="button" data-watch-flight="${Number(id)}" data-watching="${watched?'1':'0'}">${watched?'🔔 Vuelo vigilado · desactivar':'🔔 Vigilar este vuelo'}</button></div>`;
-      const watchSupport = `<p class="watch-explanation mb-3">A los 5 min te llega un resumen (salida, llegada prevista y cinta) para comprobar que el canal funciona. Luego avisa despegue, retraso, cinta, 40 min, aterrizaje y maletas. Con la app abierta iOS no enseña globo.</p>
+      const watchSupport = `<p class="watch-explanation mb-3">1) Vigilancia activa. 2) En unos minutos, itinerario (despegue, llegada y cinta). 3) Aviso a ~40 min. Después, cualquier detección de Aena, AirLabs, FlightStats u OpenSky. Con la app abierta iOS no enseña globo.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita al abrir la ficha o al buscar matrícula y telemetría.</small></div>`;
       els.detailBody.innerHTML = watch + `<div class="tracked-focus-layout detail-focus-layout">
         <aside class="tracked-focus-summary">

@@ -30,6 +30,7 @@ try {
     }
     $settings = [
         'airlabs' => ['provider' => 'airlabs', 'minimum_gap' => 45, 'limit' => 50],
+        'airlabs_watched' => ['provider' => 'airlabs_watched', 'minimum_gap' => 12, 'limit' => 50],
         'opensky' => ['provider' => 'opensky', 'minimum_gap' => 4, 'limit' => 25],
         'weather' => ['provider' => 'aviationweather', 'minimum_gap' => 8, 'limit' => 10],
     ];

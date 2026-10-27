@@ -101,7 +101,7 @@ final class WebPushService
             return ['notified' => false, 'sent_at' => null, 'http_status' => null, 'push_error' => null];
         }
         try {
-            $notice = $this->watchStatusNotice($flightId, true);
+            $notice = $this->watchArmedNotice($flightId);
             $delivery = $this->deliverToDevice($deviceToken, $notice);
             $this->markWatchPulse($subscriptionId, $flightId);
             return [
@@ -445,15 +445,17 @@ final class WebPushService
              WHERE s.active=1
                AND (
                  (w.id IS NOT NULL AND e.detected_at>=w.updated_at)
-                 OR (s.watch_canary_all=1 AND f.is_canary=1 AND e.detected_at>=s.updated_at)
-               )
-               AND (
-                 e.event_type IN ('departure_recorded','arrival_recorded','arrival_reminder')
-                 OR e.source='aena'
-                 OR (e.source IN ('flightstats','airlabs','opensky') AND e.event_type IN (
-                   'eta_changed','eta_published','departure_recorded','arrival_recorded',
-                   'status_changed','status_published'
-                 ))
+                 OR (
+                   s.watch_canary_all=1 AND f.is_canary=1 AND e.detected_at>=s.updated_at
+                   AND (
+                     e.event_type IN ('departure_recorded','arrival_recorded','arrival_reminder')
+                     OR e.source='aena'
+                     OR (e.source IN ('flightstats','airlabs','opensky') AND e.event_type IN (
+                       'eta_changed','eta_published','departure_recorded','arrival_recorded',
+                       'status_changed','status_published'
+                     ))
+                   )
+                 )
                )
                AND NOT (
                  e.event_type='eta_changed'
@@ -519,12 +521,11 @@ final class WebPushService
             }
         }
         $summaries = $this->sendWatchFiveMinuteSummaries();
-        $pulses = $this->sendWatchPulses();
         return [
             'queued' => (int)$this->pdo->query('SELECT COUNT(*) FROM push_outbox WHERE pushed_at IS NULL')->fetchColumn(),
             'sent' => $sent,
             'failed' => $failed,
-            'pulses' => $pulses,
+            'pulses' => 0,
             'summaries' => $summaries,
             'state_notices' => $stateNotices,
         ];
@@ -545,15 +546,11 @@ final class WebPushService
              FROM (
                SELECT f.id AS flight_id,
                       COALESCE(
-                        (SELECT COALESCE(o.actual_arrival,o.eta)
-                         FROM observations o
-                         WHERE o.flight_id=f.id AND o.source='aena'
-                           AND (o.actual_arrival IS NOT NULL OR o.eta IS NOT NULL)
+                        (SELECT o.actual_arrival FROM observations o
+                         WHERE o.flight_id=f.id AND o.actual_arrival IS NOT NULL
                          ORDER BY o.observed_at DESC,o.id DESC LIMIT 1),
-                        (SELECT COALESCE(o.actual_arrival,o.eta)
-                         FROM observations o
-                         WHERE o.flight_id=f.id AND o.source<>'aena'
-                           AND (o.actual_arrival IS NOT NULL OR o.eta IS NOT NULL)
+                        (SELECT o.eta FROM observations o
+                         WHERE o.flight_id=f.id AND o.eta IS NOT NULL
                          ORDER BY o.observed_at DESC,o.id DESC LIMIT 1),
                         f.scheduled_arrival
                       ) AS arrival_at
@@ -575,36 +572,41 @@ final class WebPushService
     }
 
     /** @return array<string,string> */
-    private function watchStatusNotice(int $flightId, bool $justStarted = false): array
+    private function watchNoticeBase(array $ctx, int $flightId): array
     {
-        $ctx = $this->flightNoticeContext($flightId);
-        if ($ctx === null) throw new RuntimeException('El vuelo ya no existe.');
-        $belt = $this->beltLabel($ctx['hall'], $ctx['belt']);
-        $arrival = (string)($ctx['actual_arrival'] ?: $ctx['aena_arrival'] ?: $ctx['scheduled_arrival']);
-        $minutes = $arrival !== '' ? (int)round((strtotime($arrival) - time()) / 60) : null;
-        $when = $arrival !== '' ? date('H:i', strtotime($arrival)) : '—';
-        if ($ctx['baggage_state'] === 'entrega') {
-            $body = '🧳 En la cinta · ' . $belt;
-        } elseif ($ctx['baggage_state'] === 'finalizado') {
-            $body = '✅ Equipaje finalizado · ' . $belt;
-        } elseif ($ctx['actual_arrival']) {
-            $body = '🛬 Aterrizó a las ' . $when . ' · ' . $belt;
-        } elseif ($minutes !== null && $minutes > 0) {
-            $body = 'Faltan ' . $minutes . ' min · prevista ' . $when . ' · ' . $belt;
-        } elseif ($minutes !== null && $minutes <= 0) {
-            $body = 'En hora de llegada · prevista ' . $when . ' · ' . $belt;
-        } else {
-            $body = 'Programada ' . $when . ' · ' . $belt;
-        }
-        if ($justStarted) {
-            $body = 'Vigilando este vuelo · ' . $body . ' · en 5 min te mando el resumen';
-        }
         $title = ((int)$ctx['is_canary'] === 1 ? 'Canarias · ' : '') . $ctx['origin_name'] . ' · ' . $ctx['physical_flight'];
         $date = substr((string)$ctx['flight_date'], 0, 10);
         return [
             'title' => $title,
-            'body' => $body,
             'target_url' => 'index.php?date=' . rawurlencode($date) . '&flight=' . $flightId,
+        ];
+    }
+
+    /** @return array<string,string> */
+    private function watchArmedNotice(int $flightId): array
+    {
+        $ctx = $this->flightNoticeContext($flightId);
+        if ($ctx === null) throw new RuntimeException('El vuelo ya no existe.');
+        return $this->watchNoticeBase($ctx, $flightId) + [
+            'body' => 'Vigilancia activa · ' . $ctx['physical_flight'] . '. En unos minutos te mando el itinerario.',
+            'tag' => 'matrix-watch-' . $flightId . '-on',
+        ];
+    }
+
+    /** @return array<string,string> */
+    private function watchStatusNotice(int $flightId, bool $justStarted = false): array
+    {
+        if ($justStarted) return $this->watchArmedNotice($flightId);
+        $ctx = $this->flightNoticeContext($flightId);
+        if ($ctx === null) throw new RuntimeException('El vuelo ya no existe.');
+        $belt = $this->beltLabel($ctx['hall'], $ctx['belt']);
+        $arrival = (string)($ctx['actual_arrival'] ?: $ctx['aena_arrival'] ?: $ctx['scheduled_arrival']);
+        $when = $arrival !== '' ? date('H:i', strtotime($arrival)) : '—';
+        $body = $ctx['actual_arrival']
+            ? '🛬 Aterrizó a las ' . $when . ' · ' . $belt
+            : ('Prevista ' . $when . ' · ' . $belt);
+        return $this->watchNoticeBase($ctx, $flightId) + [
+            'body' => $body,
             'tag' => 'matrix-watch-' . $flightId,
         ];
     }
@@ -717,7 +719,7 @@ final class WebPushService
     private function flightNoticeContext(int $flightId): ?array
     {
         $stmt = $this->pdo->prepare(
-            "SELECT f.id,f.physical_flight,f.origin_name,f.flight_date,f.scheduled_arrival,f.is_canary,
+            "SELECT f.id,f.physical_flight,f.origin_name,f.flight_date,f.scheduled_arrival,f.scheduled_departure,f.is_canary,
                     (SELECT COALESCE(o.actual_arrival,o.eta) FROM observations o
                      WHERE o.flight_id=f.id AND o.source='aena'
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS aena_arrival,
@@ -745,6 +747,9 @@ final class WebPushService
                     (SELECT o.status FROM observations o
                      WHERE o.flight_id=f.id AND o.source='opensky' AND NULLIF(o.status,'') IS NOT NULL
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS opensky_status,
+                    (SELECT o.status FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='flightstats' AND NULLIF(o.status,'') IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS flightstats_status,
                     (SELECT COALESCE(o.eta,o.actual_arrival) FROM observations o
                      WHERE o.flight_id=f.id AND o.source IN ('airlabs','flightstats')
                        AND (o.eta IS NOT NULL OR o.actual_arrival IS NOT NULL)
@@ -810,11 +815,16 @@ final class WebPushService
     {
         $ctx = $this->flightNoticeContext($flightId);
         if ($ctx === null) {
-            return ['status' => '', 'eta' => '', 'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => ''];
+            return [
+                'aena_status' => '', 'airlabs_status' => '', 'opensky_status' => '', 'flightstats_status' => '',
+                'eta' => '', 'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => '',
+            ];
         }
-        $status = trim((string)($ctx['aena_status'] ?: $ctx['airlabs_status'] ?: $ctx['opensky_status'] ?: ''));
         return [
-            'status' => $this->statusLabel($status),
+            'aena_status' => $this->statusLabel((string)($ctx['aena_status'] ?? '')),
+            'airlabs_status' => $this->statusLabel((string)($ctx['airlabs_status'] ?? '')),
+            'opensky_status' => $this->statusLabel((string)($ctx['opensky_status'] ?? '')),
+            'flightstats_status' => $this->statusLabel((string)($ctx['flightstats_status'] ?? '')),
             'eta' => (string)($ctx['aena_eta'] ?: $ctx['secondary_eta'] ?: ''),
             'actual_arrival' => (string)($ctx['actual_arrival'] ?: ''),
             'actual_departure' => (string)($ctx['airlabs_departure'] ?: $ctx['secondary_departure'] ?: ''),
@@ -832,8 +842,8 @@ final class WebPushService
     private function watchStateDiff(array $row, array $before, array $snap): array
     {
         $before = array_merge([
-            'status' => '', 'eta' => '', 'actual_arrival' => '',
-            'actual_departure' => '', 'belt' => '', 'baggage' => '',
+            'aena_status' => '', 'airlabs_status' => '', 'opensky_status' => '', 'flightstats_status' => '',
+            'eta' => '', 'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => '',
         ], $before);
         $title = ((int)$row['is_canary'] === 1 ? 'Canarias · ' : '')
             . $row['origin_name'] . ' · ' . $row['physical_flight'];
@@ -884,14 +894,19 @@ final class WebPushService
                 '-bag'
             );
         }
-        if (
-            $before['status'] !== $snap['status']
-            && $snap['status'] !== ''
-            && preg_match('/tierra|landed|aterriz|finaliz/i', $snap['status']) !== 1
-        ) {
-            $out[] = $notice('ℹ️ ' . $snap['status'], '-st');
+        foreach ([
+            'aena_status' => 'Aena',
+            'airlabs_status' => 'AirLabs',
+            'opensky_status' => 'OpenSky',
+            'flightstats_status' => 'FlightStats',
+        ] as $field => $source) {
+            $next = $snap[$field] ?? '';
+            $prev = $before[$field] ?? '';
+            if ($prev === $next || $next === '' || !$this->isActionableStatus($next)) continue;
+            if (preg_match('/tierra|landed|aterriz|finaliz/i', $next) === 1 && $snap['actual_arrival'] !== '') continue;
+            $out[] = $notice('ℹ️ ' . $next . ' · ' . $source, '-st-' . strtolower($source));
         }
-        return array_slice($out, 0, 4);
+        return array_slice($out, 0, 5);
     }
 
     private function statusLabel(string $status): string
@@ -905,6 +920,11 @@ final class WebPushService
         ];
         $key = strtolower(trim($status));
         return $map[$key] ?? trim($status);
+    }
+
+    private function isActionableStatus(string $label): bool
+    {
+        return preg_match('/vuelo|tierra|aterriz|aproxima|finaliz|entrega|landed|active|cancel|despeg|en hora/i', $label) === 1;
     }
 
     /** @param array<string,string> $snap */
@@ -959,22 +979,19 @@ final class WebPushService
     {
         $ctx = $this->flightNoticeContext($flightId);
         if ($ctx === null) throw new RuntimeException('El vuelo ya no existe.');
-        $dep = (string)($ctx['airlabs_departure'] ?: $ctx['secondary_departure'] ?: '');
-        $salio = $dep !== '' ? 'Salió ' . date('H:i', strtotime($dep)) : 'Aún no ha salido';
+        $depActual = (string)($ctx['airlabs_departure'] ?: $ctx['secondary_departure'] ?: '');
+        $depPlan = (string)($ctx['scheduled_departure'] ?? '');
+        $despegue = $depActual !== ''
+            ? date('H:i', strtotime($depActual))
+            : ($depPlan !== '' ? date('H:i', strtotime($depPlan)) : 'pendiente');
         $landed = (string)($ctx['actual_arrival'] ?: '');
-        if ($landed !== '') {
-            $llegada = 'Aterrizó ' . date('H:i', strtotime($landed));
-        } else {
-            $eta = (string)($ctx['aena_arrival'] ?: $ctx['aena_eta'] ?: $ctx['secondary_eta'] ?: $ctx['scheduled_arrival'] ?: '');
-            $llegada = $eta !== '' ? 'Llegada prevista ' . date('H:i', strtotime($eta)) : 'Llegada prevista —';
-        }
+        $eta = (string)($ctx['aena_arrival'] ?: $ctx['aena_eta'] ?: $ctx['secondary_eta'] ?: $ctx['scheduled_arrival'] ?: '');
+        $llegada = $landed !== ''
+            ? date('H:i', strtotime($landed))
+            : ($eta !== '' ? date('H:i', strtotime($eta)) : 'pendiente');
         $belt = $this->beltLabel($ctx['hall'] ?? null, $ctx['belt'] ?? null);
-        $title = ((int)$ctx['is_canary'] === 1 ? 'Canarias · ' : '') . $ctx['origin_name'] . ' · ' . $ctx['physical_flight'];
-        $date = substr((string)$ctx['flight_date'], 0, 10);
-        return [
-            'title' => $title,
-            'body' => 'Resumen · ' . $salio . ' · ' . $llegada . ' · Cinta ' . $belt,
-            'target_url' => 'index.php?date=' . rawurlencode($date) . '&flight=' . $flightId,
+        return $this->watchNoticeBase($ctx, $flightId) + [
+            'body' => 'Itinerario · Despegue ' . $despegue . ' · Llegada ' . $llegada . ' · Cinta ' . $belt,
             'tag' => 'matrix-watch-' . $flightId . '-sum',
         ];
     }
@@ -988,7 +1005,7 @@ final class WebPushService
              INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1
              INNER JOIN flights f ON f.id=w.flight_id
              WHERE w.enabled=1
-               AND TIMESTAMPDIFF(MINUTE,w.updated_at,NOW())>=5
+               AND TIMESTAMPDIFF(MINUTE,w.updated_at,NOW())>=3
                AND f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 12 HOUR)
                                            AND DATE_ADD(NOW(),INTERVAL 2 DAY)
              LIMIT 40"

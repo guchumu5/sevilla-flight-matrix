@@ -15,7 +15,7 @@ use Throwable;
 
 final class WebOperationsService
 {
-    private const ACTIONS = ['aena', 'airlabs', 'opensky', 'weather', 'push', 'all'];
+    private const ACTIONS = ['aena', 'airlabs', 'airlabs_watched', 'opensky', 'weather', 'push', 'all'];
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -296,6 +296,7 @@ final class WebOperationsService
         return match ($action) {
             'aena' => $this->requestAenaSweep(),
             'airlabs' => $this->recordFetch('airlabs', fn(): array => $this->withLock('airlabs', fn(): array => $this->airLabs($this->clamp($limit, 1, 50)))),
+            'airlabs_watched' => $this->recordFetch('airlabs_watched', fn(): array => $this->withLock('airlabs', fn(): array => $this->airLabs($this->clamp($limit, 1, 50), true))),
             'opensky' => $this->recordFetch('opensky', fn(): array => $this->withLock('opensky', fn(): array => $this->openSky($this->clamp($limit, 1, 25)))),
             'weather' => $this->recordFetch('aviationweather', fn(): array => $this->withLock('weather', fn(): array => $this->weather())),
             'push' => $this->dispatchPush(),
@@ -423,17 +424,22 @@ final class WebOperationsService
     }
 
     /** @return array<string,mixed> */
-    private function airLabs(int $limit): array
+    private function airLabs(int $limit, bool $watchedOnly = false): array
     {
         $keys = $this->airLabsKeys();
         if ($keys === []) {
             throw new RuntimeException('No hay ninguna clave AirLabs configurada en .env.');
         }
 
+        $watchSql = $watchedOnly
+            ? "INNER JOIN flight_watches w ON w.flight_id=f.id AND w.enabled=1
+               INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1"
+            : '';
         $stmt = $this->pdo->prepare(
             "SELECT f.*,
                     GROUP_CONCAT(DISTINCT fc.flight_code ORDER BY fc.flight_code SEPARATOR ',') AS codeshares
              FROM flights f
+             {$watchSql}
              LEFT JOIN flight_codes fc ON fc.flight_id=f.id AND fc.flight_code<>f.physical_flight
              WHERE f.scheduled_arrival BETWEEN DATE_SUB(NOW(), INTERVAL 3 HOUR) AND DATE_ADD(NOW(), INTERVAL 10 HOUR)
              GROUP BY f.id
@@ -679,10 +685,16 @@ final class WebOperationsService
         }
 
         $stmt = $this->pdo->prepare(
-            'SELECT id, physical_flight, aircraft_icao24 FROM flights
-             WHERE scheduled_arrival BETWEEN DATE_SUB(NOW(), INTERVAL 3 HOUR) AND DATE_ADD(NOW(), INTERVAL 8 HOUR)
-               AND aircraft_icao24 IS NOT NULL AND aircraft_icao24<>\'\'
-             ORDER BY ABS(TIMESTAMPDIFF(MINUTE, NOW(), scheduled_arrival)) LIMIT :limit'
+            'SELECT f.id, f.physical_flight, f.origin_iata, f.origin_name, f.flight_date, f.scheduled_arrival, f.aircraft_icao24,
+                    EXISTS (
+                      SELECT 1 FROM flight_watches w
+                      INNER JOIN push_subscriptions s ON s.id=w.subscription_id
+                      WHERE w.flight_id=f.id AND w.enabled=1 AND s.active=1
+                    ) AS watched
+             FROM flights f
+             WHERE f.scheduled_arrival BETWEEN DATE_SUB(NOW(), INTERVAL 3 HOUR) AND DATE_ADD(NOW(), INTERVAL 8 HOUR)
+               AND f.aircraft_icao24 IS NOT NULL AND f.aircraft_icao24<>\'\'
+             ORDER BY watched DESC, ABS(TIMESTAMPDIFF(MINUTE, NOW(), f.scheduled_arrival)) LIMIT :limit'
         );
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
@@ -707,36 +719,53 @@ final class WebOperationsService
         $client = new OpenSkyClient($clientId, $secret, PROJECT_ROOT . '/storage/cache/opensky-token.json');
         $batch = $client->states(array_keys($flights));
         $states = $batch['states'];
-        $insert = $this->pdo->prepare(
-            "INSERT INTO observations
-             (flight_id,source,observed_at,status,latitude,longitude,altitude_m,ground_speed_ms,track_deg,vertical_rate_ms,occupancy_level,raw_data)
-             VALUES (:flight_id,'opensky',NOW(),:status,:latitude,:longitude,:altitude,:speed,:track,:vertical_rate,'no_verificable',:raw_data)"
-        );
-        $updated = 0;
+        $records = [];
         $errors = [];
         foreach ($flights as $icao24 => $flight) {
+            $state = $states[$icao24] ?? null;
+            if (!$state || trim((string)$flight['origin_iata']) === '') continue;
+            $records[] = [
+                'source_key' => implode('|', [
+                    (string)$flight['flight_date'],
+                    (string)$flight['physical_flight'],
+                    (string)$flight['origin_iata'],
+                    'SVQ',
+                ]),
+                'flight_date' => $flight['flight_date'],
+                'physical_flight' => $flight['physical_flight'],
+                'origin_iata' => $flight['origin_iata'],
+                'origin_name' => $flight['origin_name'],
+                'scheduled_arrival' => $flight['scheduled_arrival'],
+                'status' => $state['on_ground'] ? 'En tierra' : 'En vuelo',
+                'latitude' => $state['latitude'],
+                'longitude' => $state['longitude'],
+                'altitude_m' => $state['altitude_m'],
+                'ground_speed_ms' => $state['ground_speed_ms'],
+                'track_deg' => $state['track_deg'],
+                'vertical_rate_ms' => $state['vertical_rate_ms'],
+                'raw_data' => $state['raw'] ?? $state,
+                'confidence' => 'provisional',
+            ];
+        }
+
+        $updated = 0;
+        $sync = null;
+        if ($records !== []) {
             try {
-                $state = $states[$icao24] ?? null;
-                if (!$state) continue;
-                $insert->execute([
-                    'flight_id' => (int)$flight['id'],
-                    'status' => $state['on_ground'] ? 'En tierra' : 'En vuelo',
-                    'latitude' => $state['latitude'],
-                    'longitude' => $state['longitude'],
-                    'altitude' => $state['altitude_m'],
-                    'speed' => $state['ground_speed_ms'],
-                    'track' => $state['track_deg'],
-                    'vertical_rate' => $state['vertical_rate_ms'],
-                    'raw_data' => json_encode($state['raw'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                $sync = (new FlightReconciliationService($this->pdo))->sync($records, [
+                    'provider' => 'opensky',
+                    'mode' => 'delta',
+                    'observed_at' => date('Y-m-d H:i:s'),
+                    'complete' => false,
                 ]);
-                $updated++;
+                $updated = (int)($sync['observations_created'] ?? count($records));
             } catch (Throwable $error) {
-                $errors[] = $flight['physical_flight'] . ': ' . $error->getMessage();
+                $errors[] = $error->getMessage();
             }
         }
 
         $push = null;
-        if ($updated > 0) {
+        if ($updated > 0 || $records !== []) {
             try {
                 $push = (new WebPushService($this->pdo))->dispatch(50);
             } catch (Throwable) {
@@ -753,6 +782,7 @@ final class WebOperationsService
             'updated' => $updated,
             'rate_limit' => $batch['rate_limit'],
             'errors' => $errors,
+            'sync' => $sync,
             'push' => $push,
         ];
     }
