@@ -11,7 +11,7 @@
     scenePositions: new Map(), sceneRemovalTimers: new Map(), alertDate: null,
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
-    canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushPending: 0, pushWatches: 0,
+    canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushCheckNote: '', pushPending: 0, pushWatches: 0,
     watchedFlightIds: [], watchedFlightsBrief: [], queuedReload: false,
     canaryWeek: null, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
     canaryNight: localStorage.getItem('matrix.canaryNight') === '1',
@@ -967,11 +967,13 @@
         els.pushStatusLine.className = 'push-status-line push-status-warning';
         els.pushStatusLine.textContent = capabilityError;
       } else {
-        els.pushStatusLine.className = `push-status-line ${state.pushLastError?'push-status-error':pushReady?'push-status-ready':''}`;
+        els.pushStatusLine.className = `push-status-line ${state.pushLastError?'push-status-error':(state.pushCheckNote||pushReady)?'push-status-ready':''}`;
         els.pushStatusLine.textContent = state.pushLastError
           ? `El servidor intentó avisar, pero falló: ${state.pushLastError}`
+          : state.pushCheckNote
+            ? state.pushCheckNote
           : pushReady
-            ? `Web Push preparado · ${state.pushWatches} vuelo${state.pushWatches===1?'':'s'} vigilado${state.pushWatches===1?'':'s'} · ${state.pushPending} aviso${state.pushPending===1?'':'s'} pendiente${state.pushPending===1?'':'s'}${state.pushLastAt ? ` · último envío ${dateTime(state.pushLastAt)}` : ' · todavía sin envíos registrados'}.`
+            ? `Web Push preparado · ${state.pushWatches} vuelo${state.pushWatches===1?'':'s'} vigilado${state.pushWatches===1?'':'s'} · ${state.pushPending} aviso${state.pushPending===1?'':'s'} pendiente${state.pushPending===1?'':'s'}${state.pushLastAt ? ` · último envío ${dateTime(state.pushLastAt)}` : ' · todavía sin envíos registrados'}. Con la app abierta iOS no enseña globo: baja el centro de notificaciones o bloquea el teléfono.`
             : 'Los globos de la web no son avisos de iOS. Activa Web Push o pulsa Simulacro desde la app instalada en la pantalla de inicio.';
       }
     }
@@ -1093,6 +1095,7 @@
         state.pushLastError = serverError.message || 'El aviso del servidor falló.';
         serverNote += ' El del servidor no salió: ' + state.pushLastError;
       }
+      state.pushCheckNote = serverNote;
       if (els.pushStatusLine) {
         els.pushStatusLine.className = 'push-status-line push-status-ready';
         els.pushStatusLine.textContent = serverNote;
@@ -1130,9 +1133,10 @@
         state.watchedFlightsBrief = state.watchedFlightsBrief.map(item => Number(item.id) === id ? {...item, flightstats: data.flightstats} : item);
         renderTrackedFocus();
       }
+      state.pushCheckNote = (data.body || 'Comprobación enviada.') + ' Con la app abierta no hay globo: baja el centro de notificaciones o bloquea el teléfono.';
       if (els.pushStatusLine) {
         els.pushStatusLine.className = 'push-status-line push-status-ready';
-        els.pushStatusLine.textContent = (data.body || 'Comprobación enviada.') + ' En iPhone bloquea o sal de la app.';
+        els.pushStatusLine.textContent = state.pushCheckNote;
       }
       if (button) button.textContent = 'Aviso enviado ✓';
       window.setTimeout(() => {
@@ -1165,6 +1169,13 @@
       button.textContent = 'Enviando…';
     }
     try {
+      const registration = await ensureServiceWorker(token);
+      await registration.showNotification('Matriz Sevilla · prueba local', {
+        body: 'Este aviso lo ha mostrado el teléfono. Si no ves globo, baja el centro de notificaciones desde arriba.',
+        tag: 'matrix-test-local',
+        renotify: true,
+        data: {url:'index.php'}
+      });
       const response = await fetch('api/push.php', {
         method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
         body:JSON.stringify({action:'test',device_token:token})
@@ -1173,9 +1184,10 @@
       if (!response.ok || !data.ok) throw new Error(data.error || 'El servidor no pudo enviar la prueba.');
       state.pushLastError = '';
       state.pushLastAt = data.sent_at || new Date().toISOString();
+      state.pushCheckNote = `Prueba local enviada. Servidor: ${applePushLabel(data)}. Con la app abierta iOS no enseña globo: baja el centro de notificaciones o bloquea el teléfono. Si al bloquear no llega el del servidor, el canal Apple sigue fallando.`;
       if (els.pushStatusLine) {
         els.pushStatusLine.className = 'push-status-line push-status-ready';
-        els.pushStatusLine.textContent = `El servidor ha enviado el aviso (${applePushLabel(data)}). Bloquea el iPhone o sal de la app ahora. Si en 10 s no hay banner, el canal Apple no llega.`;
+        els.pushStatusLine.textContent = state.pushCheckNote;
       }
       if (button) button.textContent = 'Prueba enviada ✓';
       window.setTimeout(() => updateNotificationButton(), 8000);
