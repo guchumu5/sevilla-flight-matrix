@@ -735,6 +735,15 @@ final class WebOperationsService
             }
         }
 
+        $push = null;
+        if ($updated > 0) {
+            try {
+                $push = (new WebPushService($this->pdo))->dispatch(50);
+            } catch (Throwable) {
+                $push = null;
+            }
+        }
+
         return [
             'ok' => true,
             'action' => 'opensky',
@@ -744,6 +753,7 @@ final class WebOperationsService
             'updated' => $updated,
             'rate_limit' => $batch['rate_limit'],
             'errors' => $errors,
+            'push' => $push,
         ];
     }
 

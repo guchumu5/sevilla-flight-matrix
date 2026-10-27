@@ -91,8 +91,10 @@ final class WebPushService
         );
         $stmt->execute(['subscription_id' => $subscriptionId, 'flight_id' => $flightId, 'enabled' => $enabled ? 1 : 0]);
         if (!$enabled) {
+            $this->forgetWatchState($subscriptionId, $flightId);
             return ['notified' => false, 'sent_at' => null, 'http_status' => null, 'push_error' => null];
         }
+        $this->rememberWatchState($subscriptionId, $flightId, $this->watchStateSnapshot($flightId));
         $endpointStmt = $this->pdo->prepare('SELECT endpoint FROM push_subscriptions WHERE id=:id');
         $endpointStmt->execute(['id' => $subscriptionId]);
         if (!$this->isLivePushEndpoint((string)$endpointStmt->fetchColumn())) {
@@ -369,10 +371,12 @@ final class WebPushService
     public function dispatch(int $limit = 50): array
     {
         $this->createArrivalReminders();
+        $stateNotices = $this->notifyWatchStateChanges();
         $watched = "'departure_recorded','belt_assigned','belt_changed','belt_removed','arrival_recorded'," .
             "'baggage_started','eta_published','eta_changed','flight_cancelled','flight_missing'," .
             "'flight_withdrawn','flight_reappeared','arrival_reminder','schedule_changed'," .
-            "'hall_changed','gate_changed','stand_changed','baggage_finished'";
+            "'hall_changed','gate_changed','stand_changed','baggage_finished'," .
+            "'status_changed','status_published'";
         $this->pdo->exec(
             "UPDATE push_outbox o
              JOIN flight_events e ON e.id=o.flight_event_id
@@ -430,6 +434,8 @@ final class WebPushService
                                   ORDER BY (o.source='aena') DESC,o.observed_at DESC,o.id DESC LIMIT 1),'')
                       )
                       WHEN 'baggage_finished' THEN '✅ Entrega de equipaje finalizada'
+                      WHEN 'status_published' THEN CONCAT('ℹ️ ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'Estado publicado'))
+                      WHEN 'status_changed' THEN CONCAT('ℹ️ ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'Cambio de estado'))
                     END,500),
                     CONCAT('index.php?date=',DATE_FORMAT(f.flight_date,'%Y-%m-%d'),'&flight=',f.id)
              FROM push_subscriptions s
@@ -444,8 +450,9 @@ final class WebPushService
                AND (
                  e.event_type IN ('departure_recorded','arrival_recorded','arrival_reminder')
                  OR e.source='aena'
-                 OR (e.source IN ('flightstats','airlabs') AND e.event_type IN (
-                   'eta_changed','eta_published','departure_recorded','arrival_recorded'
+                 OR (e.source IN ('flightstats','airlabs','opensky') AND e.event_type IN (
+                   'eta_changed','eta_published','departure_recorded','arrival_recorded',
+                   'status_changed','status_published'
                  ))
                )
                AND NOT (
@@ -517,13 +524,14 @@ final class WebPushService
             'sent' => $sent,
             'failed' => $failed,
             'pulses' => $pulses,
+            'state_notices' => $stateNotices,
         ];
     }
 
     private function createArrivalReminders(): void
     {
-        // Se crea un único hito auditable por vuelo. La ventana de cinco
-        // minutos mantiene el aviso cerca de los 40 incluso con un cron breve.
+        // Un único hito por vuelo. La ventana 0–45 min evita perder el aviso
+        // si el despacho no cae exactamente entre los minutos 36 y 40.
         $this->pdo->exec(
             "INSERT IGNORE INTO flight_events
              (flight_id,sync_run_id,source,event_type,field_name,before_value,after_value,
@@ -560,7 +568,7 @@ final class WebPushService
                    WHERE landed.flight_id=f.id AND landed.actual_arrival IS NOT NULL
                  )
              ) due
-             WHERE TIMESTAMPDIFF(MINUTE,NOW(),due.arrival_at) BETWEEN 36 AND 40"
+             WHERE TIMESTAMPDIFF(MINUTE,NOW(),due.arrival_at) BETWEEN 0 AND 45"
         );
     }
 
@@ -711,6 +719,9 @@ final class WebPushService
                     (SELECT COALESCE(o.actual_arrival,o.eta) FROM observations o
                      WHERE o.flight_id=f.id AND o.source='aena'
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS aena_arrival,
+                    (SELECT o.eta FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena' AND o.eta IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS aena_eta,
                     (SELECT o.actual_arrival FROM observations o
                      WHERE o.flight_id=f.id AND o.actual_arrival IS NOT NULL
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS actual_arrival,
@@ -726,6 +737,19 @@ final class WebPushService
                     (SELECT o.status FROM observations o
                      WHERE o.flight_id=f.id AND o.source='aena'
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS aena_status,
+                    (SELECT o.status FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='airlabs' AND NULLIF(o.status,'') IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS airlabs_status,
+                    (SELECT o.status FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='opensky' AND NULLIF(o.status,'') IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS opensky_status,
+                    (SELECT COALESCE(o.eta,o.actual_arrival) FROM observations o
+                     WHERE o.flight_id=f.id AND o.source IN ('airlabs','flightstats')
+                       AND (o.eta IS NOT NULL OR o.actual_arrival IS NOT NULL)
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS secondary_eta,
+                    (SELECT o.actual_departure FROM observations o
+                     WHERE o.flight_id=f.id AND o.actual_departure IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS secondary_departure,
                     (SELECT o.actual_departure FROM observations o
                      WHERE o.flight_id=f.id AND o.source='airlabs' AND o.actual_departure IS NOT NULL
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS airlabs_departure
@@ -743,6 +767,189 @@ final class WebPushService
         $hall = trim((string)$hall);
         if ($hall !== '' && !str_contains($belt, '/')) return $hall . '/' . $belt;
         return $belt;
+    }
+
+    private function notifyWatchStateChanges(): int
+    {
+        $stmt = $this->pdo->query(
+            "SELECT s.id,s.id AS subscription_id,s.endpoint,s.p256dh,s.auth_secret,w.flight_id,
+                    f.physical_flight,f.origin_name,f.flight_date,f.scheduled_arrival,f.is_canary
+             FROM flight_watches w
+             INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1
+             INNER JOIN flights f ON f.id=w.flight_id
+             WHERE w.enabled=1
+               AND f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 12 HOUR)
+                                           AND DATE_ADD(NOW(),INTERVAL 2 DAY)
+             LIMIT 80"
+        );
+        $sent = 0;
+        foreach ($stmt->fetchAll() as $row) {
+            if (!$this->isLivePushEndpoint((string)$row['endpoint'])) continue;
+            $flightId = (int)$row['flight_id'];
+            $subscriptionId = (int)$row['subscription_id'];
+            $snap = $this->watchStateSnapshot($flightId);
+            $before = $this->readWatchState($subscriptionId, $flightId);
+            $this->rememberWatchState($subscriptionId, $flightId, $snap);
+            if ($before === null) continue;
+            foreach ($this->watchStateDiff($row, $before, $snap) as $notice) {
+                try {
+                    $this->deliverToRow($row, $notice);
+                    $sent++;
+                } catch (\Throwable $error) {
+                    $this->logPush('state-fail flight=' . $flightId . ' sub=' . $subscriptionId . ' err=' . $error->getMessage());
+                }
+            }
+        }
+        return $sent;
+    }
+
+    /** @return array<string,string> */
+    private function watchStateSnapshot(int $flightId): array
+    {
+        $ctx = $this->flightNoticeContext($flightId);
+        if ($ctx === null) {
+            return ['status' => '', 'eta' => '', 'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => ''];
+        }
+        $status = trim((string)($ctx['aena_status'] ?: $ctx['airlabs_status'] ?: $ctx['opensky_status'] ?: ''));
+        return [
+            'status' => $this->statusLabel($status),
+            'eta' => (string)($ctx['aena_eta'] ?: $ctx['secondary_eta'] ?: ''),
+            'actual_arrival' => (string)($ctx['actual_arrival'] ?: ''),
+            'actual_departure' => (string)($ctx['airlabs_departure'] ?: $ctx['secondary_departure'] ?: ''),
+            'belt' => $this->beltLabel($ctx['hall'] ?? null, $ctx['belt'] ?? null),
+            'baggage' => (string)($ctx['baggage_state'] ?: ''),
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @param array<string,string> $before
+     * @param array<string,string> $snap
+     * @return list<array<string,string>>
+     */
+    private function watchStateDiff(array $row, array $before, array $snap): array
+    {
+        $before = array_merge([
+            'status' => '', 'eta' => '', 'actual_arrival' => '',
+            'actual_departure' => '', 'belt' => '', 'baggage' => '',
+        ], $before);
+        $title = ((int)$row['is_canary'] === 1 ? 'Canarias · ' : '')
+            . $row['origin_name'] . ' · ' . $row['physical_flight'];
+        $date = substr((string)$row['flight_date'], 0, 10);
+        $url = 'index.php?date=' . rawurlencode($date) . '&flight=' . (int)$row['flight_id'];
+        $tag = 'matrix-watch-' . (int)$row['flight_id'];
+        $notice = function (string $body, string $suffix) use ($title, $url, $tag): array {
+            return ['title' => $title, 'body' => $body, 'target_url' => $url, 'tag' => $tag . $suffix];
+        };
+        $out = [];
+        if ($before['actual_arrival'] !== $snap['actual_arrival'] && $snap['actual_arrival'] !== '') {
+            $out[] = $notice('🛬 Aterriza · ' . date('H:i', strtotime($snap['actual_arrival'])), '-arr');
+        } elseif (
+            $before['status'] !== $snap['status']
+            && $snap['status'] !== ''
+            && $snap['actual_arrival'] === ''
+            && preg_match('/tierra|landed|aterriz|finaliz/i', $snap['status']) === 1
+        ) {
+            $out[] = $notice('🛬 ' . $snap['status'], '-arr');
+        }
+        if ($before['actual_departure'] !== $snap['actual_departure'] && $snap['actual_departure'] !== '') {
+            $out[] = $notice('✈️ Despega · ' . date('H:i', strtotime($snap['actual_departure'])), '-dep');
+        }
+        if ($before['eta'] !== $snap['eta'] && $snap['eta'] !== '') {
+            $scheduled = strtotime((string)$row['scheduled_arrival']);
+            $etaAt = strtotime($snap['eta']);
+            if ($scheduled && $etaAt && abs((int)round(($etaAt - $scheduled) / 60)) >= 5) {
+                $delay = (int)round(($etaAt - $scheduled) / 60);
+                $out[] = $notice(
+                    '⏱️ ETA ' . date('H:i', $etaAt) . ' · ' . ($delay > 0 ? '+' : '') . $delay . ' min sobre programada',
+                    '-eta'
+                );
+            }
+        }
+        $beltBefore = $before['belt'] === 'cinta pendiente' ? '' : $before['belt'];
+        $beltNow = $snap['belt'] === 'cinta pendiente' ? '' : $snap['belt'];
+        if ($beltBefore !== $beltNow && $beltNow !== '') {
+            $out[] = $notice(
+                ($beltBefore !== '' ? '⚠️ Cambio de cinta · ' . $beltBefore . ' → ' : '🧳 Asignación de cinta · ') . $beltNow,
+                '-belt'
+            );
+        }
+        if ($before['baggage'] !== $snap['baggage'] && $snap['baggage'] !== '' && $snap['baggage'] !== 'pendiente') {
+            $out[] = $notice(
+                $snap['baggage'] === 'finalizado' || $snap['baggage'] === 'final'
+                    ? '✅ Entrega de equipaje finalizada'
+                    : ('🧳 En la cinta' . ($beltNow !== '' ? ' · ' . $beltNow : '')),
+                '-bag'
+            );
+        }
+        if (
+            $before['status'] !== $snap['status']
+            && $snap['status'] !== ''
+            && preg_match('/tierra|landed|aterriz|finaliz/i', $snap['status']) !== 1
+        ) {
+            $out[] = $notice('ℹ️ ' . $snap['status'], '-st');
+        }
+        return array_slice($out, 0, 4);
+    }
+
+    private function statusLabel(string $status): string
+    {
+        $map = [
+            'active' => 'En vuelo',
+            'enroute' => 'En vuelo',
+            'landed' => 'Aterrizado',
+            'scheduled' => 'Programado',
+            'on_ground' => 'En tierra',
+        ];
+        $key = strtolower(trim($status));
+        return $map[$key] ?? trim($status);
+    }
+
+    /** @param array<string,string> $snap */
+    private function rememberWatchState(int $subscriptionId, int $flightId, array $snap): void
+    {
+        $states = $this->readWatchStates();
+        $states[$this->watchPulseKey($subscriptionId, $flightId)] = $snap;
+        if (count($states) > 400) {
+            $states = array_slice($states, -200, null, true);
+        }
+        $this->writeJsonFile($this->watchStatePath(), $states);
+    }
+
+    private function forgetWatchState(int $subscriptionId, int $flightId): void
+    {
+        $states = $this->readWatchStates();
+        unset($states[$this->watchPulseKey($subscriptionId, $flightId)]);
+        $this->writeJsonFile($this->watchStatePath(), $states);
+    }
+
+    /** @return array<string,string>|null */
+    private function readWatchState(int $subscriptionId, int $flightId): ?array
+    {
+        $row = $this->readWatchStates()[$this->watchPulseKey($subscriptionId, $flightId)] ?? null;
+        return is_array($row) ? $row : null;
+    }
+
+    /** @return array<string,mixed> */
+    private function readWatchStates(): array
+    {
+        $path = $this->watchStatePath();
+        if (!is_file($path)) return [];
+        $data = json_decode((string)file_get_contents($path), true);
+        return is_array($data) ? $data : [];
+    }
+
+    private function watchStatePath(): string
+    {
+        return PROJECT_ROOT . '/storage/cache/watch-states.json';
+    }
+
+    /** @param array<string,mixed> $data */
+    private function writeJsonFile(string $path, array $data): void
+    {
+        $directory = dirname($path);
+        if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) return;
+        file_put_contents($path, json_encode($data, JSON_UNESCAPED_UNICODE), LOCK_EX);
     }
 
     private function sendWatchPulses(): int
@@ -784,13 +991,14 @@ final class WebPushService
             $subscriptionId = (int)$row['subscription_id'];
             $flightId = (int)$row['flight_id'];
             if (!$this->isLivePushEndpoint((string)$row['endpoint'])) continue;
-            if (!$this->watchPulseDue($subscriptionId, $flightId, $interval)) continue;
+            $pulseMinutes = max(15, $interval);
+            if (!$this->watchPulseDue($subscriptionId, $flightId, $pulseMinutes)) continue;
             try {
                 $this->deliverToRow($row, $this->watchStatusNotice($flightId, false));
                 $this->markWatchPulse($subscriptionId, $flightId);
                 $sent++;
-            } catch (\Throwable) {
-                // El siguiente despacho reintenta este pulso.
+            } catch (\Throwable $error) {
+                $this->logPush('pulse-fail flight=' . $flightId . ' sub=' . $subscriptionId . ' err=' . $error->getMessage());
             }
         }
         return $sent;
@@ -918,8 +1126,7 @@ final class WebPushService
             'Content-Encoding: aes128gcm',
             'Content-Type: application/octet-stream',
         ]);
-        $httpVersion = (int)($posted['http_version'] ?? 0);
-        if (!empty($posted['apple']) && ($httpVersion === 1 || $httpVersion === 2)) {
+        if (!empty($posted['apple']) && !$this->isHttp2($posted['http_version'] ?? null)) {
             throw new RuntimeException('Plesk/PHP envió el aviso a Apple por HTTP/1.1. El iPhone no lo entrega. En PHP de Plesk hace falta curl con HTTP/2 (nghttp2).');
         }
         return $posted + ['encrypted' => true];
@@ -1009,7 +1216,99 @@ final class WebPushService
         if ($status === 0) {
             throw new RuntimeException('No se pudo contactar el servicio Push' . ($error !== '' ? ': ' . $error : '.'));
         }
-        return ['status' => $status, 'http_version' => is_numeric($version) ? (int)$version : null, 'apple' => $apple];
+        if ($apple && !$this->isHttp2($version)) {
+            $cli = $this->postWithSystemCurl($endpoint, $body, $jwt, $keys['public_key']);
+            if ($cli !== null) {
+                $this->logPush(sprintf(
+                    'apple-cli status=%d http=%s bytes=%d',
+                    $cli['status'],
+                    (string)$cli['http_version'],
+                    strlen($body)
+                ));
+                return $cli;
+            }
+        }
+        return ['status' => $status, 'http_version' => is_numeric($version) ? (int)$version : $version, 'apple' => $apple];
+    }
+
+    private function isHttp2(mixed $version): bool
+    {
+        if (is_int($version) || is_float($version)) {
+            return (int)$version >= 3;
+        }
+        $text = strtolower(trim((string)$version));
+        if ($text === '' || str_starts_with($text, '1')) {
+            return false;
+        }
+        return str_starts_with($text, '2') || str_starts_with($text, '3') || str_contains($text, 'h2');
+    }
+
+    /**
+     * Plesk a menudo enlaza PHP/cURL sin nghttp2. El curl del sistema sí suele
+     * hablar HTTP/2, y Apple exige eso para Web Push.
+     *
+     * @return array{status:int,http_version:?string,apple:bool}|null
+     */
+    private function postWithSystemCurl(string $endpoint, string $body, string $jwt, string $publicKey): ?array
+    {
+        $bin = $this->http2CurlBinary();
+        if ($bin === null) return null;
+        $payloadFile = tempnam(sys_get_temp_dir(), 'wpush');
+        if ($payloadFile === false) return null;
+        file_put_contents($payloadFile, $body);
+        $stderrFile = $payloadFile . '.err';
+        try {
+            $cmd = [
+                $bin, '--http2', '-sS', '-o', '/dev/null', '-w', '%{http_code} %{http_version}',
+                '--max-time', '20',
+                '-X', 'POST',
+                '-H', 'TTL: 86400',
+                '-H', 'Urgency: high',
+                '-H', 'Content-Encoding: aes128gcm',
+                '-H', 'Content-Type: application/octet-stream',
+                '-H', 'Authorization: vapid t=' . $jwt . ', k=' . $publicKey,
+                '--data-binary', '@' . $payloadFile,
+                $endpoint,
+            ];
+            $process = proc_open($cmd, [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['file', $stderrFile, 'w'],
+            ], $pipes, null, null);
+            if (!is_resource($process)) return null;
+            fclose($pipes[0]);
+            $output = trim((string)stream_get_contents($pipes[1]));
+            fclose($pipes[1]);
+            $code = proc_close($process);
+            if ($code !== 0 || $output === '') return null;
+            $parts = preg_split('/\s+/', $output) ?: [];
+            $status = (int)($parts[0] ?? 0);
+            $httpVersion = $parts[1] ?? '';
+            if ($status < 200) return null;
+            return ['status' => $status, 'http_version' => $httpVersion !== '' ? $httpVersion : '2', 'apple' => true];
+        } finally {
+            @unlink($payloadFile);
+            @unlink($stderrFile);
+        }
+    }
+
+    private function http2CurlBinary(): ?string
+    {
+        static $cached = false;
+        static $path = null;
+        if ($cached) return $path;
+        $cached = true;
+        foreach (['/usr/bin/curl', '/usr/local/bin/curl', 'curl'] as $candidate) {
+            if ($candidate !== 'curl' && !is_executable($candidate)) continue;
+            $lines = [];
+            exec(escapeshellarg($candidate) . ' --version 2>/dev/null', $lines, $code);
+            $line = strtolower(implode(' ', $lines));
+            if ($code === 0 && (str_contains($line, 'http2') || str_contains($line, 'nghttp2'))) {
+                $path = $candidate;
+                return $path;
+            }
+        }
+        return null;
     }
 
     private function logPush(string $line): void
