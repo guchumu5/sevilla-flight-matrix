@@ -94,6 +94,7 @@ final class WebPushService
             return ['notified' => false, 'sent_at' => null, 'http_status' => null, 'push_error' => null];
         }
         $this->rememberWatchState($subscriptionId, $flightId, $this->watchStateSnapshot($flightId));
+        $this->armWatchPulseLoop();
         $endpointStmt = $this->pdo->prepare('SELECT endpoint FROM push_subscriptions WHERE id=:id');
         $endpointStmt->execute(['id' => $subscriptionId]);
         if (!$this->isLivePushEndpoint((string)$endpointStmt->fetchColumn())) {
@@ -275,7 +276,55 @@ final class WebPushService
                 $failed++;
             }
         }
-        return ['ok' => true, 'sent' => $sent, 'failed' => $failed, 'flights' => count($rows)];
+        $loop = $this->armWatchPulseLoop();
+        return ['ok' => true, 'sent' => $sent, 'failed' => $failed, 'flights' => count($rows), 'loop' => $loop];
+    }
+
+    public function pulseWatches(): int
+    {
+        return $this->sendWatchPulses();
+    }
+
+    public function hasActiveWatchTargets(): bool
+    {
+        $count = (int)$this->pdo->query(
+            "SELECT COUNT(*)
+             FROM flight_watches w
+             INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1
+             INNER JOIN flights f ON f.id=w.flight_id
+             WHERE w.enabled=1
+               AND f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 12 HOUR)
+                                           AND DATE_ADD(NOW(),INTERVAL 2 DAY)"
+        )->fetchColumn();
+        return $count > 0;
+    }
+
+    /**
+     * Arranca en Plesk un proceso CLI que sigue avisando cada minuto
+     * aunque el iPhone haya dormido la PWA.
+     */
+    public function armWatchPulseLoop(): bool
+    {
+        if (!$this->hasActiveWatchTargets()) return false;
+        if ($this->watchPulseLoopRunning()) return true;
+        $php = $this->cliPhpBinary();
+        $script = PROJECT_ROOT . '/bin/watch-pulse-loop.php';
+        if ($php === null || !is_file($script) || !$this->canSpawnShell()) {
+            $this->logPush('pulse-loop no se pudo arrancar php=' . ($php ?? 'none') . ' exec=' . ($this->canSpawnShell() ? '1' : '0'));
+            return false;
+        }
+        $log = PROJECT_ROOT . '/storage/logs/watch-pulse-loop.log';
+        $directory = dirname($log);
+        if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) return false;
+        $inner = sprintf(
+            'nohup %s %s >> %s 2>&1 &',
+            escapeshellarg($php),
+            escapeshellarg($script),
+            escapeshellarg($log)
+        );
+        exec('bash -c ' . escapeshellarg($inner));
+        $this->logPush('pulse-loop arrancado php=' . $php);
+        return true;
     }
 
     /** @return array<string,mixed> */
@@ -567,6 +616,7 @@ final class WebPushService
         }
         $summaries = $this->sendWatchFiveMinuteSummaries();
         $pulses = $this->sendWatchPulses();
+        $loop = $this->armWatchPulseLoop();
         return [
             'queued' => (int)$this->pdo->query('SELECT COUNT(*) FROM push_outbox WHERE pushed_at IS NULL')->fetchColumn(),
             'sent' => $sent,
@@ -574,6 +624,7 @@ final class WebPushService
             'pulses' => $pulses,
             'summaries' => $summaries,
             'state_notices' => $stateNotices,
+            'loop' => $loop,
         ];
     }
 
@@ -1047,7 +1098,7 @@ final class WebPushService
     {
         $notice = $this->watchSummaryNotice($flightId);
         $notice['body'] = date('H:i') . ' · ' . $notice['body'];
-        $notice['tag'] = 'matrix-watch-' . $flightId . '-min-' . date('Hi');
+        $notice['tag'] = 'matrix-watch-' . $flightId . '-min';
         return $notice;
     }
 
@@ -1137,9 +1188,9 @@ final class WebPushService
              INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1
              INNER JOIN flights f ON f.id=w.flight_id
              WHERE w.enabled=1
-               AND f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 8 HOUR)
+               AND f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 12 HOUR)
                                            AND DATE_ADD(NOW(),INTERVAL 2 DAY)
-             LIMIT 40"
+             LIMIT 80"
         );
         $sent = 0;
         foreach ($stmt->fetchAll() as $row) {
@@ -1206,6 +1257,45 @@ final class WebPushService
     private function watchPulsePath(): string
     {
         return PROJECT_ROOT . '/storage/cache/watch-pulses.json';
+    }
+
+    private function watchPulseLoopRunning(): bool
+    {
+        $path = PROJECT_ROOT . '/storage/cache/watch-pulse-loop.lock';
+        if (!is_file($path)) return false;
+        $fp = fopen($path, 'c+');
+        if ($fp === false) return false;
+        $busy = !flock($fp, LOCK_EX | LOCK_NB);
+        if (!$busy) {
+            flock($fp, LOCK_UN);
+        }
+        fclose($fp);
+        return $busy;
+    }
+
+    private function cliPhpBinary(): ?string
+    {
+        $candidates = [
+            '/opt/plesk/php/8.3/bin/php',
+            '/opt/plesk/php/8.2/bin/php',
+            '/opt/plesk/php/8.1/bin/php',
+            '/usr/bin/php',
+            '/usr/local/bin/php',
+        ];
+        if (PHP_BINARY !== '' && !str_contains(strtolower(PHP_BINARY), 'fpm')) {
+            array_unshift($candidates, PHP_BINARY);
+        }
+        foreach ($candidates as $bin) {
+            if (is_executable($bin)) return $bin;
+        }
+        return null;
+    }
+
+    private function canSpawnShell(): bool
+    {
+        if (!function_exists('exec')) return false;
+        $disabled = array_map('trim', explode(',', (string)ini_get('disable_functions')));
+        return !in_array('exec', $disabled, true);
     }
 
     private function isLivePushEndpoint(string $endpoint): bool

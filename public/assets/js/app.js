@@ -11,7 +11,7 @@
     scenePositions: new Map(), sceneRemovalTimers: new Map(), alertDate: null,
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
-    canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushCheckNote: '', pushPending: 0, pushWatches: 0,
+    canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushCheckNote: '', pushPending: 0, pushWatches: 0, wakeLock: null,
     watchedFlightIds: [], watchedFlightsBrief: [], watchTickAt: 0, queuedReload: false,
     canaryWeek: null, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
     canaryNight: localStorage.getItem('matrix.canaryNight') === '1',
@@ -884,13 +884,24 @@
   }
 
   async function notifyWatchedChange(flight, title, body, tag) {
+    const notice = {
+      title,
+      body,
+      tag: tag || ('matrix-watch-' + flight.id),
+      target_url: `index.php?date=${encodeURIComponent(els.date.value)}&flight=${flight.id}`
+    };
     try {
       const registration = await ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '');
-      await registration.showNotification(title, {
-        body,
-        tag: tag || ('matrix-watch-' + flight.id),
+      const worker = registration.active || navigator.serviceWorker.controller;
+      if (worker) {
+        worker.postMessage({type:'matrix-show-notice', notice});
+        return;
+      }
+      await registration.showNotification(notice.title, {
+        body: notice.body,
+        tag: notice.tag,
         renotify: true,
-        data: {url: `index.php?date=${encodeURIComponent(els.date.value)}&flight=${flight.id}`}
+        data: {url: notice.target_url}
       });
     } catch (_) {}
   }
@@ -911,20 +922,35 @@
     await tickWatchedFlights();
   }
 
+  async function holdWatchWakeLock() {
+    if (!state.watchedFlightIds.length || document.hidden || !('wakeLock' in navigator)) {
+      try { await state.wakeLock?.release(); } catch (_) {}
+      state.wakeLock = null;
+      return;
+    }
+    try {
+      state.wakeLock = await navigator.wakeLock.request('screen');
+      state.wakeLock.addEventListener('release', () => { state.wakeLock = null; });
+    } catch (_) {}
+  }
+
   async function tickWatchedFlights() {
     const fromBoard = state.flights.filter(flight => flightIsWatched(flight.id));
     const seen = new Set(fromBoard.map(flight => Number(flight.id)));
     const extra = (state.watchedFlightsBrief || []).filter(item => !seen.has(Number(item.id)));
     const list = [...fromBoard, ...extra];
-    for (const flight of list) {
-      const title = `${flight.origin_name || ''} · ${flight.physical_flight}`;
-      await notifyWatchedChange(
-        flight,
-        title,
-        watchedItineraryBody(flight),
-        'matrix-watch-' + flight.id + '-min-' + Date.now()
-      );
+    if (!document.hidden) {
+      for (const flight of list) {
+        const title = `${flight.origin_name || ''} · ${flight.physical_flight}`;
+        await notifyWatchedChange(
+          flight,
+          title,
+          watchedItineraryBody(flight),
+          'matrix-watch-' + flight.id + '-min'
+        );
+      }
     }
+    holdWatchWakeLock();
     const token = localStorage.getItem('matrix.pushDevice');
     if (!token) return;
     try {
@@ -946,7 +972,9 @@
           : 'push-status-line push-status-ready';
         els.pushStatusLine.textContent = Number(data.sent) > 0
           ? `Aviso de itinerario enviado (${data.sent}). Baja el centro de notificaciones o bloquea el teléfono.`
-          : 'Comprobación local cada minuto. Baja el centro de notificaciones: el globo no sale con la app abierta.';
+          : (data.loop
+            ? 'El servidor sigue avisando cada minuto aunque duerma la pantalla. Baja el centro de notificaciones.'
+            : 'Comprobación local cada minuto. Baja el centro de notificaciones: el globo no sale con la app abierta.');
       }
     } catch (_) {}
   }
@@ -3364,4 +3392,10 @@
   ]).finally(() => loadBoard(true));
   setInterval(() => loadBoard(false), Number(document.querySelector('main').dataset.pollSeconds || 15) * 1000);
   setInterval(() => { maybeTickWatchedFlights(); }, 60_000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    state.watchTickAt = 0;
+    holdWatchWakeLock();
+    maybeTickWatchedFlights();
+  });
 })();
