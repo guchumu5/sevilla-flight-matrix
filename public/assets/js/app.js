@@ -1042,6 +1042,14 @@
     }
   }
 
+  const applePushLabel = data => {
+    if (!data?.apple) return 'HTTP ' + (data?.http_status || '');
+    const version = data.http_version;
+    const http2 = (typeof version === 'string' && /^(2|3|h2)/i.test(String(version).trim()))
+      || Number(version) >= 3;
+    return http2 ? 'Apple HTTP/2' : 'Apple HTTP/1.1';
+  };
+
   async function sendPushDrill() {
     const token = await enablePushNotifications();
     if (!token) throw new Error('No existe una suscripción Web Push válida en este dispositivo.');
@@ -1079,10 +1087,8 @@
         if (!response.ok || !data.ok) throw new Error(data.error || 'El aviso del servidor falló.');
         state.pushLastError = '';
         state.pushLastAt = data.sent_at || new Date().toISOString();
-        const via = data.apple
-          ? ('Apple HTTP/' + (Number(data.http_version) >= 3 ? '2' : '1.1'))
-          : ('HTTP ' + (data.http_status || ''));
-        serverNote += ` El del servidor (${via}) llega al salir de la app o bloquear.`;
+        const via = applePushLabel(data);
+        serverNote += ` El 7º es del servidor (${via}): bloquea el iPhone ahora. Si no sale en 10 s, el canal Apple sigue fallando.`;
       } catch (serverError) {
         state.pushLastError = serverError.message || 'El aviso del servidor falló.';
         serverNote += ' El del servidor no salió: ' + state.pushLastError;
@@ -1169,7 +1175,7 @@
       state.pushLastAt = data.sent_at || new Date().toISOString();
       if (els.pushStatusLine) {
         els.pushStatusLine.className = 'push-status-line push-status-ready';
-        els.pushStatusLine.textContent = 'Prueba aceptada por el servicio Push. Debe aparecer como notificación del sistema en unos segundos.';
+        els.pushStatusLine.textContent = `El servidor ha enviado el aviso (${applePushLabel(data)}). Bloquea el iPhone o sal de la app ahora. Si en 10 s no hay banner, el canal Apple no llega.`;
       }
       if (button) button.textContent = 'Prueba enviada ✓';
       window.setTimeout(() => updateNotificationButton(), 8000);
