@@ -96,6 +96,17 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .canary-important { margin-top:.5rem; padding:.45rem .5rem; border:1px solid var(--red); border-radius:8px; background:rgba(255,95,109,.13); }
 .canary-important b,.canary-important span { display:block; color:#ffc1c7; }.canary-important b { font-size:.66rem; letter-spacing:.06em; }.canary-important span { margin-top:.1rem; font-size:.68rem; }
 .canary-card .canary-proposal { display:block; margin-top:.45rem; color:#ffd47d; }
+.later-night { margin-top:.5rem; padding:.45rem .5rem; border:1px solid #3d5d7a; border-radius:8px; background:rgba(18,42,64,.55); }
+.later-night.is-last { border-color:#6a552a; background:rgba(64,46,18,.45); }
+.later-night strong,.canary-card .later-night strong { display:block; color:#9ed8ff; font-size:.66rem; letter-spacing:.05em; text-transform:uppercase; }
+.later-night.is-last strong,.canary-card .later-night.is-last strong { color:#ffd47d; }
+.later-night span,.canary-card .later-night span { display:block; margin-top:.12rem; color:#dbeaff; font-size:.72rem; }
+.later-night ul { margin:.28rem 0 0; padding:0; list-style:none; }
+.later-night li { color:#e8f3ff; font-size:.74rem; line-height:1.35; }
+.later-night li + li { margin-top:.16rem; }
+.later-night li b { color:#78efbc; font-variant-numeric:tabular-nums; }
+.later-night-hint { display:block; margin-top:.2rem; color:#9ed8ff; font-size:.68rem; font-weight:800; line-height:1.35; }
+.later-night-hint.last { color:#ffd47d; }
 .canary-occupancy { margin-top:.55rem; padding:.55rem; border:1px solid rgba(82,168,255,.38); border-radius:10px; background:rgba(5,14,24,.64); }
 .canary-occupancy.has-red { border-color:rgba(255,95,109,.6); }
 .canary-occupancy > header { display:grid; grid-template-columns:1fr auto auto; align-items:baseline; gap:.45rem; }
@@ -173,6 +184,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .canary-alert-toast.canary-alert-danger { border-color:var(--red); background:#2f171d; }.canary-alert-toast.canary-alert-danger .toast-header { background:#481d27; color:#ffc2c7; }
 .upcoming-strip { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(240px,1fr); gap:.55rem; overflow-x:auto; padding:.7rem; scroll-snap-type:x mandatory; }
 .upcoming-flight { display:grid; grid-template-columns:auto minmax(0,1fr); grid-template-areas:"clock main" "clock side"; align-items:center; gap:.3rem .7rem; padding:.6rem; border:1px solid var(--border); border-radius:12px; background:linear-gradient(145deg,#0a1828,#10243a); cursor:pointer; scroll-snap-align:start; }
+.upcoming-flight .later-night { grid-column:1/-1; margin-top:.15rem; }
 .upcoming-flight:hover,.upcoming-flight:focus { border-color:var(--blue); outline:none; }
 .upcoming-flight.canary { border-color:#755d2a; background:linear-gradient(145deg,#172130,#302719); }
 .upcoming-clock { grid-area:clock; display:grid; place-items:center; min-width:78px; padding:.5rem .4rem; border-radius:10px; background:rgba(82,168,255,.13); text-align:center; }

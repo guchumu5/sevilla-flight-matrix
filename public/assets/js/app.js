@@ -664,6 +664,7 @@
         <span><small>Predicción</small><b>${esc(predicted)}</b></span>
       </div>
       ${flightStatsWatchMarkup(flight)}${flight.secondary_eta && flight.secondary_eta !== flight.eta && flight.secondary_eta !== (flight.flightstats && flight.flightstats.eta) ? `<p class="flightstats-watch-line"><span>${esc((flight.secondary_eta_source || 'API').toUpperCase())}</span><strong>ETA ${time(flight.secondary_eta)}${flight.secondary_actual_departure ? ' · salió ' + time(flight.secondary_actual_departure) : ''}${flight.secondary_actual_arrival ? ' · aterrizó ' + time(flight.secondary_actual_arrival) : ''}</strong><small>secundario · no sustituye a Aena</small></p>` : ''}
+      ${laterNightMarkup(flight)}
       <div class="focus-hero-actions">
         <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${disabled?'disabled':''}>↻ ${esc(buttonLabel)}</button>
         ${allowExpand ? `<button class="btn btn-outline-light w-100" type="button" data-open-flight="${Number(flight.id)}">Ampliar vuelo</button>` : ''}
@@ -1545,7 +1546,7 @@
       <td><span class="time-primary">${time(f.scheduled_arrival)}</span></td>
       <td><span class="belt ${beltClass}">${esc(f.belt_label)}</span>${f.belt_attention?`<span class="belt-important" title="${esc(f.belt_attention_reason)}">IMPORTANTE · ${esc(f.belt_attention_reason)}</span>`:''}${secondaryBeltMarkup(f)}${predictionMarkup(f)}${beltAverageMarkup(f)}</td>
       <td><span class="origin-name">${esc(f.origin_name)}</span><span class="origin-code d-block">${esc(f.origin_iata)} · ${esc(f.traffic_class)}</span></td>
-      <td><strong>${esc(f.physical_flight)}</strong><span class="meta d-block">${esc(f.codes || '')}</span></td>
+      <td><strong>${esc(f.physical_flight)}</strong><span class="meta d-block">${esc(f.codes || '')}</span>${laterNightRowHint(f)}</td>
       <td><strong>${time(effectiveArrival(f))}</strong><span class="meta d-block">${signed(f.deviation_minutes)}</span></td>
       <td><span class="pill pill-${esc(f.pressure.replace('_','-'))}">${interval===undefined?'Sin adyacente':`${interval} min`}</span></td>
       <td><strong>${hallLoadText(f.hall_load)}</strong><span class="meta d-block">${f.hall_flights_30m} vuelos · ${Number(f.hall_capacity_30m).toLocaleString('es-ES')} plazas</span></td>
@@ -1743,6 +1744,67 @@
   const canaryOriginName = iata => state.canaryWeek?.origins?.find(item => item.iata === iata)?.name
     || state.flights.find(f => f.origin_iata === iata)?.origin_name
     || iata;
+  const PAST_23_MINUTES = 23 * 60;
+  const arrivalSource = flight => effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival;
+  const isPast23Flight = flight => {
+    const minutes = minuteOfDay(arrivalSource(flight));
+    return minutes !== null && (minutes >= PAST_23_MINUTES || minutes < 120);
+  };
+  const arrivalOrderKey = flight => {
+    const raw = arrivalSource(flight);
+    const date = flight.operational_date || operationalDateOf(raw);
+    const minutes = minuteOfDay(raw);
+    if (!date || minutes === null) return '';
+    return `${date}T${String(minutes < 120 ? minutes + 1440 : minutes).padStart(4, '0')}`;
+  };
+  const flightsForOperationalDay = date => {
+    const byId = new Map();
+    const add = flight => {
+      if (!flight) return;
+      const day = flight.operational_date || operationalDateOf(arrivalSource(flight) || flight.scheduled_arrival);
+      if (day !== date) return;
+      byId.set(Number(flight.id), flight);
+    };
+    (state.flights || []).forEach(add);
+    (state.nightContext || []).forEach(add);
+    canaryWeekFlights().forEach(add);
+    return [...byId.values()];
+  };
+  const laterNightFlights = flight => {
+    const date = flight.operational_date || operationalDateOf(arrivalSource(flight) || flight.scheduled_arrival);
+    const key = arrivalOrderKey(flight);
+    if (!date || !key || !isPast23Flight(flight)) return [];
+    return flightsForOperationalDay(date)
+      .filter(item => Number(item.id) !== Number(flight.id) && arrivalOrderKey(item) > key)
+      .sort((a, b) => arrivalOrderKey(a).localeCompare(arrivalOrderKey(b)));
+  };
+  const laterNightBelt = flight => {
+    if (flight.source === 'aena' && flight.belt) return beltPosition(flight);
+    if (flight.predicted_belt) {
+      return `${flight.predicted_hall || (Number(flight.predicted_belt) >= 7 ? 'B' : 'A')}/${flight.predicted_belt}`;
+    }
+    return '';
+  };
+  function laterNightMarkup(flight) {
+    if (!isPast23Flight(flight)) return '';
+    const later = laterNightFlights(flight);
+    if (!later.length) {
+      return `<p class="later-night is-last"><strong>Último de la noche</strong><span>No hay más llegadas después de este.</span></p>`;
+    }
+    return `<div class="later-night">
+      <strong>${later.length} vuelo${later.length === 1 ? '' : 's'} después</strong>
+      <ul>${later.map(item => {
+        const belt = laterNightBelt(item);
+        return `<li><b>${time(arrivalSource(item))}</b> ${esc(item.physical_flight || '')} · ${esc(item.origin_name || item.origin_iata || '')}${belt ? ` · ${esc(belt)}` : ''}</li>`;
+      }).join('')}</ul>
+    </div>`;
+  }
+  function laterNightRowHint(flight) {
+    if (!isPast23Flight(flight)) return '';
+    const later = laterNightFlights(flight);
+    if (!later.length) return '<span class="later-night-hint last">Último de la noche</span>';
+    return `<span class="later-night-hint">${later.length} después: ${later.map(item => `${time(arrivalSource(item))} ${esc(item.physical_flight || '')}`).join(' · ')}</span>`;
+  }
 
   function hydrateCanaryFlight(item) {
     const id = Number(item.id);
@@ -1840,6 +1902,7 @@
           <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b></div>
         </div>
         ${beltOccupancyMarkup(f)}
+        ${laterNightMarkup(f)}
         <div class="canary-card-actions">
           <button class="canary-quick-watch ${watched?'active':''}" type="button" data-watch-flight="${Number(f.id)}" data-watch-compact="1" data-watching="${watched?'1':'0'}" aria-pressed="${watched?'true':'false'}"><span aria-hidden="true">${watched?'🔔':'🔕'}</span> ${watched?'Vigilando':'Vigilar'}</button>
           ${otherDay ? `<button class="btn btn-sm btn-outline-info" type="button" data-goto-date="${esc(date)}">Ver ${esc(relativeDayLabel(date).toLowerCase())}</button>` : (flightAwareLink(f, true) || '<span></span>')}
@@ -1859,6 +1922,7 @@
       ${beltOccupancyMarkup(f)}
       ${f.belt_attention ? `<div class="canary-important"><b>IMPORTANTE</b><span>${esc(f.belt_attention_reason)}</span></div>` : ''}
       ${f.secondary_belt_state === 'candidate' ? `<small class="canary-proposal">● ${esc((f.secondary_belt_source||'API').toUpperCase())}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}</small>` : ''}
+      ${laterNightMarkup(f)}
       <div class="canary-card-actions">
         <button class="canary-quick-watch ${watched?'active':''}" type="button" data-watch-flight="${Number(f.id)}" data-watch-compact="1" data-watching="${watched?'1':'0'}" aria-pressed="${watched?'true':'false'}"><span aria-hidden="true">${watched?'🔔':'🔕'}</span> ${watched?'Vigilando':'Vigilar'}</button>
         ${otherDay ? `<button class="btn btn-sm btn-outline-info" type="button" data-goto-date="${esc(date)}">Ver ${esc(relativeDayLabel(date).toLowerCase())}</button>` : flightAwareLink(f, true)}
@@ -1965,6 +2029,7 @@
         <div class="canary-belt-line canary-belt-confirmed ${confirmedBelt?'':'pending'}"><span>Aena</span><b>${esc(confirmedBelt || 'pendiente')}</b></div>
       </div>
       ${beltOccupancyMarkup(f)}
+      ${laterNightMarkup(f)}
       ${otherDay ? `<button class="btn btn-sm btn-outline-info w-100 mt-2" type="button" data-goto-date="${esc(f.operational_date)}">Ver ${esc(relativeDayLabel(f.operational_date).toLowerCase())}</button>` : ''}
     </article>`;
   }
@@ -2082,6 +2147,7 @@
         <div class="upcoming-clock"><b>${time(arrival)}</b><small>${esc(arrivalCountdown(arrival, isToday))}</small></div>
         <div class="upcoming-main"><strong>${esc(f.origin_name)}</strong><span>${esc(f.physical_flight)} · prevista ${time(f.scheduled_arrival)}</span></div>
         <div class="upcoming-side"><em class="${deviationClass}">${esc(deviationText)}</em><span class="upcoming-belt ${official?'official':predicted?'predicted':'pending'} ${red?'red':''}">${beltText}</span>${coincidenceBadge(f)}</div>
+        ${laterNightMarkup(f)}
       </article>`;
     }).join('');
   }
