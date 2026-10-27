@@ -1,0 +1,30 @@
+name: Avisos cada minuto
+
+on:
+  schedule:
+    - cron: '* * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-minutely
+  cancel-in-progress: false
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      ENDPOINT: ${{ vars.MATRIX_PROVIDER_URL || 'https://www.ojito.top/public/api/provider-cron.php' }}
+      TOKEN: ${{ secrets.MATRIX_INGEST_TOKEN }}
+    steps:
+      - name: Normalizar dominio canónico
+        run: echo "ENDPOINT=${ENDPOINT/https:\/\/ojito.top/https:\/\/www.ojito.top}" >> "$GITHUB_ENV"
+      - name: Despachar avisos de vuelos vigilados
+        run: >-
+          curl --location --post301 --post302 --fail-with-body --retry 1 --max-time 90
+          -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json'
+          -H "X-Matrix-Token: $TOKEN"
+          --data '{"action":"push"}' "$ENDPOINT"

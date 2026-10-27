@@ -80,7 +80,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <button class="btn btn-outline-info" id="drillPushNotification" type="button">Simulacro de un vuelo</button>
       <button class="btn btn-outline-info" id="testPushNotification" type="button">Probar aviso real</button>
     </div>
-    <p class="push-hint">En iPhone, con la app abierta no sale globo. Baja el centro de notificaciones (desde arriba) o bloquea el teléfono.</p>
+    <p class="push-hint">Con un vuelo vigilado, cada minuto llega el itinerario (despegue, llegada, cinta). En iPhone, con la app abierta no sale globo: baja el centro de notificaciones o bloquea el teléfono.</p>
     <div class="push-status-line" id="pushStatusLine" aria-live="polite">Comprobando avisos del dispositivo…</div>
   </section>
 

@@ -46,6 +46,9 @@ try {
             (int)($input['flight_id'] ?? 0)
         ));
     }
+    if ($action === 'watch_tick') {
+        Response::json($service->tickWatches((string)($input['device_token'] ?? '')));
+    }
     Response::json(['error' => 'Acción no permitida.'], 422);
 } catch (Throwable $error) {
     Response::json(['error' => $error->getMessage()], 500);

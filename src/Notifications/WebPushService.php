@@ -7,7 +7,6 @@ use PDO;
 use RuntimeException;
 use SevillaMatrix\Env;
 use SevillaMatrix\Sync\FlightStatsIngestService;
-use SevillaMatrix\TrackingCadence;
 
 final class WebPushService
 {
@@ -103,7 +102,6 @@ final class WebPushService
         try {
             $notice = $this->watchArmedNotice($flightId);
             $delivery = $this->deliverToDevice($deviceToken, $notice);
-            $this->markWatchPulse($subscriptionId, $flightId);
             return [
                 'notified' => true,
                 'sent_at' => $delivery['sent_at'],
@@ -231,6 +229,53 @@ final class WebPushService
             'apple' => $mine['apple'] ?? false,
             'sent_at' => $mine['sent_at'] ?? date('Y-m-d H:i:s'),
         ];
+    }
+
+    /**
+     * Un aviso por minuto de cada vuelo vigilado de este teléfono.
+     *
+     * @return array{ok:bool,sent:int,failed:int,flights:int}
+     */
+    public function tickWatches(string $deviceToken): array
+    {
+        $subscriptionId = $this->subscriptionId($deviceToken);
+        $stmt = $this->pdo->prepare(
+            "SELECT s.id,s.id AS subscription_id,w.flight_id,s.endpoint,s.p256dh,s.auth_secret,
+                    (SELECT o.baggage_state FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena'
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS baggage_state,
+                    (SELECT o.actual_arrival FROM observations o
+                     WHERE o.flight_id=f.id AND o.actual_arrival IS NOT NULL
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS actual_arrival,
+                    f.scheduled_arrival
+             FROM flight_watches w
+             INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1
+             INNER JOIN flights f ON f.id=w.flight_id
+             WHERE w.enabled=1 AND s.id=:id
+               AND f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 12 HOUR)
+                                           AND DATE_ADD(NOW(),INTERVAL 2 DAY)"
+        );
+        $stmt->execute(['id' => $subscriptionId]);
+        $sent = $failed = 0;
+        $rows = $stmt->fetchAll();
+        foreach ($rows as $row) {
+            if (!$this->isLivePushEndpoint((string)$row['endpoint'])) continue;
+            if (in_array((string)$row['baggage_state'], ['finalizado', 'final'], true)) continue;
+            $arrival = (string)($row['actual_arrival'] ?: $row['scheduled_arrival']);
+            $minutes = $arrival !== '' ? (int)round((strtotime($arrival) - time()) / 60) : null;
+            if ($row['actual_arrival'] && $minutes !== null && $minutes < -90) continue;
+            $flightId = (int)$row['flight_id'];
+            if (!$this->watchPulseDue((int)$row['subscription_id'], $flightId, 1)) continue;
+            try {
+                $this->deliverToRow($row, $this->watchMinuteNotice($flightId));
+                $this->markWatchPulse((int)$row['subscription_id'], $flightId);
+                $sent++;
+            } catch (\Throwable $error) {
+                $this->logPush('tick-fail flight=' . $flightId . ' err=' . $error->getMessage());
+                $failed++;
+            }
+        }
+        return ['ok' => true, 'sent' => $sent, 'failed' => $failed, 'flights' => count($rows)];
     }
 
     /** @return array<string,mixed> */
@@ -521,11 +566,12 @@ final class WebPushService
             }
         }
         $summaries = $this->sendWatchFiveMinuteSummaries();
+        $pulses = $this->sendWatchPulses();
         return [
             'queued' => (int)$this->pdo->query('SELECT COUNT(*) FROM push_outbox WHERE pushed_at IS NULL')->fetchColumn(),
             'sent' => $sent,
             'failed' => $failed,
-            'pulses' => 0,
+            'pulses' => $pulses,
             'summaries' => $summaries,
             'state_notices' => $stateNotices,
         ];
@@ -996,6 +1042,15 @@ final class WebPushService
         ];
     }
 
+    /** @return array<string,string> */
+    private function watchMinuteNotice(int $flightId): array
+    {
+        $notice = $this->watchSummaryNotice($flightId);
+        $notice['body'] = date('H:i') . ' · ' . $notice['body'];
+        $notice['tag'] = 'matrix-watch-' . $flightId . '-min-' . date('Hi');
+        return $notice;
+    }
+
     private function sendWatchFiveMinuteSummaries(): int
     {
         $stmt = $this->pdo->query(
@@ -1093,14 +1148,12 @@ final class WebPushService
             $minutes = $arrival !== '' ? (int)round((strtotime($arrival) - time()) / 60) : null;
             if ($finished) continue;
             if ($row['actual_arrival'] && $minutes !== null && $minutes < -90) continue;
-            $interval = TrackingCadence::intervalMinutes($minutes, true, false);
             $subscriptionId = (int)$row['subscription_id'];
             $flightId = (int)$row['flight_id'];
             if (!$this->isLivePushEndpoint((string)$row['endpoint'])) continue;
-            $pulseMinutes = max(15, $interval);
-            if (!$this->watchPulseDue($subscriptionId, $flightId, $pulseMinutes)) continue;
+            if (!$this->watchPulseDue($subscriptionId, $flightId, 1)) continue;
             try {
-                $this->deliverToRow($row, $this->watchStatusNotice($flightId, false));
+                $this->deliverToRow($row, $this->watchMinuteNotice($flightId));
                 $this->markWatchPulse($subscriptionId, $flightId);
                 $sent++;
             } catch (\Throwable $error) {
@@ -1114,7 +1167,7 @@ final class WebPushService
     {
         $pulses = $this->readWatchPulses();
         $last = (int)($pulses[$this->watchPulseKey($subscriptionId, $flightId)] ?? 0);
-        return $last <= time() - max(4, $intervalMinutes) * 60;
+        return $last <= time() - max(1, $intervalMinutes) * 60;
     }
 
     private function markWatchPulse(int $subscriptionId, int $flightId): void

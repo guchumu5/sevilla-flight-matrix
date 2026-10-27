@@ -12,7 +12,7 @@
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
     canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushCheckNote: '', pushPending: 0, pushWatches: 0,
-    watchedFlightIds: [], watchedFlightsBrief: [], queuedReload: false,
+    watchedFlightIds: [], watchedFlightsBrief: [], watchTickAt: 0, queuedReload: false,
     canaryWeek: null, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
     canaryNight: localStorage.getItem('matrix.canaryNight') === '1',
     canaryWeekScope: localStorage.getItem('matrix.canaryWeekScope') === '1',
@@ -870,7 +870,7 @@
   async function notifyWatchSequenceStart(flight) {
     if (!flight) return;
     const title = `${flight.origin_name} · ${flight.physical_flight}`;
-    const body = `Vigilancia activa · ${flight.physical_flight}. En unos minutos te mando el itinerario.`;
+    const body = `Vigilancia activa · ${flight.physical_flight}. Cada minuto te mando el itinerario para comprobar que llega.`;
     try {
       const registration = await ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '');
       await registration.showNotification(title, {
@@ -892,6 +892,62 @@
         renotify: true,
         data: {url: `index.php?date=${encodeURIComponent(els.date.value)}&flight=${flight.id}`}
       });
+    } catch (_) {}
+  }
+
+  function watchedItineraryBody(flight) {
+    const snap = watchSnapshot(flight);
+    const dep = snap.secondary_departure ? time(snap.secondary_departure) : time(flight.scheduled_departure);
+    const arr = flight.actual_arrival ? time(flight.actual_arrival) : time(effectiveArrival(flight));
+    const belt = snap.belt || 'pendiente';
+    const clock = new Intl.DateTimeFormat('es-ES', {hour:'2-digit', minute:'2-digit'}).format(new Date());
+    return `${clock} · Itinerario · Despegue ${dep} · Llegada ${arr} · Cinta ${belt}`;
+  }
+
+  async function maybeTickWatchedFlights() {
+    if (!state.watchedFlightIds.length) return;
+    if (Date.now() - (state.watchTickAt || 0) < 55_000) return;
+    state.watchTickAt = Date.now();
+    await tickWatchedFlights();
+  }
+
+  async function tickWatchedFlights() {
+    const fromBoard = state.flights.filter(flight => flightIsWatched(flight.id));
+    const seen = new Set(fromBoard.map(flight => Number(flight.id)));
+    const extra = (state.watchedFlightsBrief || []).filter(item => !seen.has(Number(item.id)));
+    const list = [...fromBoard, ...extra];
+    for (const flight of list) {
+      const title = `${flight.origin_name || ''} · ${flight.physical_flight}`;
+      await notifyWatchedChange(
+        flight,
+        title,
+        watchedItineraryBody(flight),
+        'matrix-watch-' + flight.id + '-min-' + Date.now()
+      );
+    }
+    const token = localStorage.getItem('matrix.pushDevice');
+    if (!token) return;
+    try {
+      const response = await fetch('api/push.php', {
+        method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
+        body:JSON.stringify({action:'watch_tick', device_token:token})
+      });
+      const data = await response.json();
+      if (!response.ok) return;
+      if (Number(data.sent) > 0) {
+        state.pushLastError = '';
+        state.pushLastAt = new Date().toISOString();
+      } else if (Number(data.failed) > 0) {
+        state.pushLastError = 'El aviso cada minuto no salió por Apple';
+      }
+      if (els.pushStatusLine && list.length) {
+        els.pushStatusLine.className = Number(data.failed) > 0
+          ? 'push-status-line push-status-error'
+          : 'push-status-line push-status-ready';
+        els.pushStatusLine.textContent = Number(data.sent) > 0
+          ? `Aviso de itinerario enviado (${data.sent}). Baja el centro de notificaciones o bloquea el teléfono.`
+          : 'Comprobación local cada minuto. Baja el centro de notificaciones: el globo no sale con la app abierta.';
+      }
     } catch (_) {}
   }
 
@@ -1031,6 +1087,7 @@
         : [];
       if (Array.isArray(data.watched_flights)) state.watchedFlightsBrief = data.watched_flights;
       if (Notification.permission === 'granted') await ensureServiceWorker(token);
+      maybeTickWatchedFlights();
     } catch (error) {
       state.pushLastError = error.message || 'No se pudo comprobar Web Push';
     }
@@ -1472,6 +1529,7 @@
       processCanaryAlerts(incoming, els.date.value);
       processWatchAlerts(incoming);
       state.flights = incoming;
+      maybeTickWatchedFlights();
       applyBeltCoincidence(state.flights);
       const important = incoming.filter(f => Boolean(f.belt_attention));
       const daily = payload.belt_analysis_daily;
@@ -3305,4 +3363,5 @@
     new Promise(resolve => setTimeout(resolve, 1500))
   ]).finally(() => loadBoard(true));
   setInterval(() => loadBoard(false), Number(document.querySelector('main').dataset.pollSeconds || 15) * 1000);
+  setInterval(() => { maybeTickWatchedFlights(); }, 60_000);
 })();
