@@ -22,6 +22,8 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 .navbar-brand small { font-size: .76rem; }
 .brand-mark { display:grid; place-items:center; width:46px; height:38px; border-radius:10px; background:linear-gradient(135deg,var(--green),#0d8c78); color:#04140f; font-weight:900; letter-spacing:.05em; }
 .admin-link,.settings-link { display:inline-flex; align-items:center; justify-content:center; gap:.38rem; }
+.live-belts-link { display:inline-flex; align-items:center; justify-content:center; min-height:36px; padding:.2rem .75rem; font-weight:800; white-space:nowrap; }
+.live-belts-short { display:none; }
 .admin-icon { font-size:1rem; line-height:1; }
 .mobile-command-grid { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
 .mobile-command { display:flex; align-items:center; gap:.55rem; min-width:0; padding:.62rem .7rem; border:1px solid var(--border); border-radius:12px; background:linear-gradient(145deg,#0d1b2d,#12243a); color:var(--text); text-align:left; }
@@ -394,6 +396,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
 @media (min-width:768px){ .w-md-auto{width:auto!important;} }
 @media (max-width:767.98px){
   .app-navbar .container-fluid{flex-wrap:nowrap;gap:.35rem;padding:.4rem .55rem}.navbar-brand{margin-right:0}.brand-copy,.admin-label{display:none}.brand-mark{width:38px;height:34px;font-size:.78rem}.admin-link,.settings-link{width:36px;height:36px;padding:0}.admin-icon{font-size:1.05rem}
+  .live-belts-link{height:36px;padding:0 .55rem;font-size:.78rem}.live-belts-full{display:none}.live-belts-short{display:inline}
   .nav-date{flex:1 1 auto;min-width:0;margin:0}.nav-date-current{flex:1 1 auto;min-width:0}.nav-date-current strong{overflow:hidden;font-size:.9rem;text-overflow:ellipsis}.nav-date-step{width:34px;height:38px}
   .connection-badge{display:block;width:12px;height:12px;padding:0;overflow:hidden;border-radius:50%;font-size:0;color:transparent}
   main.container-fluid{padding-top:.6rem!important}.filters-panel{margin-bottom:.45rem!important;border:0;background:transparent;box-shadow:none}.filters-panel>.radar-toggle{display:none}.filters-panel .toolbar{margin-top:.35rem;border:1px solid var(--border);border-radius:12px;background:rgba(13,27,45,.96)}.belt-daily-alert{display:none!important}

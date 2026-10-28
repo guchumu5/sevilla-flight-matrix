@@ -52,6 +52,10 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <button type="button" class="nav-date-today d-none" id="dateToday">Hoy</button>
     </div>
     <div class="d-flex align-items-center gap-2 ms-auto">
+      <a class="btn btn-sm btn-success live-belts-link" href="cintas.php" title="Cintas en vivo a pantalla completa">
+        <span class="live-belts-full">Cintas en vivo</span>
+        <span class="live-belts-short">Ahora</span>
+      </a>
       <span id="connectionBadge" class="badge text-bg-secondary connection-badge">Conectando</span>
       <button type="button" class="btn btn-sm btn-outline-light settings-link" data-bs-toggle="modal" data-bs-target="#settingsModal" aria-label="Ajustes de coincidencia" title="Ajustes">
         <span class="admin-icon" aria-hidden="true">☰</span><span class="admin-label">Ajustes</span>
