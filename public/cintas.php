@@ -21,8 +21,11 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/cintas.js') ?: '1');
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Cintas SVQ">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/icon-180.png" sizes="180x180">
   <title>Cintas en vivo · Sevilla</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23050b12'/%3E%3Cpath d='M12 38h40M18 30h28' stroke='%232fd38a' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='22' cy='46' r='5' fill='%23ff5f6d'/%3E%3Ccircle cx='42' cy='46' r='5' fill='%23ff5f6d'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
   <link href="assets/css/cintas.css?v=<?= e($cssVersion) ?>" rel="stylesheet">
 </head>
 <body>
@@ -30,14 +33,14 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/cintas.js') ?: '1');
     <header class="live-top">
       <div class="live-brand">
         <span class="live-mark">SVQ</span>
-        <div>
+        <div class="live-brand-copy">
           <strong>Cintas en vivo</strong>
           <small>Sala A · 1–6 verdes · Sala B · 7–8 rojas</small>
         </div>
       </div>
       <div class="live-clock" aria-live="off">
         <time id="liveClock">--:--:--</time>
-        <small>Madrid</small>
+        <small id="liveClockLabel">Ahora</small>
       </div>
       <div class="live-day">
         <small id="liveDayRelative">Hoy</small>
@@ -45,8 +48,12 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/cintas.js') ?: '1');
       </div>
       <div class="live-actions">
         <span id="liveStatus" class="live-status is-loading">Cargando</span>
-        <button type="button" class="live-btn" id="liveFullscreen" aria-pressed="false">Pantalla</button>
-        <a class="live-btn live-btn-ghost" href="index.php">Matriz</a>
+        <button type="button" class="live-icon-btn" id="liveFullscreen" aria-pressed="false" title="Pantalla completa" aria-label="Pantalla completa">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <a class="live-icon-btn" href="index.php" title="Matriz" aria-label="Matriz">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.2" height="7.2" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.8" y="3" width="7.2" height="7.2" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="13.8" width="7.2" height="7.2" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.8" y="13.8" width="7.2" height="7.2" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        </a>
       </div>
     </header>
 

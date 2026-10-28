@@ -2342,10 +2342,9 @@
       return;
     }
     const buttons = [...document.querySelectorAll('[data-print-canary]')];
-    const previousLabels = buttons.map(button => button.textContent);
     buttons.forEach(button => {
       button.disabled = true;
-      button.textContent = 'Preparando folio…';
+      button.setAttribute('aria-busy', 'true');
     });
     try {
       if (flights.some(flight => !flight.belt_coincidence)) await loadCanaryWeek();
@@ -2360,9 +2359,9 @@
     } catch (error) {
       window.alert(error.message || 'No se pudo preparar el folio.');
     } finally {
-      buttons.forEach((button, index) => {
+      buttons.forEach(button => {
         button.disabled = false;
-        button.textContent = previousLabels[index] || 'Imprimir';
+        button.removeAttribute('aria-busy');
       });
     }
   }

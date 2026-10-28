@@ -28,8 +28,10 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Matriz SVQ">
   <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/icon-180.png" sizes="180x180">
   <title>Matriz de Cintas · Sevilla</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230b1728'/%3E%3Cpath d='M12 38h40M18 30h28' stroke='%232fd38a' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='22' cy='46' r='5' fill='%23ffb547'/%3E%3Ccircle cx='42' cy='46' r='5' fill='%23ffb547'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" rel="stylesheet">
   <link href="assets/css/app.css?v=<?= e($cssVersion) ?>" rel="stylesheet">
@@ -59,7 +61,17 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <a class="btn btn-sm btn-outline-light admin-link" href="admin.php" aria-label="Administración Aena" title="Administración Aena"><span class="admin-icon" aria-hidden="true">⚙</span><span class="admin-label">Aena / Admin</span></a>
     </div>
     <div class="nav-primary-actions">
-      <a class="btn btn-sm btn-success live-belts-link" href="cintas.php" title="Cintas en vivo a pantalla completa">Cintas en vivo</a>
+      <div class="nav-quick-icons" role="group" aria-label="Cintas y Canarias">
+        <a class="nav-icon-btn is-live" href="cintas.php" title="Cintas en vivo" aria-label="Cintas en vivo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 12l6.2-3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/></svg>
+        </a>
+        <button type="button" class="nav-icon-btn" id="printCanaryWeek" data-print-canary title="Imprimir" aria-label="Imprimir">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8V3.8h10V8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5 8h14a2 2 0 0 1 2 2v6h-3.2v-2.2H6.2V16H3v-6a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><rect x="6.2" y="13.8" width="11.6" height="6.4" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        </button>
+        <a class="nav-icon-btn" id="viewCanaryWeek" data-view-canary href="canarias.php" target="_blank" rel="noopener" title="Ver" aria-label="Ver">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="8" width="12.5" height="12.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 4h10v10M10 14L20 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
       <button type="button" class="btn btn-sm btn-outline-light sync-now-btn" id="syncNowButton" title="Forzar ahora Aena, AirLabs y recarga del tablero">Actualizar</button>
       <small id="syncNowStatus" class="sync-now-status" aria-live="polite"></small>
     </div>
@@ -69,9 +81,6 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
 <main class="container-fluid px-lg-4 py-3" data-poll-seconds="<?= $pollSeconds ?>"
       data-focus-admin="<?= $focusAdmin ? '1' : '0' ?>" data-focus-csrf="<?= e($focusCsrf) ?>">
   <div class="mobile-command-grid d-md-none mb-2" aria-label="Accesos rápidos">
-    <a class="mobile-command mobile-live-command" href="cintas.php">
-      <span aria-hidden="true">▣</span><span><small>Hall</small><strong>Cintas en vivo</strong></span>
-    </a>
     <button class="mobile-command mobile-sync-command" type="button" id="mobileSyncNow">
       <span aria-hidden="true">↻</span><span><small>Fuentes</small><strong>Actualizar ahora</strong></span>
     </button>
@@ -142,19 +151,11 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
         <p class="mb-0 text-secondary small">Filtra por origen, solo noche (hora en Ajustes, 22:00 de serie) o mira toda la semana. Al vigilar, Aena va cada 5 min; si hay retraso en FlightStats o AirLabs también avisa, aunque Aena siga en hora.</p>
       </div>
       <div class="canary-watch-tools">
-        <a class="btn btn-sm btn-success live-belts-link" href="cintas.php">Cintas en vivo</a>
-        <button class="btn btn-sm btn-outline-light" id="printCanaryWeek" data-print-canary type="button">Imprimir</button>
-        <a class="btn btn-sm btn-outline-info" id="viewCanaryWeek" data-view-canary href="canarias.php" target="_blank" rel="noopener" aria-label="Ver Canarias en página limpia">Ver</a>
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>
       </div>
     </header>
     <nav class="canary-week" id="canaryWeek" aria-label="Días de la semana con vuelos canarios"></nav>
     <nav class="canary-origins" id="canaryOrigins" aria-label="Filtrar Canarias por origen, noche o semana"></nav>
-    <div class="canary-scope-actions">
-      <button class="btn btn-sm btn-outline-light" data-print-canary type="button">Imprimir</button>
-      <a class="btn btn-sm btn-outline-info" data-view-canary href="canarias.php" target="_blank" rel="noopener" aria-label="Ver Canarias en página limpia">Ver</a>
-      <a class="btn btn-sm btn-success live-belts-link" href="cintas.php">Cintas en vivo</a>
-    </div>
     <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
   </section>
 

@@ -32,8 +32,11 @@ $title = 'Canarias' . ($filters ? ' · ' . implode(' · ', $filters) : '');
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Canarias SVQ">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/icon-180.png" sizes="180x180">
   <title><?= e($title) ?> · Sevilla</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23071018'/%3E%3Cpath d='M12 38h40M18 30h28' stroke='%23ffb547' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='22' cy='46' r='5' fill='%23ff5f6d'/%3E%3Ccircle cx='42' cy='46' r='5' fill='%23ff5f6d'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
   <link href="assets/css/canarias.css?v=<?= e($cssVersion) ?>" rel="stylesheet">
 </head>
 <body>
@@ -57,8 +60,15 @@ $title = 'Canarias' . ($filters ? ' · ' . implode(' · ', $filters) : '');
         <small id="sheetDay"><?= e($today) ?></small>
       </div>
       <div class="sheet-actions">
-        <button type="button" class="sheet-btn" id="sheetPrint">Imprimir</button>
-        <a class="sheet-btn sheet-btn-ghost" href="index.php<?= $date !== $today ? '?date=' . rawurlencode($date) : '' ?>">Matriz</a>
+        <a class="sheet-icon-btn is-live" href="cintas.php" title="Cintas en vivo" aria-label="Cintas en vivo">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 12l6.2-3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="1.7" fill="currentColor"/></svg>
+        </a>
+        <button type="button" class="sheet-icon-btn" id="sheetPrint" title="Imprimir" aria-label="Imprimir">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 8V3.8h10V8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M5 8h14a2 2 0 0 1 2 2v6h-3.2v-2.2H6.2V16H3v-6a2 2 0 0 1 2-2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><rect x="6.2" y="13.8" width="11.6" height="6.4" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        </button>
+        <a class="sheet-icon-btn" href="index.php<?= $date !== $today ? '?date=' . rawurlencode($date) : '' ?>" title="Matriz" aria-label="Matriz">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.2" height="7.2" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.8" y="3" width="7.2" height="7.2" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="3" y="13.8" width="7.2" height="7.2" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/><rect x="13.8" y="13.8" width="7.2" height="7.2" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>
+        </a>
       </div>
     </header>
     <p class="sheet-error" id="sheetError" role="alert" hidden></p>

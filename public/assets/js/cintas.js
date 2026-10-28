@@ -2,6 +2,7 @@
   'use strict';
 
   const DWELL_MS = 30 * 60 * 1000;
+  const ENTER_MS = 5 * 60 * 1000;
   const MAX_OFFSET = 90;
   const BELTS = [1, 2, 3, 4, 5, 6, 7, 8];
   const SOURCE_LABEL = {oficial: 'Aena', provisional: 'provisional', prediccion: 'estimado'};
@@ -11,6 +12,8 @@
   const els = {
     grid: document.querySelector('#liveGrid'),
     clock: document.querySelector('#liveClock'),
+    clockLabel: document.querySelector('#liveClockLabel'),
+    clockWrap: document.querySelector('.live-clock'),
     dayRelative: document.querySelector('#liveDayRelative'),
     dayLabel: document.querySelector('#liveDayLabel'),
     status: document.querySelector('#liveStatus'),
@@ -167,19 +170,26 @@
     return {belt, hall: belt >= 7 ? 'B' : 'A', current, next, remainingMs: current ? current.end - at : null, untilNextMs: next ? next.start - at : null};
   });
 
-  const formatCountdown = (ms, occupied) => {
-    if (occupied) return {text: 'AHORA', long: false};
-    if (ms === null || !Number.isFinite(ms)) return {text: 'LIBRE', long: true};
-    if (ms <= 0) return {text: 'AHORA', long: false};
+  const formatMmSs = ms => {
+    if (ms === null || !Number.isFinite(ms)) return {text: '—', long: false};
     const totalSec = Math.max(0, Math.round(ms / 1000));
     const minutes = Math.floor(totalSec / 60);
     if (minutes >= 60) {
       const hours = Math.floor(minutes / 60);
-      const rest = minutes % 60;
-      return {text: rest ? `LIBRE ${hours} h ${rest} min` : `LIBRE ${hours} h`, long: true};
+      return {text: `${hours}:${pad(minutes % 60)}:${pad(totalSec % 60)}`, long: true};
     }
-    if (minutes >= 15) return {text: `LIBRE ${minutes} min`, long: true};
     return {text: `${pad(minutes)}:${pad(totalSec % 60)}`, long: false};
+  };
+
+  const formatFreeWait = ms => {
+    if (ms === null || !Number.isFinite(ms)) return {text: 'LIBRE', long: true};
+    const minutes = Math.max(0, Math.round(ms / 60000));
+    if (minutes >= 60) {
+      const hours = Math.floor(minutes / 60);
+      const rest = minutes % 60;
+      return {text: rest ? `${hours} h ${rest} min` : `${hours} h`, long: true};
+    }
+    return {text: `${minutes} min`, long: minutes >= 15};
   };
 
   const sourceChip = item => {
@@ -200,7 +210,8 @@
     </div>`;
   };
 
-  const nextBlock = (snapshot, occupied) => {
+  const nextBlock = (snapshot, occupied, entering) => {
+    if (entering) return '';
     if (!snapshot.next) {
       return occupied
         ? `<div class="live-next"><small>Siguiente</small><b>Sin más vuelos</b></div>`
@@ -209,10 +220,11 @@
     const when = occupied && snapshot.untilNextMs !== null
       ? `en ${formatWait(snapshot.untilNextMs)}`
       : hmText(snapshot.next.start);
+    const estimated = snapshot.next.source === 'prediccion' ? ' · estimado' : '';
     return `<div class="live-next">
       <small>${occupied ? 'Siguiente' : 'Próxima'}${snapshot.next.canary ? ' · Canarias' : ''}</small>
       <b>${esc(snapshot.next.flight)} · ${esc(snapshot.next.origin)}</b>
-      <span>${when}${snapshot.next.source === 'prediccion' ? ' · estimado' : ''}</span>
+      <span>${when}${estimated}</span>
     </div>`;
   };
 
@@ -239,7 +251,9 @@
     const snapshots = occupancyAt(occupancyFlights(), at);
     const opDate = operationalDateOf(at);
 
-    els.clock.textContent = clockText(Date.now());
+    els.clock.textContent = clockText(at);
+    if (els.clockLabel) els.clockLabel.textContent = live ? 'Ahora' : `+${state.offsetMin} min`;
+    els.clockWrap?.classList.toggle('is-sim', !live);
     els.dayRelative.textContent = relativeDay(opDate);
     els.dayLabel.textContent = dayName(opDate);
     els.viewTime.textContent = live ? 'Ahora' : `+${state.offsetMin} min · ${hmText(at)}`;
@@ -253,19 +267,41 @@
 
     els.grid.innerHTML = snapshots.map(snapshot => {
       const occupied = Boolean(snapshot.current);
-      const countdown = formatCountdown(occupied ? 0 : snapshot.untilNextMs, occupied);
+      const entering = !occupied && snapshot.untilNextMs !== null && snapshot.untilNextMs >= 0 && snapshot.untilNextMs <= ENTER_MS;
+      const mode = occupied ? 'ahora' : entering ? 'entra' : 'libre';
+      const life = occupied && snapshot.remainingMs !== null
+        ? Math.max(0, Math.min(1, snapshot.remainingMs / DWELL_MS))
+        : (entering ? 1 : 0);
+      const count = occupied
+        ? formatMmSs(snapshot.remainingMs)
+        : entering
+          ? formatMmSs(snapshot.untilNextMs)
+          : formatFreeWait(snapshot.untilNextMs);
       const remain = occupied && snapshot.remainingMs !== null
         ? `queda ${formatWait(snapshot.remainingMs)}`
-        : '';
-      const canary = Boolean(snapshot.current?.canary || (!occupied && snapshot.next?.canary));
-      return `<article class="live-belt ${snapshot.belt >= 7 ? 'is-red' : 'is-green'} ${occupied ? 'is-busy' : ''} ${canary ? 'is-canary' : ''}" aria-label="Cinta ${snapshot.belt}">
+        : entering
+          ? `entra ${formatWait(snapshot.untilNextMs)}`
+          : '';
+      const shown = occupied ? snapshot.current : entering ? snapshot.next : null;
+      const canary = Boolean(snapshot.current?.canary || snapshot.next?.canary);
+      const modeWord = mode === 'ahora' ? 'AHORA' : mode === 'entra' ? 'ENTRA' : 'LIBRE';
+      const classes = [
+        'live-belt',
+        snapshot.belt >= 7 ? 'is-red' : 'is-green',
+        occupied ? 'is-busy' : '',
+        entering ? 'is-entering' : '',
+        !occupied && !entering ? 'is-idle' : '',
+        canary ? 'is-canary' : ''
+      ].filter(Boolean).join(' ');
+      return `<article class="${classes}" style="--belt-life:${life.toFixed(3)}" aria-label="Cinta ${snapshot.belt}">
         <header class="live-belt-head">
           <span class="live-belt-num">${snapshot.belt}</span>
           <span class="live-belt-hall">Sala ${snapshot.hall}</span>
         </header>
-        <div class="live-count ${countdown.long ? 'is-free-long' : ''}">${esc(countdown.text)}</div>
-        ${occupied ? flightBlock(snapshot.current, remain) : (String(countdown.text).startsWith('LIBRE') ? '' : '<div class="live-flight is-empty"><b>LIBRE</b></div>')}
-        ${nextBlock(snapshot, occupied)}
+        <div class="live-mode">${modeWord}</div>
+        <div class="live-count ${count.long ? 'is-free-long' : ''}">${esc(count.text)}</div>
+        ${shown ? flightBlock(shown, remain) : ''}
+        ${nextBlock(snapshot, occupied, entering)}
       </article>`;
     }).join('');
   }
@@ -365,7 +401,8 @@
   document.addEventListener('fullscreenchange', () => {
     const on = Boolean(document.fullscreenElement);
     els.fullscreen.setAttribute('aria-pressed', on ? 'true' : 'false');
-    els.fullscreen.textContent = on ? 'Salir' : 'Pantalla';
+    els.fullscreen.setAttribute('aria-label', on ? 'Salir de pantalla completa' : 'Pantalla completa');
+    els.fullscreen.setAttribute('title', on ? 'Salir de pantalla completa' : 'Pantalla completa');
   });
 
   setInterval(() => {
@@ -376,6 +413,12 @@
   setInterval(() => {
     if (state.offsetMin === 0) load(false);
   }, pollMs);
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js', {scope: './', updateViaCache: 'none'}).catch(() => {
+      navigator.serviceWorker.register('sw.js', {scope: './'}).catch(() => {});
+    });
+  }
 
   load(true);
 })();

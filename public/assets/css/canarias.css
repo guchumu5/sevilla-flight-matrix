@@ -17,9 +17,11 @@ body {
 }
 
 .sheet-shell {
+  --sheet-safe-right: env(safe-area-inset-right, 0px);
+  --sheet-safe-left: env(safe-area-inset-left, 0px);
   max-width: 52rem;
   margin: 0 auto;
-  padding: calc(.75rem + var(--sheet-safe-top)) .9rem calc(1.2rem + var(--sheet-safe-bottom));
+  padding: calc(.75rem + var(--sheet-safe-top)) calc(.9rem + var(--sheet-safe-right)) calc(1.2rem + var(--sheet-safe-bottom)) calc(.9rem + var(--sheet-safe-left));
 }
 
 .sheet-top {
@@ -65,20 +67,27 @@ body {
 }
 
 .sheet-actions { display: flex; flex-wrap: wrap; gap: .4rem; justify-content: flex-end; }
-.sheet-btn {
-  min-height: 38px;
-  padding: .4rem .75rem;
+.sheet-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
   border: 1px solid #4d6a86;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   color: var(--sheet-ink);
-  font: inherit;
-  font-size: .82rem;
-  font-weight: 700;
   text-decoration: none;
   cursor: pointer;
 }
-.sheet-btn-ghost { color: var(--sheet-muted); }
+.sheet-icon-btn svg { width: 20px; height: 20px; display: block; }
+.sheet-icon-btn.is-live {
+  border-color: #14d98a;
+  background: #1ee394;
+  color: #04140f;
+}
+.sheet-icon-btn:hover, .sheet-icon-btn:focus-visible { border-color: #8fd3ff; color: #fff; outline: none; }
+.sheet-icon-btn.is-live:hover, .sheet-icon-btn.is-live:focus-visible { background: #39f0a4; color: #04140f; }
 
 .sheet-error {
   margin: 0 0 1rem;
@@ -364,8 +373,7 @@ body {
 @media (max-width: 640px) {
   .sheet-top { grid-template-columns: minmax(0, 1fr) auto; }
   .sheet-clock { grid-column: 2; grid-row: 1; }
-  .sheet-actions { grid-column: 1 / -1; justify-content: stretch; }
-  .sheet-actions .sheet-btn { flex: 1 1 0; text-align: center; }
+  .sheet-actions { grid-column: 1 / -1; justify-content: flex-end; }
   .print-belt { min-height: 2.35rem; }
   .canary-print-id strong { font-size: 1.3rem; }
 }

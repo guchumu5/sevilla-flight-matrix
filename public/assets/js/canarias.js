@@ -419,5 +419,10 @@
   tickClock();
   window.setInterval(tickClock, 1000);
   els.print?.addEventListener('click', () => window.print());
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js', {scope: './', updateViaCache: 'none'}).catch(() => {
+      navigator.serviceWorker.register('sw.js', {scope: './'}).catch(() => {});
+    });
+  }
   load();
 })();
