@@ -35,8 +35,8 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
   <link href="assets/css/app.css?v=<?= e($cssVersion) ?>" rel="stylesheet">
 </head>
 <body>
-<nav class="navbar navbar-expand-lg sticky-top app-navbar border-bottom">
-  <div class="container-fluid px-lg-4">
+<nav class="navbar sticky-top app-navbar border-bottom">
+  <div class="container-fluid px-lg-4 app-navbar-inner">
     <a class="navbar-brand d-flex align-items-center gap-2" href="#">
       <span class="brand-mark">SVQ</span>
       <span class="brand-copy"><strong>Matriz de Cintas</strong><small class="d-block text-secondary">Llegadas · Sevilla</small></span>
@@ -51,16 +51,17 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <button type="button" class="nav-date-step" id="dateNext" aria-label="Día siguiente">›</button>
       <button type="button" class="nav-date-today d-none" id="dateToday">Hoy</button>
     </div>
-    <div class="d-flex align-items-center gap-2 ms-auto">
-      <a class="btn btn-sm btn-success live-belts-link" href="cintas.php" title="Cintas en vivo a pantalla completa">
-        <span class="live-belts-full">Cintas en vivo</span>
-        <span class="live-belts-short">Ahora</span>
-      </a>
+    <div class="nav-utility">
       <span id="connectionBadge" class="badge text-bg-secondary connection-badge">Conectando</span>
       <button type="button" class="btn btn-sm btn-outline-light settings-link" data-bs-toggle="modal" data-bs-target="#settingsModal" aria-label="Ajustes de coincidencia" title="Ajustes">
         <span class="admin-icon" aria-hidden="true">☰</span><span class="admin-label">Ajustes</span>
       </button>
       <a class="btn btn-sm btn-outline-light admin-link" href="admin.php" aria-label="Administración Aena" title="Administración Aena"><span class="admin-icon" aria-hidden="true">⚙</span><span class="admin-label">Aena / Admin</span></a>
+    </div>
+    <div class="nav-primary-actions">
+      <a class="btn btn-sm btn-success live-belts-link" href="cintas.php" title="Cintas en vivo a pantalla completa">Cintas en vivo</a>
+      <button type="button" class="btn btn-sm btn-outline-light sync-now-btn" id="syncNowButton" title="Forzar ahora Aena, AirLabs y recarga del tablero">Actualizar</button>
+      <small id="syncNowStatus" class="sync-now-status" aria-live="polite"></small>
     </div>
   </div>
 </nav>
@@ -68,25 +69,16 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
 <main class="container-fluid px-lg-4 py-3" data-poll-seconds="<?= $pollSeconds ?>"
       data-focus-admin="<?= $focusAdmin ? '1' : '0' ?>" data-focus-csrf="<?= e($focusCsrf) ?>">
   <div class="mobile-command-grid d-md-none mb-2" aria-label="Accesos rápidos">
+    <a class="mobile-command mobile-live-command" href="cintas.php">
+      <span aria-hidden="true">▣</span><span><small>Hall</small><strong>Cintas en vivo</strong></span>
+    </a>
+    <button class="mobile-command mobile-sync-command" type="button" id="mobileSyncNow">
+      <span aria-hidden="true">↻</span><span><small>Fuentes</small><strong>Actualizar ahora</strong></span>
+    </button>
     <button class="mobile-command mobile-date-command" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-controls="filtersCollapse">
       <span aria-hidden="true">⌕</span><span><small>Filtros</small><strong>Sala y búsqueda</strong></span>
     </button>
-    <button class="mobile-command mobile-belt-command" type="button" data-bs-toggle="modal" data-bs-target="#beltDailyModal">
-      <span aria-hidden="true">⚠</span><span><small>Vigilancia de cintas</small><strong id="mobileBeltWatchLabel">Comprobando</strong></span>
-    </button>
-    <button class="mobile-command mobile-night-command" type="button" data-bs-toggle="collapse" data-bs-target="#nightWeekCollapse" aria-controls="nightWeekCollapse" aria-expanded="false">
-      <span aria-hidden="true">☾</span><span><small>Canarias noche</small><strong id="mobileNightLabel">22:00 a 01:59</strong></span>
-    </button>
   </div>
-
-  <section class="panel push-panel mb-3" aria-label="Avisos del teléfono">
-    <div class="push-actions">
-      <button class="btn btn-outline-info" id="drillPushNotification" type="button">Simulacro de un vuelo</button>
-      <button class="btn btn-outline-info" id="testPushNotification" type="button">Probar aviso real</button>
-    </div>
-    <p class="push-hint">Con un vuelo vigilado, cada minuto se actualiza el itinerario (despegue, llegada, cinta). En iPhone baja el centro de notificaciones o bloquea: el globo no sale con la app abierta. El servidor sigue avisando aunque duerma la pantalla.</p>
-    <div class="push-status-line" id="pushStatusLine" aria-live="polite">Comprobando avisos del dispositivo…</div>
-  </section>
 
   <section class="panel mb-3 overflow-hidden radar-collapsed-panel filters-panel" aria-label="Filtros del tablero">
     <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-expanded="false" aria-controls="filtersCollapse">
@@ -122,8 +114,6 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     </div></div></div>
   </section>
 
-  <div class="belt-daily-alert d-none" id="dailyBeltAlert" role="status"></div>
-
   <section class="row g-3 mb-3 d-none" aria-label="Resumen operativo" hidden>
     <div class="col-6 col-xl-3"><article class="metric-card"><span>Vuelos</span><strong id="metricFlights">—</strong><small>en el tablero</small></article></div>
     <div class="col-6 col-xl-3"><article class="metric-card metric-orange"><span>En revisión</span><strong id="metricOrange">—</strong><small>presión, desviación o propuesta</small></article></div>
@@ -146,38 +136,24 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
   </section>
 
   <section class="panel canary-watch-panel mb-3" aria-labelledby="canaryWatchTitle">
-    <header class="panel-header d-flex align-items-center justify-content-between gap-2">
-      <div>
+    <header class="panel-header canary-watch-header">
+      <div class="canary-watch-copy">
         <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias · semana</h2>
         <p class="mb-0 text-secondary small">Filtra por origen, solo noche (hora en Ajustes, 22:00 de serie) o mira toda la semana. Al vigilar, Aena va cada 5 min; si hay retraso en FlightStats o AirLabs también avisa, aunque Aena siga en hora.</p>
       </div>
-      <div class="d-flex align-items-center gap-2">
-        <button class="btn btn-sm btn-outline-light" id="printCanaryWeek" type="button">Imprimir</button>
+      <div class="canary-watch-tools">
+        <a class="btn btn-sm btn-success live-belts-link" href="cintas.php">Cintas en vivo</a>
+        <button class="btn btn-sm btn-outline-light" id="printCanaryWeek" data-print-canary type="button">Imprimir</button>
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>
-        <span class="canary-watch-mark" aria-hidden="true">🌴</span>
       </div>
     </header>
     <nav class="canary-week" id="canaryWeek" aria-label="Días de la semana con vuelos canarios"></nav>
     <nav class="canary-origins" id="canaryOrigins" aria-label="Filtrar Canarias por origen, noche o semana"></nav>
-    <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
-  </section>
-
-  <section class="panel night-week-panel mb-3 overflow-hidden radar-collapsed-panel" aria-labelledby="nightWeekTitle">
-    <button class="radar-toggle" type="button" data-bs-toggle="collapse" data-bs-target="#nightWeekCollapse" aria-expanded="false" aria-controls="nightWeekCollapse">
-      <span><strong id="nightWeekTitle">Canarias noche · semana</strong><small id="nightWeekToggleLabel">plegado · 22:00 a 01:59 · nota 1 a 10</small></span><b aria-hidden="true">⌄</b>
-    </button>
-    <div class="collapse" id="nightWeekCollapse">
-      <header class="panel-header night-week-toolbar">
-        <p class="mb-0 text-secondary small">Elige día y origen. En el teléfono las tarjetas van una a la derecha de la otra. El 10 es 2 cintas rojas y 3 verdes. La hora de la noche se cambia en Ajustes.</p>
-        <div class="night-week-sort" role="group" aria-label="Orden de las tarjetas nocturnas">
-          <button type="button" class="night-sort active" data-night-sort="best" aria-pressed="true">Mejor nota</button>
-          <button type="button" class="night-sort" data-night-sort="time" aria-pressed="false">Por hora</button>
-        </div>
-      </header>
-      <nav class="canary-week" id="nightDays" aria-label="Elegir noche"></nav>
-      <nav class="canary-origins" id="nightOrigins" aria-label="Filtrar Canarias noche por origen"></nav>
-      <div class="night-strip" id="nightWeekStrip" aria-live="polite"></div>
+    <div class="canary-scope-actions">
+      <button class="btn btn-sm btn-outline-light" data-print-canary type="button">Imprimir</button>
+      <a class="btn btn-sm btn-success live-belts-link" href="cintas.php">Cintas en vivo</a>
     </div>
+    <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
   </section>
 
   <section class="panel mb-3 overflow-hidden radar-collapsed-panel">
@@ -315,10 +291,11 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
 <aside class="toast-container canary-alert-stack" id="canaryAlertStack" aria-live="assertive" aria-atomic="false"></aside>
 
 <div class="offcanvas offcanvas-end detail-drawer" tabindex="-1" id="flightDetail" aria-labelledby="flightDetailLabel">
-  <div class="offcanvas-header border-bottom">
+  <div class="offcanvas-header border-bottom detail-drawer-header">
     <div><small class="text-secondary">Centro de atención del vuelo</small><h2 class="offcanvas-title h5" id="flightDetailLabel">Detalle</h2></div>
     <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
   </div>
+  <div class="detail-quick-bar" id="detailQuickBar" data-focus-surface hidden></div>
   <div class="offcanvas-body" id="detailBody"><div class="loading-state"><div class="spinner-border spinner-border-sm"></div></div></div>
 </div>
 
@@ -371,22 +348,6 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <div class="modal-footer">
         <button type="button" class="btn btn-outline-light" id="resetCoincidenceWindows">Valores habituales</button>
         <button type="button" class="btn btn-success" data-bs-dismiss="modal">Listo</button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="modal fade" id="beltDailyModal" tabindex="-1" aria-labelledby="beltDailyModalLabel" aria-hidden="true">
-  <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-    <div class="modal-content belt-daily-modal">
-      <div class="modal-header">
-        <div><small class="text-warning">VIGILANCIA OPERATIVA</small><h2 class="modal-title h5" id="beltDailyModalLabel">Atención de cintas</h2></div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
-      </div>
-      <div class="modal-body" id="dailyBeltModalBody"></div>
-      <div class="modal-footer">
-        <a class="btn btn-warning" href="belt-analysis.php">Consultar motivos e histórico</a>
-        <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal">Cerrar</button>
       </div>
     </div>
   </div>

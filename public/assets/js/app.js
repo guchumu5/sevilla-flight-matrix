@@ -21,7 +21,7 @@
     nightOrigin: localStorage.getItem('matrix.nightOrigin') || '',
     nightDate: '',
     pendingFlightId: 0, pendingFlightDate: '',
-    detailFlightId: null, flightAwarePollTimer: null,
+    detailFlightId: null, flightAwarePollTimer: null, syncing: false,
     focusStatus: null, focusNotice: '', redListOpen: false, pinnedFlightId: Number(localStorage.getItem('matrix.focusFlightId') || 0)
   };
   const appMain = document.querySelector('main');
@@ -32,12 +32,16 @@
     date: document.querySelector('#flightDate'), hall: document.querySelector('#hallFilter'),
     search: document.querySelector('#searchInput'), canary: document.querySelector('#canaryOnly'),
     secondary: document.querySelector('#secondaryOnly'), refresh: document.querySelector('#refreshButton'),
+    syncNow: document.querySelector('#syncNowButton'), syncNowStatus: document.querySelector('#syncNowStatus'),
+    mobileSyncNow: document.querySelector('#mobileSyncNow'),
     now: document.querySelector('#nowButton'), fitMap: document.querySelector('#fitMapButton'),
     body: document.querySelector('#flightsBody'), table: document.querySelector('#tableWrap'),
     loading: document.querySelector('#loadingState'), empty: document.querySelector('#emptyState'),
     error: document.querySelector('#errorAlert'), updated: document.querySelector('#lastUpdated'), dailyBeltAlert:document.querySelector('#dailyBeltAlert'),
     connection: document.querySelector('#connectionBadge'), canaryWatch: document.querySelector('#canaryWatch'),
     enableNotifications: document.querySelector('#enableNotifications'), printCanaryWeek: document.querySelector('#printCanaryWeek'), canaryAlertStack: document.querySelector('#canaryAlertStack'),
+    canaryWatchTitle: document.querySelector('#canaryWatchTitle'),
+    detailQuickBar: document.querySelector('#detailQuickBar'),
     canaryPrintSheet: document.querySelector('#canaryPrintSheet'),
     upcomingStrip: document.querySelector('#upcomingStrip'),
     mapStatus: document.querySelector('#mapStatus'), airportFlow: document.querySelector('#airportFlow'),
@@ -661,7 +665,7 @@
     return `<small class="focus-update-schedule"><span>Últimos datos <b>${esc(last ? time(last) : 'sin datos')}</b></span><span>Próxima revisión <b>${esc(nextLabel)}</b></span></small>`;
   }
 
-  function focusHeroMarkup(flight, focus = null, allowExpand = false) {
+  function focusRefreshMeta(flight, focus = null) {
     const admin = appMain?.dataset.focusAdmin === '1';
     const deviceAuthorized = Boolean(localStorage.getItem('matrix.pushDevice'));
     const authorized = admin || deviceAuthorized;
@@ -671,16 +675,20 @@
       Number(focus?.retry_after_seconds || 0)
         - (receivedAt ? Math.floor((Date.now() - receivedAt) / 1000) : 0),
     );
-    const trend = verticalTrend(flight);
-    const official = flight.source === 'aena' && flight.belt ? beltPosition(flight) : 'pendiente de Aena';
-    const predicted = flight.predicted_belt ? `${flight.predicted_hall || (Number(flight.predicted_belt)>=7?'B':'A')}/${flight.predicted_belt}` : 'sin predicción';
     const migrationMissing = focus && focus.ready === false;
     const disabled = !authorized || migrationMissing || cooldown > 0;
     const needsAircraft = !flight.aircraft_registration || !flight.aircraft_icao24;
-    const buttonLabel = migrationMissing ? 'Aplica la actualización MySQL 010'
+    const label = migrationMissing ? 'Aplica la actualización MySQL 010'
       : !authorized ? 'Activa avisos o inicia sesión'
         : cooldown > 0 ? `Nueva consulta en ${Math.ceil(cooldown / 60)} min`
           : needsAircraft ? 'Buscar matrícula y telemetría' : 'Actualizar telemetría y estado';
+    return {disabled, label};
+  }
+  function focusHeroMarkup(flight, focus = null, allowExpand = false, hideActions = false) {
+    const trend = verticalTrend(flight);
+    const official = flight.source === 'aena' && flight.belt ? beltPosition(flight) : 'pendiente de Aena';
+    const predicted = flight.predicted_belt ? `${flight.predicted_hall || (Number(flight.predicted_belt)>=7?'B':'A')}/${flight.predicted_belt}` : 'sin predicción';
+    const meta = focusRefreshMeta(flight, focus);
     return `<section class="flight-focus-hero ${Number(flight.is_canary)===1?'canary':''}" data-focus-surface>
       <div class="focus-flight-title"><span>${Number(flight.is_canary)===1?'🌴':'✈️'}</span><div><small>Vuelo bajo foco</small><h3>${esc(flight.physical_flight)} · ${esc(flight.origin_name)}</h3><p>${esc(flight.status || 'Estado pendiente')} · ${trend.label}</p></div></div>
       <div class="focus-primary-values">
@@ -691,12 +699,12 @@
       </div>
       ${flightStatsWatchMarkup(flight)}${flight.secondary_eta && flight.secondary_eta !== flight.eta && flight.secondary_eta !== (flight.flightstats && flight.flightstats.eta) ? `<p class="flightstats-watch-line"><span>${esc((flight.secondary_eta_source || 'API').toUpperCase())}</span><strong>ETA ${time(flight.secondary_eta)}${flight.secondary_actual_departure ? ' · salió ' + time(flight.secondary_actual_departure) : ''}${flight.secondary_actual_arrival ? ' · aterrizó ' + time(flight.secondary_actual_arrival) : ''}</strong><small>secundario · no sustituye a Aena</small></p>` : ''}
       ${laterNightMarkup(flight)}
-      <div class="focus-hero-actions">
-        <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${disabled?'disabled':''}>↻ ${esc(buttonLabel)}</button>
+      ${hideActions ? '' : `<div class="focus-hero-actions">
+        <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${meta.disabled?'disabled':''}>↻ ${esc(meta.label)}</button>
         ${allowExpand ? `<button class="btn btn-outline-light w-100" type="button" data-open-flight="${Number(flight.id)}">Ampliar vuelo</button>` : ''}
-      </div>
+      </div>`}
       ${watchUpdateScheduleMarkup(flight)}
-      <small class="focus-refresh-status" data-focus-refresh-status></small>
+      ${hideActions ? '' : '<small class="focus-refresh-status" data-focus-refresh-status></small>'}
     </section>`;
   }
   const predictionMarkup = flight => {
@@ -1542,7 +1550,7 @@
   }
 
   async function renderWatchButton(flightId) {
-    const button = els.detailBody.querySelector('[data-watch-flight]');
+    const button = document.querySelector('#flightDetail [data-watch-flight]');
     if (!button) return;
     const token = localStorage.getItem('matrix.pushDevice');
     if (!token) return;
@@ -1569,7 +1577,7 @@
     }
     state.loading = true;
     if (showSpinner) setLoading(true);
-    els.refresh.disabled = true;
+    if (els.refresh) els.refresh.disabled = true;
     const requestedDate = els.date.value;
     try {
       const response = await fetch(`api/board.php?date=${encodeURIComponent(requestedDate)}`, {headers:{Accept:'application/json'}, cache:'no-store'});
@@ -1637,7 +1645,7 @@
       els.error.classList.remove('d-none');
     } finally {
       state.loading = false;
-      els.refresh.disabled = false;
+      if (els.refresh) els.refresh.disabled = false;
       setLoading(false);
       if (state.queuedReload) {
         state.queuedReload = false;
@@ -2023,6 +2031,12 @@
       return `<button type="button" class="canary-origin ${state.canaryOrigin===iata?'active':''}" data-canary-origin="${esc(iata)}" aria-pressed="${state.canaryOrigin===iata?'true':'false'}">${esc(name)}${week ? ` <b>${count}</b>` : ''}</button>`;
     });
     els.canaryOrigins.innerHTML = [...originChips.slice(0, 1), ...modeChips, ...originChips.slice(1)].join('');
+    if (els.canaryWatchTitle) {
+      els.canaryWatchTitle.textContent = state.canaryNight && state.canaryWeekScope
+        ? 'Canarias noche · semana'
+        : state.canaryNight ? 'Canarias noche'
+        : 'Canarias · semana';
+    }
   }
 
   function canaryCardMarkup(f, now) {
@@ -2309,12 +2323,12 @@
       window.alert('No hay vuelos canarios con los filtros actuales.');
       return;
     }
-    const button = els.printCanaryWeek;
-    const previousLabel = button?.textContent;
-    if (button) {
+    const buttons = [...document.querySelectorAll('[data-print-canary]')];
+    const previousLabels = buttons.map(button => button.textContent);
+    buttons.forEach(button => {
       button.disabled = true;
       button.textContent = 'Preparando folio…';
-    }
+    });
     try {
       if (flights.some(flight => !flight.belt_coincidence)) await loadCanaryWeek();
       const ready = canaryFlightsForScope();
@@ -2328,10 +2342,10 @@
     } catch (error) {
       window.alert(error.message || 'No se pudo preparar el folio.');
     } finally {
-      if (button) {
+      buttons.forEach((button, index) => {
         button.disabled = false;
-        button.textContent = previousLabel || 'Imprimir';
-      }
+        button.textContent = previousLabels[index] || 'Imprimir';
+      });
     }
   }
   const nightRankValue = flight => flightScore10(flight);
@@ -2988,8 +3002,8 @@
       return `<section class="telemetry-card mb-4 telemetry-empty${compactClass}" data-focus-surface>
         <div class="telemetry-visual">${aircraftSilhouette(flight)}<span>Sin telemetría reciente</span></div>
         <small class="telemetry-note">${aircraftState}. La consulta dirigida buscará primero la aeronave y después su señal.</small>
-        <button class="btn btn-sm btn-outline-info telemetry-refresh" type="button" data-focus-refresh="${Number(flight.id)}">↻ ${flight.aircraft_icao24?'Actualizar telemetría':'Buscar matrícula y telemetría'}</button>
-        <small class="focus-refresh-status" data-focus-refresh-status></small>
+        ${compact ? '' : `<button class="btn btn-sm btn-outline-info telemetry-refresh" type="button" data-focus-refresh="${Number(flight.id)}">↻ ${flight.aircraft_icao24?'Actualizar telemetría':'Buscar matrícula y telemetría'}</button>
+        <small class="focus-refresh-status" data-focus-refresh-status></small>`}
       </section>`;
     }
     const trend = verticalTrend(flight);
@@ -3088,8 +3102,9 @@
           aircraft_registration:aircraft.aircraft_registration,
           aircraft_type:aircraft.aircraft_type,
         });
-        if (hero && flight) hero.innerHTML = focusHeroMarkup(flight, state.focusStatus);
+        if (hero && flight) hero.innerHTML = focusHeroMarkup(flight, state.focusStatus, false, true);
         if (telemetry && flight) telemetry.innerHTML = telemetrySummary(flight, true);
+        if (flight) renderDetailQuickBar(flight);
         bindFocusRefreshButtons(els.detailBody);
         if (status) {
           status.className = 'd-block mt-2 text-success';
@@ -3266,19 +3281,20 @@
     const red = els.detailBody.querySelector('[data-focus-red-day]');
     const windowPanel = els.detailBody.querySelector('[data-focus-window]');
     const telemetry = els.detailBody.querySelector('[data-focus-telemetry]');
-    if (hero) hero.innerHTML = focusHeroMarkup(flight, state.focusStatus);
+    if (hero) hero.innerHTML = focusHeroMarkup(flight, state.focusStatus, false, true);
     if (red) red.innerHTML = dailyRedUsageMarkup(flight);
     if (windowPanel) windowPanel.innerHTML = focusWindowMarkup(flight);
     if (telemetry) telemetry.innerHTML = telemetrySummary(flight, true);
+    renderDetailQuickBar(flight);
     bindFocusRefreshButtons(els.detailBody);
   }
 
   async function refreshFocusedFlight(id, button) {
     const csrf = appMain?.dataset.focusCsrf || '';
     const deviceToken = localStorage.getItem('matrix.pushDevice') || '';
-    const surface = button.closest('[data-focus-surface]') || els.detailBody;
-    const status = surface.querySelector('[data-focus-refresh-status]');
-    const openedFromDetail = Boolean(button.closest('#detailBody'));
+    const surface = button.closest('[data-focus-surface]') || els.detailQuickBar || els.detailBody;
+    const status = surface.querySelector('[data-focus-refresh-status]') || document.querySelector('#flightDetail [data-focus-refresh-status]');
+    const openedFromDetail = Boolean(button.closest('#flightDetail'));
     if (!csrf && !deviceToken) {
       if (status) status.textContent = 'Activa las notificaciones de este dispositivo o inicia sesión en Aena / Admin.';
       return;
@@ -3320,6 +3336,19 @@
     }
   }
 
+  function renderDetailQuickBar(flight) {
+    if (!els.detailQuickBar || !flight) return;
+    const watched = flightIsWatched(flight.id);
+    const meta = focusRefreshMeta(flight, state.focusStatus);
+    els.detailQuickBar.hidden = false;
+    els.detailQuickBar.innerHTML = `
+      <button class="btn ${watched?'btn-warning':'btn-outline-warning'}" type="button" data-watch-flight="${Number(flight.id)}" data-watching="${watched?'1':'0'}">${watched?'🔔 Vigilado · quitar':'🔔 Vigilar este vuelo'}</button>
+      <button class="btn btn-info" type="button" data-focus-refresh="${Number(flight.id)}" ${meta.disabled?'disabled':''}>↻ ${esc(meta.label)}</button>
+      <small class="focus-refresh-status" data-focus-refresh-status></small>`;
+    bindWatchButtons(els.detailQuickBar);
+    bindFocusRefreshButtons(els.detailQuickBar);
+  }
+
   async function openDetail(id) {
     const flight = state.flights.find(f => Number(f.id) === Number(id));
     if (!flight) return;
@@ -3333,6 +3362,7 @@
     stopFlightAwarePolling();
     state.detailFlightId = Number(id);
     els.detailTitle.textContent = `${flight.physical_flight || 'Vuelo'} · ${flight.origin_name || ''}`;
+    renderDetailQuickBar(flight);
     els.detailBody.innerHTML = '<div class="loading-state"><div class="spinner-border spinner-border-sm"></div></div>';
     bootstrap.Offcanvas.getOrCreateInstance('#flightDetail').show();
     try {
@@ -3370,13 +3400,12 @@
           <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
         </article>`;
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
-      const watched = flightIsWatched(id);
-      const watch = `<div class="detail-watch-quick"><button class="btn ${watched?'btn-warning':'btn-outline-warning'} w-100" type="button" data-watch-flight="${Number(id)}" data-watching="${watched?'1':'0'}">${watched?'🔔 Vuelo vigilado · desactivar':'🔔 Vigilar este vuelo'}</button></div>`;
-      const watchSupport = `<p class="watch-explanation mb-3">1) Vigilancia activa. 2) En unos minutos, itinerario (despegue, llegada y cinta). 3) Aviso a ~40 min. Después, cualquier detección de Aena, AirLabs, FlightStats u OpenSky. Con la app abierta iOS no enseña globo.</p>
+      const watchSupport = `<p class="watch-explanation mb-3">Avisos: itinerario en unos minutos, ~40 min antes y cualquier cambio de Aena, AirLabs, FlightStats u OpenSky. Con la app abierta iOS no enseña globo.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita al abrir la ficha o al buscar matrícula y telemetría.</small></div>`;
-      els.detailBody.innerHTML = watch + `<div class="tracked-focus-layout detail-focus-layout">
+      renderDetailQuickBar(flight);
+      els.detailBody.innerHTML = `<div class="tracked-focus-layout detail-focus-layout">
         <aside class="tracked-focus-summary">
-          <div data-focus-hero>${focusHeroMarkup(flight, state.focusStatus)}</div>
+          <div data-focus-hero>${focusHeroMarkup(flight, state.focusStatus, false, true)}</div>
           <div data-focus-red-day>${dailyRedUsageMarkup(flight)}</div>
           <div data-focus-telemetry>${telemetrySummary(flight, true)}</div>
         </aside>
@@ -3386,8 +3415,8 @@
         + `<div data-flightaware-snapshot>${flightAwareSnapshotMarkup(payload.flightaware)}</div>`
         + `<div data-flightstats-snapshot>${flightStatsSnapshotMarkup(payload.flightstats || flight.flightstats)}</div>`
         + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
-      bindFocusRefreshButtons(els.detailBody);
-      bindWatchButtons(els.detailBody);
+      bindFocusRefreshButtons(document.querySelector('#flightDetail'));
+      bindWatchButtons(document.querySelector('#flightDetail'));
       renderWatchButton(id);
       requestFlightAwareSnapshot(id, payload.flightaware?.observed_at || null);
     } catch (error) {
@@ -3519,6 +3548,10 @@
     state.detailFlightId = null;
     state.focusStatus = null;
     state.focusNotice = '';
+    if (els.detailQuickBar) {
+      els.detailQuickBar.hidden = true;
+      els.detailQuickBar.innerHTML = '';
+    }
     stopFlightAwarePolling();
   });
   [els.hall,els.canary,els.secondary].forEach(el => el.addEventListener('change', () => {
@@ -3526,7 +3559,53 @@
   }));
   els.search.addEventListener('input', render);
   els.date.addEventListener('change', () => setBoardDate(els.date.value));
-  els.refresh.addEventListener('click', () => loadBoard(true));
+  if (els.refresh) els.refresh.addEventListener('click', () => loadBoard(true));
+  async function forceBoardSync() {
+    if (state.syncing) return;
+    state.syncing = true;
+    const stamp = () => new Intl.DateTimeFormat('es-ES', {hour:'2-digit', minute:'2-digit'}).format(new Date());
+    const setBusy = label => {
+      if (els.syncNow) {
+        els.syncNow.disabled = true;
+        els.syncNow.innerHTML = `<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> ${esc(label)}`;
+      }
+      if (els.mobileSyncNow) {
+        els.mobileSyncNow.disabled = true;
+        const strong = els.mobileSyncNow.querySelector('strong');
+        if (strong) strong.textContent = label;
+      }
+      if (els.syncNowStatus) els.syncNowStatus.textContent = label;
+    };
+    setBusy('Actualizando…');
+    try {
+      const response = await fetch('api/sync.php', {method:'POST', headers:{Accept:'application/json'}, cache:'no-store'});
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok && !data.skipped) throw new Error(data.error || 'No se pudo forzar la actualización.');
+      setBusy('Recargando…');
+      for (let i = 0; i < 80 && state.loading; i += 1) {
+        await new Promise(resolve => setTimeout(resolve, 80));
+      }
+      await Promise.all([loadBoard(true), loadCanaryWeek(), loadNightWeek()]);
+      const note = data.message || 'Tablero recargado.';
+      if (els.syncNowStatus) els.syncNowStatus.textContent = `${note} · ${stamp()}`;
+    } catch (error) {
+      if (els.syncNowStatus) els.syncNowStatus.textContent = error.message || 'Falló la actualización.';
+      window.alert(error.message || 'No se pudo actualizar.');
+    } finally {
+      state.syncing = false;
+      if (els.syncNow) {
+        els.syncNow.disabled = false;
+        els.syncNow.textContent = 'Actualizar';
+      }
+      if (els.mobileSyncNow) {
+        els.mobileSyncNow.disabled = false;
+        const strong = els.mobileSyncNow.querySelector('strong');
+        if (strong) strong.textContent = 'Actualizar ahora';
+      }
+    }
+  }
+  els.syncNow?.addEventListener('click', () => { forceBoardSync().catch(error => window.alert(error.message)); });
+  els.mobileSyncNow?.addEventListener('click', () => { forceBoardSync().catch(error => window.alert(error.message)); });
   els.now.addEventListener('click', () => {
     if (els.arrivalsCollapse && !els.arrivalsCollapse.classList.contains('show')) {
       bootstrap.Collapse.getOrCreateInstance(els.arrivalsCollapse).show();
@@ -3564,7 +3643,9 @@
   });
   els.nightFromRange?.addEventListener('change', () => applyNightFrom(els.nightFromRange.value));
   syncCoincidenceSettings();
-  els.printCanaryWeek?.addEventListener('click', printCanaryWeek);
+  document.querySelectorAll('[data-print-canary]').forEach(button => {
+    button.addEventListener('click', printCanaryWeek);
+  });
   if (els.enableNotifications) els.enableNotifications.addEventListener('click', async () => {
     try {
       await toggleCanaryNotifications();
