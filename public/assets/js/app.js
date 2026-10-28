@@ -2190,9 +2190,10 @@
       const label = active ? `${relativeMinuteCompact(shown?.offset_minutes)}′` : nearby.length ? 'cerca' : 'libre';
       return `<span class="print-belt ${active ? 'occupied' : ''} ${!active && nearby.length ? 'nearby' : ''} ${belt >= 7 ? 'red' : ''} ${shown && isCanaryEntry(shown) ? 'is-canary' : ''}"><b>${belt}</b><small>${esc(label)}</small></span>`;
     }).join('');
-    const rating = coincidenceRatings[model.rating] || coincidenceRatings.bajo;
-    return `<div class="canary-print-occupancy coincidence-${esc(model.rating)} ${red.size ? 'has-red' : ''}">
-      <header><span>${esc(rating.label)}</span><strong>${green.size}V · ${red.size}R</strong><b>${esc(time(model.target_time))}</b></header>
+    const ratingKey = model.rating || 'bajo';
+    const rating = coincidenceRatings[ratingKey] || coincidenceRatings.bajo;
+    return `<div class="canary-print-occupancy rating rating-${esc(ratingKey)} coincidence-${esc(ratingKey)} ${red.size ? 'has-red' : ''}">
+      <header class="rating"><span>${esc(rating.label)}</span><strong>${green.size}V · ${red.size}R</strong><b>${esc(time(model.target_time))}</b></header>
       <div class="print-belts">${cells}</div>
       <p>Verdes ±${Number(model.green_window_minutes)} min · Rojas ±${Number(model.red_window_minutes)} min · Nube ±${Number(model.span_window_minutes || 30)} min</p>
     </div>`;
@@ -2210,7 +2211,7 @@
       const role = item.counts ? 'cuenta' : (item.kind === 'unknown' ? 'sin cinta' : 'nube');
       const source = sourceLabel(item.assignment_source);
       const canary = isCanaryEntry(item);
-      return `<li class="${item.counts ? 'counts' : 'near'} ${item.kind === 'red' ? 'red' : ''} ${canary ? 'is-canary' : ''}">
+      return `<li class="${item.counts ? 'counts occupied' : 'near nearby'} ${item.kind === 'red' ? 'red' : ''} ${canary ? 'is-canary' : ''}">
         <b>${esc(time(item.arrival))}</b>
         <span>${esc(item.flight)}</span>
         <span>${esc(item.origin)}</span>
@@ -2231,13 +2232,14 @@
     const model = flight.belt_coincidence;
     const rating = model ? (coincidenceRatings[model.rating] || coincidenceRatings.bajo) : null;
     const note = model ? flightScore10(flight) : null;
-    return `<article class="canary-print-card ${red ? 'is-red' : ''} ${night ? 'is-night' : ''} ${model ? `coincidence-${esc(model.rating)}` : ''}">
+    return `<article class="canary-print-card ${red ? 'is-red' : ''} ${night ? 'is-night' : ''} ${model ? `rating rating-${esc(model.rating)} coincidence-${esc(model.rating)}` : ''}">
       <header>
         <div class="canary-print-id">
           <strong>${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}</strong>
           <b>${esc(flight.origin_name || flight.origin_iata || '')}</b>
           <span>${esc(flight.physical_flight || '')}</span>
-          ${night ? '<em>Noche</em>' : ''}
+          ${night ? '<em class="night">Noche</em>' : ''}
+          ${red ? '<em class="red">7/8</em>' : ''}
         </div>
         <div class="canary-print-assign">
           <span>Predicción <b>${esc(predicted)}</b></span>

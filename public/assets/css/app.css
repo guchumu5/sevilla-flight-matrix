@@ -545,13 +545,28 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   .tracked-focus-step { width:56px; }
 }
 
+#canaryPrintSheet,
+#canaryPrintSheet * {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  color-adjust: exact;
+}
 #canaryPrintSheet { display:none; }
 
 @media print {
   @page { size: A4 portrait; margin: 10mm 9mm 12mm; }
-  html, body, #canaryPrintSheet, .canary-print, .canary-print-card, .print-belt, .canary-print-occupancy, .canary-print-around li {
+  :root, html, html[data-bs-theme="dark"], body {
+    --bs-body-bg: #fff !important;
+    --bs-body-color: #111 !important;
+    --bs-emphasis-color: #111 !important;
+    color-scheme: light !important;
+  }
+  html, body, #canaryPrintSheet, #canaryPrintSheet *, #canaryPrintSheet *::before, #canaryPrintSheet *::after,
+  .canary-print, .canary-print-card, .print-belt, .canary-print-occupancy, .canary-print-around li {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    color-adjust: exact !important;
+    forced-color-adjust: none !important;
   }
   html, body {
     background: #fff !important;
@@ -567,19 +582,20 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
     width: auto !important;
     height: auto !important;
     overflow: visible !important;
-    color: #111;
-    background: #fff;
+    color: #111 !important;
+    background: #fff !important;
   }
   .canary-print {
     font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     font-size: 10.5pt;
     line-height: 1.25;
-    color: #111;
+    color: #111 !important;
+    background: #fff !important;
   }
   .canary-print > header {
     margin-bottom: 8mm;
     padding-bottom: 3mm;
-    border-bottom: 1.2pt solid #1a5f9e;
+    border-bottom: 1.4pt solid #1565c0;
   }
   .canary-print-kicker {
     margin: 0 0 1mm;
@@ -587,19 +603,20 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
     font-weight: 700;
     letter-spacing: .08em;
     text-transform: uppercase;
-    color: #1a5f9e;
+    color: #1565c0 !important;
   }
   .canary-print h1 {
     margin: 0 0 1.5mm;
     font-size: 16pt;
     line-height: 1.1;
-    color: #0b2d4a;
+    color: #0b1f33 !important;
   }
   .canary-print-meta, .canary-print-when, .canary-print-empty {
     margin: 0;
     font-size: 9.5pt;
+    color: #222 !important;
   }
-  .canary-print-when { margin-top: 1mm; color: #333; }
+  .canary-print-when { margin-top: 1mm; }
   .canary-print-empty { margin-top: 8mm; }
   .canary-print-day { margin: 0 0 6mm; break-inside: auto; }
   .canary-print-day h2 {
@@ -611,51 +628,56 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
     padding: 1.2mm 2mm;
     font-size: 12pt;
     text-transform: capitalize;
-    color: #0b2d4a;
-    background: #e8f2fb;
-    border-left: 2.2mm solid #1a5f9e;
+    color: #0b1f33 !important;
+    background: #d6eaf8 !important;
+    border-left: 2.4mm solid #1565c0;
     break-after: avoid;
     page-break-after: avoid;
   }
   .canary-print-day h2 span {
     font-size: 9pt;
     font-weight: 700;
-    color: #1a5f9e;
+    color: #1565c0 !important;
   }
   .canary-print-card {
     margin: 0 0 4.5mm;
-    padding: 2mm 2.4mm 3mm 3.2mm;
-    border: .5pt solid #c5d3e0;
-    border-radius: 1.5mm;
-    background: #fff;
+    padding: 2mm 2.4mm 3mm 3mm;
+    border: .7pt solid #b7c4d1;
+    border-left: 2.4mm solid #90a4ae;
+    border-radius: 1.2mm;
+    background: #fff !important;
+    color: #111 !important;
     break-inside: avoid;
     page-break-inside: avoid;
   }
+  .canary-print-card.rating-perfecto,
   .canary-print-card.coincidence-perfecto {
-    border-color: #d4a017;
-    background: #fffbeb;
-    box-shadow: inset 2mm 0 0 #d4a017;
+    border-color: #f9a825;
+    border-left-color: #f9a825;
+    background: #fff8e1 !important;
   }
+  .canary-print-card.rating-muy_bueno,
   .canary-print-card.coincidence-muy_bueno {
-    border-color: #1f8a63;
-    background: #f1fbf6;
-    box-shadow: inset 2mm 0 0 #1f8a63;
+    border-color: #2e7d32;
+    border-left-color: #2e7d32;
+    background: #e8f5e9 !important;
   }
+  .canary-print-card.rating-parcial,
   .canary-print-card.coincidence-parcial {
-    border-color: #2b7bb8;
-    background: #f4f9fd;
-    box-shadow: inset 2mm 0 0 #2b7bb8;
+    border-color: #1565c0;
+    border-left-color: #1565c0;
+    background: #e3f2fd !important;
   }
+  .canary-print-card.rating-bajo,
   .canary-print-card.coincidence-bajo {
-    border-color: #b0b8c2;
-    background: #f7f8fa;
-    box-shadow: inset 2mm 0 0 #8a93a0;
+    border-color: #90a4ae;
+    border-left-color: #78909c;
+    background: #f4f6f7 !important;
   }
   .canary-print-card.is-red {
-    box-shadow: inset 2mm 0 0 #c62828;
-    border-color: #e07a7a;
+    border-color: #c62828;
+    border-left-color: #c62828;
   }
-  .canary-print-card.is-red.coincidence-perfecto { box-shadow: inset 2mm 0 0 #c62828; }
   .canary-print-card > header {
     display: flex;
     flex-wrap: wrap;
@@ -668,104 +690,127 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   }
   .canary-print-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1.5mm 3mm; }
   .canary-print-id strong {
-    font-size: 13.5pt;
+    font-size: 15pt;
+    font-weight: 900;
     font-variant-numeric: tabular-nums;
-    color: #0b2d4a;
+    color: #000 !important;
   }
-  .canary-print-id b { font-size: 11.5pt; color: #123a2e; }
-  .canary-print-id span { font-weight: 800; color: #1a5f9e; }
+  .canary-print-id b { font-size: 12.5pt; font-weight: 800; color: #111 !important; }
+  .canary-print-id span { font-weight: 800; color: #1565c0 !important; }
   .canary-print-id em {
     font-size: 8.5pt;
     font-style: normal;
     font-weight: 800;
-    padding: .3mm 1.6mm;
+    padding: .3mm 1.8mm;
     border-radius: 1mm;
-    background: #d6e8f8;
-    color: #0b2d4a;
+    background: #d6eaf8 !important;
+    color: #0b1f33 !important;
   }
-  .canary-print-card.is-night .canary-print-id em { background: #d6e8f8; color: #0b2d4a; }
-  .canary-print-card.is-red .canary-print-id em { background: #ffcdd2; color: #7f1d1d; }
-  .canary-print-assign { display: flex; flex-wrap: wrap; gap: 1mm 4mm; font-size: 9.5pt; }
-  .canary-print-assign b { font-weight: 900; }
+  .canary-print-id em.night {
+    background: #c5cae9 !important;
+    color: #1a237e !important;
+  }
+  .canary-print-id em.red {
+    background: #ef9a9a !important;
+    color: #7b1113 !important;
+  }
+  .canary-print-assign { display: flex; flex-wrap: wrap; gap: 1mm 4mm; font-size: 9.5pt; color: #222 !important; }
+  .canary-print-assign b { font-weight: 900; color: #111 !important; }
   .canary-print-assign .score {
     font-weight: 800;
     padding: .3mm 1.6mm;
     border-radius: 1mm;
-    background: #e8f2fb;
-    color: #0b2d4a;
+    background: #d6eaf8 !important;
+    color: #0b1f33 !important;
   }
-  .canary-print-card.coincidence-perfecto .score { background: #ffe08a; color: #1d1404; }
-  .canary-print-card.coincidence-muy_bueno .score { background: #b7efd4; color: #04140f; }
-  .canary-print-card.is-red .score { background: #ffcdd2; color: #7f1d1d; }
-  .canary-print-timing { margin: 0 0 2mm; font-size: 9pt; color: #333; }
+  .canary-print-card.rating-perfecto .score,
+  .canary-print-card.coincidence-perfecto .score { background: #ffd54f !important; color: #3e2723 !important; }
+  .canary-print-card.rating-muy_bueno .score,
+  .canary-print-card.coincidence-muy_bueno .score { background: #81c784 !important; color: #1b5e20 !important; }
+  .canary-print-card.rating-parcial .score,
+  .canary-print-card.coincidence-parcial .score { background: #90caf9 !important; color: #0d47a1 !important; }
+  .canary-print-card.is-red .score { background: #ef9a9a !important; color: #7b1113 !important; }
+  .canary-print-timing { margin: 0 0 2mm; font-size: 9pt; color: #222 !important; }
   .canary-print-occupancy {
     margin: 0 0 2mm;
     padding: 2mm;
-    border: .5pt solid #c5d3e0;
-    background: #f8fbff;
+    border: .7pt solid #b7c4d1;
+    background: #f7fbff !important;
     border-radius: 1mm;
   }
-  .canary-print-occupancy.coincidence-perfecto { border-color: #d4a017; background: #fff8e1; }
-  .canary-print-occupancy.coincidence-muy_bueno { border-color: #1f8a63; background: #edf9f3; }
-  .canary-print-occupancy.coincidence-parcial { border-color: #2b7bb8; background: #eef6fc; }
-  .canary-print-occupancy.coincidence-bajo { border-color: #c5cdd6; background: #f4f5f7; }
-  .canary-print-occupancy.has-red { border-color: #e07a7a; }
-  .canary-print-occupancy > header {
+  .canary-print-occupancy.rating-perfecto,
+  .canary-print-occupancy.coincidence-perfecto { border-color: #f9a825; background: #fff8e1 !important; }
+  .canary-print-occupancy.rating-muy_bueno,
+  .canary-print-occupancy.coincidence-muy_bueno { border-color: #2e7d32; background: #e8f5e9 !important; }
+  .canary-print-occupancy.rating-parcial,
+  .canary-print-occupancy.coincidence-parcial { border-color: #1565c0; background: #e3f2fd !important; }
+  .canary-print-occupancy.rating-bajo,
+  .canary-print-occupancy.coincidence-bajo { border-color: #90a4ae; background: #f4f6f7 !important; }
+  .canary-print-occupancy.has-red { border-color: #c62828; }
+  .canary-print-occupancy > header,
+  .canary-print-occupancy > header.rating {
     display: flex;
     align-items: baseline;
     justify-content: space-between;
     gap: 2mm;
     margin: 0 0 1.5mm;
-    padding: 0;
+    padding: .6mm 1.2mm;
     border: 0;
+    border-radius: .8mm;
     font-size: 8.5pt;
+    background: #e3f2fd !important;
+    color: #0d47a1 !important;
   }
-  .canary-print-occupancy > header span { font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: #1a5f9e; }
-  .canary-print-occupancy.coincidence-perfecto > header span { color: #8a6d12; }
-  .canary-print-occupancy.coincidence-muy_bueno > header span { color: #146b4c; }
-  .canary-print-occupancy.has-red > header span { color: #c62828; }
-  .canary-print-occupancy > p { margin: 1.2mm 0 0; font-size: 8pt; color: #333; }
+  .canary-print-occupancy.rating-perfecto > header,
+  .canary-print-occupancy.coincidence-perfecto > header { background: #ffe082 !important; color: #5d4037 !important; }
+  .canary-print-occupancy.rating-muy_bueno > header,
+  .canary-print-occupancy.coincidence-muy_bueno > header { background: #a5d6a7 !important; color: #1b5e20 !important; }
+  .canary-print-occupancy.rating-parcial > header,
+  .canary-print-occupancy.coincidence-parcial > header { background: #90caf9 !important; color: #0d47a1 !important; }
+  .canary-print-occupancy.rating-bajo > header,
+  .canary-print-occupancy.coincidence-bajo > header { background: #cfd8dc !important; color: #37474f !important; }
+  .canary-print-occupancy.has-red > header { background: #ef9a9a !important; color: #7b1113 !important; }
+  .canary-print-occupancy > header span { font-weight: 800; text-transform: uppercase; letter-spacing: .04em; color: inherit !important; }
+  .canary-print-occupancy > p { margin: 1.2mm 0 0; font-size: 8pt; color: #222 !important; }
   .print-belts { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 1mm; }
   .print-belt {
     display: grid;
     place-items: center;
     min-height: 9mm;
     padding: .6mm 0;
-    border: .5pt solid #c5cdd6;
-    background: #f3f4f6;
-    color: #4b5563;
+    border: .8pt solid #b0bec5;
+    background: #eceff1 !important;
+    color: #455a64 !important;
     text-align: center;
     line-height: 1.1;
   }
-  .print-belt b { font-size: 10pt; }
-  .print-belt small { font-size: 7.5pt; color: #4b5563; }
+  .print-belt b { font-size: 10pt; color: inherit !important; }
+  .print-belt small { font-size: 7.5pt; color: inherit !important; }
   .print-belt.occupied {
-    border-color: #1f8a63;
-    background: #c8efd8;
-    color: #0d3d2a;
+    border-color: #1b7a43;
+    background: #81c784 !important;
+    color: #1b5e20 !important;
     font-weight: 900;
   }
-  .print-belt.occupied b, .print-belt.occupied small { color: #0d3d2a; }
   .print-belt.red.occupied {
-    border-color: #c62828;
-    background: #ffcdd2;
-    color: #7f1d1d;
+    border-color: #b71c1c;
+    background: #ef9a9a !important;
+    color: #7b1113 !important;
   }
-  .print-belt.red.occupied b, .print-belt.red.occupied small { color: #7f1d1d; }
   .print-belt.nearby {
-    border-style: dashed;
-    border-color: #c48a1a;
-    background: #fff4d6;
-    color: #7a4d00;
+    border-style: solid;
+    border-color: #ef6c00;
+    background: #ffd54f !important;
+    color: #e65100 !important;
+    font-weight: 800;
   }
-  .print-belt.nearby small { color: #7a4d00; }
-  .print-belt.is-canary { box-shadow: inset 0 0 0 .6pt #d4a017; }
+  .print-belt.is-canary { outline: .8pt solid #f9a825; outline-offset: -1.2pt; }
   .canary-print-around-wrap h3 {
     margin: 0 0 1mm;
     font-size: 8pt;
     letter-spacing: .04em;
     text-transform: uppercase;
-    color: #1a5f9e;
+    color: #1565c0 !important;
   }
   .canary-print-around {
     display: grid;
@@ -782,64 +827,67 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
     padding: .6mm 1.4mm;
     border-radius: .8mm;
     font-size: 8.5pt;
-    background: #f7f8fa;
-    border: .4pt solid #e5e7eb;
+    background: #eceff1 !important;
+    border: .6pt solid #cfd8dc;
+    color: #222 !important;
   }
-  .canary-print-around li b { font-variant-numeric: tabular-nums; }
-  .canary-print-around li.counts {
+  .canary-print-around li b { font-variant-numeric: tabular-nums; color: #000 !important; }
+  .canary-print-around li.counts,
+  .canary-print-around li.occupied {
     font-weight: 800;
-    background: #e7f8ee;
-    border-color: #9ad7b4;
+    background: #c8e6c9 !important;
+    border-color: #2e7d32;
   }
-  .canary-print-around li.near { color: #4b5563; }
+  .canary-print-around li.near,
+  .canary-print-around li.nearby { color: #5d4037 !important; }
   .canary-print-around li.red {
     font-weight: 900;
-    background: #ffe8ea;
-    border-color: #f0a0a6;
+    background: #ffcdd2 !important;
+    border-color: #c62828;
   }
   .canary-print-around li.is-canary {
-    background: #fff3c4;
-    border-color: #e8b440;
+    background: #ffd54f !important;
+    border-color: #f9a825;
     font-weight: 900;
   }
-  .canary-print-around li.is-canary.red { background: #ffe0b2; border-color: #c62828; }
+  .canary-print-around li.is-canary.red { background: #ffcc80 !important; border-color: #c62828; }
   .canary-print-around li i {
     font-style: normal;
     font-size: 7.5pt;
     font-weight: 900;
     padding: .15mm 1.4mm;
     border-radius: .8mm;
-    background: #e8b440;
-    color: #1d1404;
+    background: #f9a825 !important;
+    color: #3e2723 !important;
   }
-  .canary-print-around-empty { margin: 0 0 1.5mm; font-size: 8.5pt; color: #444; }
+  .canary-print-around-empty { margin: 0 0 1.5mm; font-size: 8.5pt; color: #333 !important; }
   .canary-print-alert {
     margin: 1.5mm 0 0;
     padding: 1.2mm 1.6mm;
-    border: .6pt solid #c62828;
-    background: #ffcdd2;
-    color: #7f1d1d;
+    border: .8pt solid #c62828;
+    background: #ef9a9a !important;
+    color: #7b1113 !important;
     font-size: 8.5pt;
     font-weight: 800;
   }
   .canary-print .later-night {
     margin: 1.8mm 0 0;
     padding: 1.5mm 1.8mm;
-    border: .4pt solid #7aa2c7;
-    background: #eef6fc;
+    border: .6pt solid #5c6bc0;
+    background: #e8eaf6 !important;
   }
   .canary-print .later-night strong,
   .canary-print .later-night span,
   .canary-print .later-night li {
-    color: #0b2d4a;
+    color: #1a237e !important;
     font-size: 8.5pt;
   }
   .canary-print .later-night ul { margin: .8mm 0 0; padding: 0; list-style: none; }
   .canary-print footer {
     margin-top: 5mm;
     padding-top: 2mm;
-    border-top: .4pt solid #7aa2c7;
+    border-top: .6pt solid #90caf9;
     font-size: 8pt;
-    color: #333;
+    color: #333 !important;
   }
 }

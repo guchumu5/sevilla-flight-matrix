@@ -63,7 +63,7 @@ final class FlightRepository
 
     public static function forgetSnapshotCaches(): void
     {
-        foreach (['board-*.json', 'canary-week-*.json', 'canary-week-v2-*.json'] as $pattern) {
+        foreach (['board-*.json', 'canary-week-*.json', 'canary-week-v2-*.json', 'canary-week-v3-*.json'] as $pattern) {
             foreach (glob(PROJECT_ROOT . '/storage/cache/' . $pattern) ?: [] as $file) {
                 @unlink($file);
             }
@@ -379,7 +379,7 @@ SQL;
     public function canaryWeek(string $fromDate, int $days = 7): array
     {
         $days = max(1, min(14, $days));
-        $cachePath = PROJECT_ROOT . '/storage/cache/canary-week-v2-' . $fromDate . '-' . $days . '.json';
+        $cachePath = PROJECT_ROOT . '/storage/cache/canary-week-v3-' . $fromDate . '-' . $days . '.json';
         $cached = $this->jsonCacheGet($cachePath, 60);
         if ($cached !== null) return $cached + ['cache' => 'file'];
         $from = OperationalDay::window($fromDate)['from'];
