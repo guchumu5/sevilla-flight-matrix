@@ -197,34 +197,34 @@
     return `<em class="live-chip">${esc(SOURCE_LABEL[item.source] || item.source)}</em>`;
   };
 
-  const flightBlock = (item, remain) => {
-    if (!item) {
-      return `<div class="live-flight is-empty"><b>LIBRE</b></div>`;
-    }
-    const meta = [hmText(item.start), item.iata, remain].filter(Boolean).join(' · ');
+  const conveyorMarkup = () => {
+    const bags = '<i></i><i></i><i></i><i></i>';
+    return `<div class="live-conveyor" aria-hidden="true">
+      <div class="live-conveyor-slats"></div>
+      <div class="live-conveyor-bags"><span>${bags}</span><span>${bags}</span></div>
+    </div>`;
+  };
+
+  const flightBlock = item => {
+    if (!item) return '';
     return `<div class="live-flight">
       <b class="${item.canary ? 'live-canary' : ''}">${item.canary ? '🌴 ' : ''}${esc(item.origin)}</b>
       <span>${esc(item.flight)}</span>
-      <small>${esc(meta)}</small>
       ${sourceChip(item)}
     </div>`;
   };
 
   const nextBlock = (snapshot, occupied, entering) => {
-    if (entering) return '';
-    if (!snapshot.next) {
-      return occupied
-        ? `<div class="live-next"><small>Siguiente</small><b>Sin más vuelos</b></div>`
-        : `<div class="live-next"><small>Próxima</small><b>Sin vuelos previstos</b></div>`;
-    }
+    const next = snapshot.next;
+    if (entering || !next || (snapshot.current && next.id === snapshot.current.id)) return '';
     const when = occupied && snapshot.untilNextMs !== null
       ? `en ${formatWait(snapshot.untilNextMs)}`
-      : hmText(snapshot.next.start);
-    const estimated = snapshot.next.source === 'prediccion' ? ' · estimado' : '';
+      : hmText(next.start);
+    const estimated = next.source === 'prediccion' ? ' · estimado' : '';
     return `<div class="live-next">
-      <small>${occupied ? 'Siguiente' : 'Próxima'}${snapshot.next.canary ? ' · Canarias' : ''}</small>
-      <b>${esc(snapshot.next.flight)} · ${esc(snapshot.next.origin)}</b>
-      <span>${when}${estimated}</span>
+      <small>${occupied ? 'Siguiente' : 'Próxima'}${next.canary ? ' · Canarias' : ''}</small>
+      <b>${esc(next.origin)}</b>
+      <span>${esc(next.flight)} · ${when}${estimated}</span>
     </div>`;
   };
 
@@ -277,11 +277,6 @@
         : entering
           ? formatMmSs(snapshot.untilNextMs)
           : formatFreeWait(snapshot.untilNextMs);
-      const remain = occupied && snapshot.remainingMs !== null
-        ? `queda ${formatWait(snapshot.remainingMs)}`
-        : entering
-          ? `entra ${formatWait(snapshot.untilNextMs)}`
-          : '';
       const shown = occupied ? snapshot.current : entering ? snapshot.next : null;
       const canary = Boolean(snapshot.current?.canary || snapshot.next?.canary);
       const modeWord = mode === 'ahora' ? 'AHORA' : mode === 'entra' ? 'ENTRA' : 'LIBRE';
@@ -300,7 +295,8 @@
         </header>
         <div class="live-mode">${modeWord}</div>
         <div class="live-count ${count.long ? 'is-free-long' : ''}">${esc(count.text)}</div>
-        ${shown ? flightBlock(shown, remain) : ''}
+        ${conveyorMarkup()}
+        ${flightBlock(shown)}
         ${nextBlock(snapshot, occupied, entering)}
       </article>`;
     }).join('');
