@@ -50,6 +50,26 @@ final class FlightRepository
         return $rows;
     }
 
+    public function cachedBoard(string $date): array
+    {
+        $ttl = $date === OperationalDay::current() ? 20 : 180;
+        $path = PROJECT_ROOT . '/storage/cache/board-' . $date . '.json';
+        $cached = $this->jsonCacheGet($path, $ttl);
+        if ($cached !== null) return $cached;
+        $rows = $this->board($date);
+        $this->jsonCachePut($path, $rows);
+        return $rows;
+    }
+
+    public static function forgetSnapshotCaches(): void
+    {
+        foreach (['board-*.json', 'canary-week-*.json'] as $pattern) {
+            foreach (glob(PROJECT_ROOT . '/storage/cache/' . $pattern) ?: [] as $file) {
+                @unlink($file);
+            }
+        }
+    }
+
     /**
      * Llegadas nocturnas de varios días operativos (por defecto 22:00–01:59), con
      * coincidencia calculada sobre toda la jornada para poder comparar
@@ -359,6 +379,9 @@ SQL;
     public function canaryWeek(string $fromDate, int $days = 7): array
     {
         $days = max(1, min(14, $days));
+        $cachePath = PROJECT_ROOT . '/storage/cache/canary-week-' . $fromDate . '-' . $days . '.json';
+        $cached = $this->jsonCacheGet($cachePath, 60);
+        if ($cached !== null) return $cached + ['cache' => 'file'];
         $from = OperationalDay::window($fromDate)['from'];
         $to = (new \DateTimeImmutable($from))->modify("+{$days} day")->format('Y-m-d H:i:s');
         $prediction = $this->tableExists('predictions')
@@ -416,13 +439,16 @@ SQL;
             ];
         }
         usort($origins, static fn(array $a, array $b): int => $b['count'] <=> $a['count'] ?: strcmp($a['name'], $b['name']));
+        $this->attachCanaryOccupancy($flights, $fromDate, $days);
 
-        return [
+        $payload = [
             'from' => $fromDate,
             'days' => array_values($summary),
             'origins' => $origins,
             'flights' => $flights,
         ];
+        $this->jsonCachePut($cachePath, $payload);
+        return $payload + ['cache' => 'fresh'];
     }
 
     /**
@@ -657,6 +683,60 @@ SQL;
             $row['belt_events'] = $eventsByFlight[(int)$row['id']] ?? [];
         }
         unset($row);
+    }
+
+    /** @param list<array<string,mixed>> $flights */
+    private function attachCanaryOccupancy(array &$flights, string $fromDate, int $days): void
+    {
+        if ($flights === []) return;
+        $from = (new \DateTimeImmutable($fromDate))->modify('-1 day')->format('Y-m-d');
+        $to = (new \DateTimeImmutable($fromDate))->modify('+' . ($days + 1) . ' day')->format('Y-m-d');
+        $rows = (new MatrixEngine())->decorate(
+            $this->boardRows($from, $to),
+            $this->arrivalDeviationProfile()
+        );
+        $byId = [];
+        foreach ($rows as $row) {
+            $byId[(int)($row['id'] ?? 0)] = $row;
+        }
+        foreach ($flights as &$flight) {
+            $row = $byId[(int)$flight['id']] ?? null;
+            if (!is_array($row)) continue;
+            $coincidence = $row['belt_coincidence'] ?? null;
+            if (is_array($coincidence)) unset($coincidence['window_flights']);
+            $flight['belt_coincidence'] = $coincidence;
+            $flight['expected_arrival'] = (string)($row['expected_arrival'] ?? $row['effective_arrival'] ?? $flight['effective_arrival']);
+            $flight['effective_arrival'] = (string)($row['effective_arrival'] ?? $flight['effective_arrival']);
+            $flight['belt'] = $row['belt'] ?? null;
+            $flight['hall'] = $row['hall'] ?? null;
+            $flight['source'] = $row['source'] ?? null;
+            $flight['predicted_hall'] = $row['predicted_hall'] ?? null;
+            $predicted = $this->beltNumber($row['predicted_belt'] ?? $flight['predicted_belt'] ?? null);
+            if ($predicted !== null) $flight['predicted_belt'] = $predicted;
+            $official = $this->beltNumber($row['belt'] ?? $flight['official_belt'] ?? null);
+            if ($official !== null) $flight['official_belt'] = $official;
+        }
+        unset($flight);
+    }
+
+    /** @return array<string,mixed>|null */
+    private function jsonCacheGet(string $path, int $ttl): ?array
+    {
+        if ($ttl < 1 || !is_file($path) || filemtime($path) <= time() - $ttl) return null;
+        $data = json_decode((string)file_get_contents($path), true);
+        return is_array($data) ? $data : null;
+    }
+
+    /** @param array<string,mixed>|list<array<string,mixed>> $data */
+    private function jsonCachePut(string $path, array $data): void
+    {
+        $directory = dirname($path);
+        if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) return;
+        $encoded = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        if ($encoded === false) return;
+        $tmp = $path . '.tmp';
+        if (file_put_contents($tmp, $encoded, LOCK_EX) === false) return;
+        @rename($tmp, $path);
     }
 
     private function tableExists(string $table): bool

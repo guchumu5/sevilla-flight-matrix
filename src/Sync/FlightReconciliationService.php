@@ -7,6 +7,7 @@ use DateTimeImmutable;
 use InvalidArgumentException;
 use PDO;
 use RuntimeException;
+use SevillaMatrix\FlightRepository;
 use SevillaMatrix\PredictionEngine;
 use Throwable;
 
@@ -112,6 +113,7 @@ final class FlightReconciliationService
 
             $this->pdo->commit();
             $this->finishRun($runId, 'success', $counts, null);
+            FlightRepository::forgetSnapshotCaches();
 
             return ['ok' => true, 'run_id' => $runId, 'provider' => $provider, 'mode' => $mode] + $counts;
         } catch (Throwable $error) {

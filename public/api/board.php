@@ -15,7 +15,7 @@ try {
     if (!$parsed || $parsed->format('Y-m-d') !== $date) Response::json(['error' => 'Fecha no válida.'], 422);
     $pdo = Database::connection();
     $repository = new FlightRepository($pdo);
-    $flights = $repository->board($date);
+    $flights = $repository->cachedBoard($date);
     $dailyAnalysis = null;
     try {
         $dailyAnalysis = (new BeltChangeAnalysisService($pdo))->analyzePreviousDayIfDue();

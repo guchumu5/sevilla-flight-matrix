@@ -13,7 +13,7 @@
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
     canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushCheckNote: '', pushPending: 0, pushWatches: 0, wakeLock: null,
     watchedFlightIds: [], watchedFlightsBrief: [], watchTickAt: 0, queuedReload: false,
-    canaryWeek: null, printBoards: {}, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
+    canaryWeek: null, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
     canaryNight: localStorage.getItem('matrix.canaryNight') === '1',
     canaryWeekScope: localStorage.getItem('matrix.canaryWeekScope') === '1',
     canaryScrollDate: '',
@@ -2142,46 +2142,10 @@
     return parts.join(' · ');
   }
 
-  async function boardsForPrintDates(dates) {
-    await Promise.all(dates.map(async date => {
-      if (!date) return;
-      if (date === els.date.value && Array.isArray(state.flights) && state.flights.length) {
-        state.printBoards[date] = state.flights;
-        return;
-      }
-      if (Array.isArray(state.printBoards[date]) && state.printBoards[date].length) return;
-      try {
-        const response = await fetch(`api/board.php?date=${encodeURIComponent(date)}`, {headers:{Accept:'application/json'}, cache:'no-store'});
-        const payload = await response.json();
-        state.printBoards[date] = response.ok ? (payload.flights || []) : [];
-      } catch (_) {
-        state.printBoards[date] = [];
-      }
-    }));
-  }
-
   function enrichCanaryPrintFlights(flights) {
-    const byId = new Map();
-    const add = flight => {
-      if (!flight || !Number(flight.id)) return;
-      const id = Number(flight.id);
-      const current = byId.get(id);
-      byId.set(id, current ? {...current, ...flight} : {...flight});
-    };
-    Object.values(state.printBoards || {}).forEach(list => (list || []).forEach(add));
-    (state.flights || []).forEach(add);
-    (state.nightContext || []).forEach(add);
-    canaryWeekFlights().map(hydrateCanaryFlight).forEach(add);
-    flights.forEach(add);
-    const pool = [...byId.values()];
-    applyBeltCoincidence(pool);
-    const coincidences = new Map(pool.map(item => [Number(item.id), item.belt_coincidence]));
     flights.forEach(flight => {
-      const extra = byId.get(Number(flight.id));
-      const operationalDate = flight.operational_date;
-      if (extra) Object.assign(flight, extra);
-      if (operationalDate) flight.operational_date = operationalDate;
-      if (coincidences.has(Number(flight.id))) flight.belt_coincidence = coincidences.get(Number(flight.id));
+      const board = state.flights.find(item => Number(item.id) === Number(flight.id));
+      if (board?.belt_coincidence) flight.belt_coincidence = board.belt_coincidence;
     });
   }
 
@@ -2323,12 +2287,10 @@
       button.textContent = 'Preparando folio…';
     }
     try {
-      const dates = [...new Set(flights.map(flight =>
-        flight.operational_date || operationalDateOf(flight.scheduled_arrival) || els.date.value
-      ).filter(Boolean))];
-      await boardsForPrintDates(dates);
-      enrichCanaryPrintFlights(flights);
-      buildCanaryPrintSheet(flights);
+      if (flights.some(flight => !flight.belt_coincidence)) await loadCanaryWeek();
+      const ready = canaryFlightsForScope();
+      enrichCanaryPrintFlights(ready);
+      buildCanaryPrintSheet(ready);
       const previous = document.title;
       document.title = 'Canarias · cintas · Sevilla';
       const restore = () => { document.title = previous; };
