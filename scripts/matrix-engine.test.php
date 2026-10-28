@@ -119,4 +119,35 @@ if (($general['expected_arrival'] ?? null) !== '2026-10-15 09:31:00' || ($genera
     throw new RuntimeException('Sin datos del origen se aplica la mediana general.');
 }
 
+$withSecondCanary = array_merge($flights, [sampleFlight(9, 'IB3500', '2026-10-15 10:12:00', '4', [
+    'origin_iata' => 'TFN',
+    'origin_name' => 'Tenerife Norte',
+    'is_canary' => 1,
+])]);
+$canaryPriority = (new MatrixEngine())->decorate($withSecondCanary, [], [], 'canary');
+$canaryTarget = array_values(array_filter($canaryPriority, static fn(array $flight): bool => $flight['id'] === 1))[0] ?? [];
+$nonCanary = array_values(array_filter($canaryPriority, static fn(array $flight): bool => $flight['id'] === 2))[0] ?? [];
+if (($nonCanary['belt_coincidence'] ?? null) !== null) {
+    throw new RuntimeException('Con prioridad canary no se calcula coincidencia de vuelos que no son Canarias.');
+}
+if (!empty($nonCanary['belt_occupancy_30m'])) {
+    throw new RuntimeException('Con prioridad canary no se calcula ocupación de pasillo para el resto.');
+}
+$priorityCoincidence = $canaryTarget['belt_coincidence'] ?? null;
+if (!is_array($priorityCoincidence) || ($priorityCoincidence['model'] ?? null) !== 'belt_coincidence_v1') {
+    throw new RuntimeException('El vuelo canario debe conservar belt_coincidence con prioridad canary.');
+}
+$priorityFlights = $priorityCoincidence['flights'] ?? [];
+$firstAround = $priorityFlights[0] ?? [];
+if (($firstAround['flight'] ?? '') !== 'IB3500' || (int)($firstAround['is_canary'] ?? 0) !== 1) {
+    throw new RuntimeException('Los vuelos Canarias deben ir primero en la lista de alrededor.');
+}
+$redAround = array_values(array_filter($priorityFlights, static fn(array $item): bool => ($item['flight'] ?? '') === 'RED0007'))[0] ?? [];
+if (($redAround['offset_minutes'] ?? null) !== -10 || empty($redAround['counts'])) {
+    throw new RuntimeException('El resto de vuelos sigue en la nube aunque no sean Canarias.');
+}
+if (!array_key_exists('is_canary', $coincidence['flights'][0] ?? [])) {
+    throw new RuntimeException('decorate() por defecto también marca is_canary en la nube.');
+}
+
 fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 + belt_coincidence_v1 OK\n");

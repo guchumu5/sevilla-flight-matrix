@@ -287,6 +287,23 @@
     const note = flightScore10(flight);
     return `<span class="coincidence-badge ${esc(model.rating)} score-${note}" title="${esc(rating.label)} · ${Number(model.green_count)} verdes · ${Number(model.red_count)} rojas · nota ${note}/10"><b>${note}</b><span>${esc(rating.short)} · ${Number(model.green_count)}V ${Number(model.red_count)}R</span></span>`;
   };
+  const isCanaryEntry = item => Number(item?.is_canary) === 1;
+  const rankAroundEntries = entries => [...(Array.isArray(entries) ? entries : [])].sort((a, b) =>
+    (isCanaryEntry(b) ? 1 : 0) - (isCanaryEntry(a) ? 1 : 0)
+    || Math.abs(Number(a.offset_minutes)) - Math.abs(Number(b.offset_minutes))
+    || Number(a.offset_minutes) - Number(b.offset_minutes)
+    || Number(a.id) - Number(b.id)
+  );
+  const preferOccupancyShown = (counting, nearby) =>
+    counting.find(isCanaryEntry) || nearby.find(isCanaryEntry) || counting[0] || nearby[0];
+  const occupancyCanaryAroundMarkup = entries => {
+    const canary = rankAroundEntries(entries).filter(isCanaryEntry);
+    if (!canary.length) return '';
+    return `<p class="occupancy-canary-around">Canarias: ${canary.map(item =>
+      `${esc(item.flight)} ${esc(item.origin)} ${esc(relativeMinuteCompact(item.offset_minutes))}′${item.belt ? ` C${item.belt}` : ''}`
+    ).join(' · ')}</p>`;
+  };
+
   const beltOccupancyMarkup = (flight, detailed = false) => {
     const model = flight?.belt_coincidence;
     if (!model) return '';
@@ -296,17 +313,17 @@
     const rating = coincidenceRatings[model.rating] || coincidenceRatings.bajo;
     const beltCells = Array.from({length:8}, (_,index) => {
       const belt = index + 1;
-      const flights = entries.filter(item => Number(item.belt) === belt);
+      const flights = rankAroundEntries(entries.filter(item => Number(item.belt) === belt));
       const counting = flights.filter(item => item.counts);
       const nearby = flights.filter(item => !item.counts);
       const active = green.has(belt) || red.has(belt) || counting.length > 0;
       const official = counting.length > 0 && counting.every(item => item.assignment_source === 'oficial');
       const title = flights.length
-        ? flights.map(item => `${item.flight} · ${item.origin} · ${time(item.arrival)} (${relativeMinuteCompact(item.offset_minutes)}) · ${item.counts?'cuenta':'nube'} · ${item.assignment_source}`).join(' | ')
+        ? flights.map(item => `${item.flight} · ${item.origin} · ${time(item.arrival)} (${relativeMinuteCompact(item.offset_minutes)}) · ${item.counts?'cuenta':'nube'} · ${item.assignment_source}${isCanaryEntry(item)?' · Canarias':''}`).join(' | ')
         : `Cinta ${belt} sin llegadas en ±${Number(model.span_window_minutes || 30)} min`;
-      const shown = counting[0] || nearby[0];
+      const shown = preferOccupancyShown(counting, nearby);
       const offset = shown ? relativeMinuteCompact(shown.offset_minutes) : '';
-      return `<span class="occupancy-belt ${active?'occupied':''} ${!active && nearby.length?'nearby':''} ${belt >= 7?'red':''} ${active && !official?'estimated':''}" title="${esc(title)}"><b>${belt}</b><small>${active ? `${offset}′` : nearby.length ? 'cerca' : 'libre'}</small></span>`;
+      return `<span class="occupancy-belt ${active?'occupied':''} ${!active && nearby.length?'nearby':''} ${belt >= 7?'red':''} ${active && !official?'estimated':''} ${shown && isCanaryEntry(shown)?'is-canary':''}" title="${esc(title)}"><b>${belt}</b><small>${active ? `${offset}′` : nearby.length ? 'cerca' : 'libre'}</small></span>`;
     }).join('');
     const redStatus = [7,8].map(belt => `C${belt} ${red.has(belt)?'coincide':'libre'}`).join(' · ');
     const confidence = ({alta:'alta',media:'media',baja:'baja'}[model.confidence] || 'pendiente');
@@ -314,6 +331,7 @@
     return `<section class="canary-occupancy coincidence-${esc(model.rating)} ${red.size?'has-red':''} ${detailed?'detailed':''}">
       <header><span>${esc(rating.label)}</span><strong>${green.size}V · ${red.size}R</strong><b>${time(model.target_time)}</b></header>
       <div class="occupancy-belts" aria-label="Cintas que coinciden con la llegada">${beltCells}</div>
+      ${occupancyCanaryAroundMarkup(entries)}
       <div class="occupancy-red"><span>Rojas ±${Number(model.red_window_minutes)} min</span><strong>${red.size}/2</strong><small>${redStatus}</small></div>
       <footer><span>Verdes ±${Number(model.green_window_minutes)} min: <b>${green.size ? [...green].map(b => `C${b}`).join(' ') : 'ninguna'}</b></span><span>Llegada prevista ${time(model.target_time)} · ${esc(arrivalBasisText(flight))}${unknown?` · ${unknown} sin cinta`:''} · confianza ${confidence}</span></footer>
       ${detailed?`<p>La nube muestra ±${Number(model.span_window_minutes || 30)} min. Solo cuentan las verdes a ±${Number(model.green_window_minutes)} min y las rojas a ±${Number(model.red_window_minutes)} min. Vuelo perfecto: ${Number(model.perfect_min_green)} o más verdes y las dos rojas.</p>`:''}
@@ -436,7 +454,8 @@
         arrivalText,
         belt: assignment.belt,
         assignment_source: assignment.source,
-        basis: flight.expected_arrival_basis || 'programada'
+        basis: flight.expected_arrival_basis || 'programada',
+        is_canary: Number(flight.is_canary) === 1 ? 1 : 0
       };
     }).filter(Boolean);
 
@@ -478,10 +497,16 @@
           kind: belt === null ? 'unknown' : (isRed ? 'red' : 'green'),
           counts: inside,
           assignment_source: candidate.assignment_source,
-          arrival_basis: candidate.basis
+          arrival_basis: candidate.basis,
+          is_canary: Number(candidate.is_canary) === 1 ? 1 : 0
         });
       });
-      entries.sort((a, b) => a.offset_minutes - b.offset_minutes || a.id - b.id);
+      entries.sort((a, b) =>
+        (isCanaryEntry(b) ? 1 : 0) - (isCanaryEntry(a) ? 1 : 0)
+        || Math.abs(Number(a.offset_minutes)) - Math.abs(Number(b.offset_minutes))
+        || Number(a.offset_minutes) - Number(b.offset_minutes)
+        || Number(a.id) - Number(b.id)
+      );
       const greenKeys = Object.keys(greenBelts).map(Number).sort((a, b) => a - b);
       const redKeys = Object.keys(redBelts).map(Number).sort((a, b) => a - b);
       const greenCount = greenKeys.length;
@@ -2157,16 +2182,16 @@
     const entries = Array.isArray(model.flights) ? model.flights : [];
     const cells = Array.from({length:8}, (_, index) => {
       const belt = index + 1;
-      const flights = entries.filter(item => Number(item.belt) === belt);
+      const flights = rankAroundEntries(entries.filter(item => Number(item.belt) === belt));
       const counting = flights.filter(item => item.counts);
       const nearby = flights.filter(item => !item.counts);
       const active = green.has(belt) || red.has(belt) || counting.length > 0;
-      const shown = counting[0] || nearby[0];
+      const shown = preferOccupancyShown(counting, nearby);
       const label = active ? `${relativeMinuteCompact(shown?.offset_minutes)}′` : nearby.length ? 'cerca' : 'libre';
-      return `<span class="print-belt ${active ? 'occupied' : ''} ${!active && nearby.length ? 'nearby' : ''} ${belt >= 7 ? 'red' : ''}"><b>${belt}</b><small>${esc(label)}</small></span>`;
+      return `<span class="print-belt ${active ? 'occupied' : ''} ${!active && nearby.length ? 'nearby' : ''} ${belt >= 7 ? 'red' : ''} ${shown && isCanaryEntry(shown) ? 'is-canary' : ''}"><b>${belt}</b><small>${esc(label)}</small></span>`;
     }).join('');
     const rating = coincidenceRatings[model.rating] || coincidenceRatings.bajo;
-    return `<div class="canary-print-occupancy">
+    return `<div class="canary-print-occupancy coincidence-${esc(model.rating)} ${red.size ? 'has-red' : ''}">
       <header><span>${esc(rating.label)}</span><strong>${green.size}V · ${red.size}R</strong><b>${esc(time(model.target_time))}</b></header>
       <div class="print-belts">${cells}</div>
       <p>Verdes ±${Number(model.green_window_minutes)} min · Rojas ±${Number(model.red_window_minutes)} min · Nube ±${Number(model.span_window_minutes || 30)} min</p>
@@ -2180,17 +2205,19 @@
       return `<p class="canary-print-around-empty">Sin vuelos alrededor en ±${Number(model?.span_window_minutes || 30)} min.</p>`;
     }
     const sourceLabel = value => value === 'oficial' ? 'Aena' : value === 'prediccion' ? 'pred.' : (value || '');
-    const rows = entries.map(item => {
+    const rows = rankAroundEntries(entries).map(item => {
       const belt = item.belt ? `${Number(item.belt) >= 7 ? 'B' : 'A'}/${item.belt}` : 'sin cinta';
       const role = item.counts ? 'cuenta' : (item.kind === 'unknown' ? 'sin cinta' : 'nube');
       const source = sourceLabel(item.assignment_source);
-      return `<li class="${item.counts ? 'counts' : 'near'} ${item.kind === 'red' ? 'red' : ''}">
+      const canary = isCanaryEntry(item);
+      return `<li class="${item.counts ? 'counts' : 'near'} ${item.kind === 'red' ? 'red' : ''} ${canary ? 'is-canary' : ''}">
         <b>${esc(time(item.arrival))}</b>
         <span>${esc(item.flight)}</span>
         <span>${esc(item.origin)}</span>
         <span>${esc(belt)}</span>
         <em>${esc(relativeMinuteCompact(item.offset_minutes))}′</em>
         <small>${esc(role)}${source ? ` · ${esc(source)}` : ''}</small>
+        ${canary ? '<i>Canarias</i>' : ''}
       </li>`;
     }).join('');
     return `<div class="canary-print-around-wrap"><h3>Vuelos de alrededor</h3><ul class="canary-print-around">${rows}</ul></div>`;
@@ -2204,7 +2231,7 @@
     const model = flight.belt_coincidence;
     const rating = model ? (coincidenceRatings[model.rating] || coincidenceRatings.bajo) : null;
     const note = model ? flightScore10(flight) : null;
-    return `<article class="canary-print-card ${red ? 'is-red' : ''}">
+    return `<article class="canary-print-card ${red ? 'is-red' : ''} ${night ? 'is-night' : ''} ${model ? `coincidence-${esc(model.rating)}` : ''}">
       <header>
         <div class="canary-print-id">
           <strong>${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}</strong>

@@ -30,9 +30,11 @@ final class MatrixEngine
      * @param array<int,array<string,mixed>> $flights
      * @param array<string,mixed> $deviationProfile Resultado de FlightRepository::arrivalDeviationProfile().
      * @param array{green_window_minutes?:int,red_window_minutes?:int,span_window_minutes?:int} $windows
+     * @param 'all'|'canary' $priority Con canary solo se calcula coincidencia de Canarias; el resto sigue en la nube.
      */
-    public function decorate(array $flights, array $deviationProfile = [], array $windows = []): array
+    public function decorate(array $flights, array $deviationProfile = [], array $windows = [], string $priority = 'all'): array
     {
+        $canaryOnly = $priority === 'canary';
         $this->greenWindowMinutes = $this->clampWindow($windows['green_window_minutes'] ?? self::GREEN_COINCIDENCE_MINUTES);
         $this->redWindowMinutes = $this->clampWindow($windows['red_window_minutes'] ?? self::RED_COINCIDENCE_MINUTES);
         $this->spanWindowMinutes = $this->clampWindow($windows['span_window_minutes'] ?? self::SPAN_WINDOW_MINUTES);
@@ -46,6 +48,16 @@ final class MatrixEngine
             );
             $flight['previous_same_belt_minutes'] = null;
             $flight['next_same_belt_minutes'] = null;
+            $flight['secondary_belt_state'] = $this->secondaryBeltState($flight);
+            $flight['belt_label'] = empty($flight['belt'])
+                ? 'Cinta pendiente'
+                : (($flight['belt'] === '7' || $flight['belt'] === '8') ? '🔴' : '') . $flight['hall'] . '/' . $flight['belt'];
+
+            if ($canaryOnly && (int)($flight['is_canary'] ?? 0) !== 1) {
+                $flight['pressure'] = 'baja';
+                $flight['indicator'] = '';
+                continue;
+            }
 
             if (!empty($flight['belt'])) {
                 for ($i = $index - 1; $i >= 0; $i--) {
@@ -69,17 +81,16 @@ final class MatrixEngine
             }
 
             $flight['pressure'] = $this->pressure($flight);
-            $flight['secondary_belt_state'] = $this->secondaryBeltState($flight);
             $flight['indicator'] = $this->indicator($flight);
-            $flight['belt_label'] = empty($flight['belt'])
-                ? 'Cinta pendiente'
-                : (($flight['belt'] === '7' || $flight['belt'] === '8') ? '🔴' : '') . $flight['hall'] . '/' . $flight['belt'];
         }
         unset($flight);
 
+        if ($canaryOnly) {
+            return $this->addBeltCoincidence($flights, true);
+        }
         $flights = $this->addHallLoad($flights);
         $flights = $this->addBeltOccupancy($flights);
-        return $this->addBeltCoincidence($flights);
+        return $this->addBeltCoincidence($flights, false);
     }
 
     /**
@@ -137,7 +148,7 @@ final class MatrixEngine
      * @param array<int,array<string,mixed>> $flights
      * @return array<int,array<string,mixed>>
      */
-    private function addBeltCoincidence(array $flights): array
+    private function addBeltCoincidence(array $flights, bool $canaryOnly = false): array
     {
         $resolved = [];
         foreach ($flights as $candidate) {
@@ -152,6 +163,7 @@ final class MatrixEngine
                 'belt' => $assignment['belt'],
                 'assignment_source' => $assignment['source'],
                 'basis' => (string)($candidate['expected_arrival_basis'] ?? 'programada'),
+                'is_canary' => (int)($candidate['is_canary'] ?? 0),
             ];
         }
 
@@ -160,6 +172,10 @@ final class MatrixEngine
         $span = $this->spanWindowMinutes * 60;
         $scan = max($green, $red, $span);
         foreach ($flights as &$flight) {
+            if ($canaryOnly && (int)($flight['is_canary'] ?? 0) !== 1) {
+                $flight['belt_coincidence'] = null;
+                continue;
+            }
             $target = strtotime((string)($flight['expected_arrival'] ?? $flight['effective_arrival'] ?? ''));
             if ($target === false) {
                 $flight['belt_coincidence'] = null;
@@ -194,10 +210,14 @@ final class MatrixEngine
                     'counts' => $inside,
                     'assignment_source' => $candidate['assignment_source'],
                     'arrival_basis' => $candidate['basis'],
+                    'is_canary' => (int)($candidate['is_canary'] ?? 0),
                 ];
             }
             usort($entries, static fn(array $a, array $b): int =>
-                ($a['offset_minutes'] <=> $b['offset_minutes']) ?: ($a['id'] <=> $b['id'])
+                ((int)($b['is_canary'] ?? 0) <=> (int)($a['is_canary'] ?? 0))
+                ?: (abs((int)$a['offset_minutes']) <=> abs((int)$b['offset_minutes']))
+                ?: ((int)$a['offset_minutes'] <=> (int)$b['offset_minutes'])
+                ?: ($a['id'] <=> $b['id'])
             );
             ksort($greenBelts);
             ksort($redBelts);
