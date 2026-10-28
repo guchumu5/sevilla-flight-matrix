@@ -148,6 +148,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
         <p class="mb-0 text-secondary small">Filtra por origen, solo noche (hora en Ajustes, 22:00 de serie) o mira toda la semana. Al vigilar, Aena va cada 5 min; si hay retraso en FlightStats o AirLabs también avisa, aunque Aena siga en hora.</p>
       </div>
       <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-sm btn-outline-light" id="printCanaryWeek" type="button">Imprimir</button>
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>
         <span class="canary-watch-mark" aria-hidden="true">🌴</span>
       </div>
@@ -386,6 +387,8 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     </div>
   </div>
 </div>
+
+<div id="canaryPrintSheet" hidden></div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>

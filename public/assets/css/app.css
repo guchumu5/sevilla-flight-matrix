@@ -542,3 +542,120 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
   .tracked-focus-nav { width:100%; justify-content:space-between; order:3; margin-left:0; }
   .tracked-focus-step { width:56px; }
 }
+
+#canaryPrintSheet { display:none; }
+
+@media print {
+  @page { size: A4 portrait; margin: 10mm 9mm 12mm; }
+  html, body {
+    background: #fff !important;
+    color: #111 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  body > *:not(#canaryPrintSheet) { display: none !important; }
+  #canaryPrintSheet, #canaryPrintSheet[hidden] {
+    display: block !important;
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    overflow: visible !important;
+    color: #111;
+    background: #fff;
+  }
+  .canary-print {
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    font-size: 10.5pt;
+    line-height: 1.25;
+    color: #111;
+  }
+  .canary-print header {
+    margin-bottom: 8mm;
+    padding-bottom: 3mm;
+    border-bottom: .6pt solid #111;
+  }
+  .canary-print-kicker {
+    margin: 0 0 1mm;
+    font-size: 8pt;
+    font-weight: 700;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: #333;
+  }
+  .canary-print h1 {
+    margin: 0 0 1.5mm;
+    font-size: 16pt;
+    line-height: 1.1;
+  }
+  .canary-print-meta, .canary-print-when, .canary-print-empty {
+    margin: 0;
+    font-size: 9.5pt;
+  }
+  .canary-print-when { margin-top: 1mm; color: #333; }
+  .canary-print-empty { margin-top: 8mm; }
+  .canary-print-day { margin: 0 0 6mm; break-inside: auto; }
+  .canary-print-day h2 {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4mm;
+    margin: 0 0 2mm;
+    font-size: 12pt;
+    text-transform: capitalize;
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+  .canary-print-day h2 span {
+    font-size: 9pt;
+    font-weight: 700;
+    color: #333;
+  }
+  .canary-print table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  .canary-print thead { display: table-header-group; }
+  .canary-print th, .canary-print td {
+    padding: 1.6mm 1.8mm;
+    border: .4pt solid #222;
+    text-align: left;
+    vertical-align: top;
+    overflow-wrap: anywhere;
+  }
+  .canary-print th {
+    font-size: 8pt;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    background: #ececec;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .canary-print tbody tr:nth-child(even) td {
+    background: #f7f7f7;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .canary-print tr { break-inside: avoid; page-break-inside: avoid; }
+  .canary-print .time { width: 14%; font-variant-numeric: tabular-nums; font-weight: 800; white-space: nowrap; }
+  .canary-print .origin { width: 24%; }
+  .canary-print .flight { width: 16%; font-weight: 800; }
+  .canary-print .belt { width: 14%; font-variant-numeric: tabular-nums; font-weight: 800; }
+  .canary-print .notes { width: 18%; font-size: 8.5pt; color: #222; }
+  .canary-print tr.is-red td, .canary-print td.belt.is-red {
+    background: #ececec;
+    font-weight: 900;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .canary-print tr.is-red td:first-child { box-shadow: inset 1.6mm 0 0 #111; padding-left: 3.4mm; }
+  .canary-print footer {
+    margin-top: 5mm;
+    padding-top: 2mm;
+    border-top: .4pt solid #888;
+    font-size: 8pt;
+    color: #333;
+  }
+}

@@ -37,7 +37,8 @@
     loading: document.querySelector('#loadingState'), empty: document.querySelector('#emptyState'),
     error: document.querySelector('#errorAlert'), updated: document.querySelector('#lastUpdated'), dailyBeltAlert:document.querySelector('#dailyBeltAlert'),
     connection: document.querySelector('#connectionBadge'), canaryWatch: document.querySelector('#canaryWatch'),
-    enableNotifications: document.querySelector('#enableNotifications'), canaryAlertStack: document.querySelector('#canaryAlertStack'),
+    enableNotifications: document.querySelector('#enableNotifications'), printCanaryWeek: document.querySelector('#printCanaryWeek'), canaryAlertStack: document.querySelector('#canaryAlertStack'),
+    canaryPrintSheet: document.querySelector('#canaryPrintSheet'),
     upcomingStrip: document.querySelector('#upcomingStrip'),
     mapStatus: document.querySelector('#mapStatus'), airportFlow: document.querySelector('#airportFlow'),
     airportScene: document.querySelector('#airportScene'), sceneAircraft: document.querySelector('#sceneAircraft'),
@@ -2064,6 +2065,7 @@
         ? `No hay vuelos${nightHint}${state.canaryOrigin ? ` desde ${esc(originName)}` : ''} ${esc(scopeHint)}. Prueba otro filtro.`
         : `No hay vuelos canarios ${esc(scopeHint)}.`}</div>`;
       renderCanaryWeek();
+      buildCanaryPrintSheet([]);
       return;
     }
     if (state.canaryWeekScope) {
@@ -2096,11 +2098,146 @@
     bindWatchButtons(els.canaryWatch);
     bindFlightOpeners();
     renderCanaryWeek();
+    buildCanaryPrintSheet(flights);
     if (state.canaryScrollDate) {
       const node = document.getElementById(`canary-day-${state.canaryScrollDate}`);
       state.canaryScrollDate = '';
       node?.scrollIntoView({behavior:'smooth', block:'nearest'});
     }
+  }
+
+  function canaryPrintBelt(flight, kind) {
+    if (kind === 'aena') {
+      if (flight.source === 'aena' && flight.belt) return `${flight.hall || '?'}/${flight.belt}`;
+      if (flight.official_belt != null && flight.official_belt !== '') {
+        return `${Number(flight.official_belt) >= 7 ? 'B' : 'A'}/${flight.official_belt}`;
+      }
+      return 'pendiente';
+    }
+    if (flight.predicted_belt) {
+      return `${flight.predicted_hall || (Number(flight.predicted_belt) >= 7 ? 'B' : 'A')}/${flight.predicted_belt}`;
+    }
+    return '—';
+  }
+
+  function canaryPrintIsRed(flight) {
+    return ['7', '8'].includes(String(flight.belt || flight.official_belt || ''))
+      || ['7', '8'].includes(String(flight.predicted_belt || ''));
+  }
+
+  function canaryPrintNotes(flight) {
+    const notes = [];
+    if (isNightFlight(flight)) notes.push('Noche');
+    if (flight.belt_attention) notes.push(flight.belt_attention_reason || 'Atención cinta');
+    if (isPast23Flight(flight)) {
+      const later = laterNightFlights(flight);
+      notes.push(later.length ? `${later.length} después` : 'Último');
+    }
+    return notes.join(' · ');
+  }
+
+  function canaryPrintFilterLabel() {
+    const parts = [];
+    if (state.canaryWeekScope) {
+      const days = Array.isArray(state.canaryWeek?.days) ? state.canaryWeek.days : [];
+      const first = days[0]?.date;
+      const last = days[days.length - 1]?.date;
+      parts.push(first && last
+        ? `Semana ${dayName(first, {day:'numeric', month:'short'})} – ${dayName(last, {day:'numeric', month:'short', year:'numeric'})}`
+        : 'Semana');
+    } else {
+      parts.push(dayName(els.date.value, {weekday:'long', day:'numeric', month:'long'}));
+    }
+    parts.push(state.canaryNight ? `Solo noche ${nightRangeText()}` : 'Todo el día');
+    parts.push(state.canaryOrigin ? canaryOriginName(state.canaryOrigin) : 'Todos los orígenes');
+    return parts.join(' · ');
+  }
+
+  function buildCanaryPrintSheet(flights = canaryFlightsForScope()) {
+    if (!els.canaryPrintSheet) return;
+    const printedAt = new Intl.DateTimeFormat('es-ES', {
+      timeZone: 'Europe/Madrid', weekday:'long', day:'numeric', month:'long',
+      hour:'2-digit', minute:'2-digit'
+    }).format(new Date());
+    if (!flights.length) {
+      els.canaryPrintSheet.innerHTML = `<div class="canary-print">
+        <header>
+          <p class="canary-print-kicker">Matriz operativa de cintas · Sevilla</p>
+          <h1>Canarias · cintas</h1>
+          <p class="canary-print-meta">${esc(canaryPrintFilterLabel())}</p>
+        </header>
+        <p class="canary-print-empty">No hay vuelos canarios con los filtros actuales.</p>
+      </div>`;
+      return;
+    }
+    const groups = [];
+    flights.forEach(flight => {
+      const date = flight.operational_date || operationalDateOf(flight.scheduled_arrival) || els.date.value;
+      let group = groups.find(item => item.date === date);
+      if (!group) {
+        group = {date, flights: []};
+        groups.push(group);
+      }
+      group.flights.push(flight);
+    });
+    groups.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+    const sections = groups.map(group => {
+      const label = dayName(group.date, {weekday:'long', day:'numeric', month:'short'});
+      const rows = group.flights.map(flight => {
+        const predicted = canaryPrintBelt(flight, 'predicted');
+        const official = canaryPrintBelt(flight, 'aena');
+        const red = canaryPrintIsRed(flight);
+        const notes = canaryPrintNotes(flight);
+        return `<tr class="${red ? 'is-red' : ''}">
+          <td class="time">${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}</td>
+          <td class="origin">${esc(flight.origin_name || flight.origin_iata || '')}</td>
+          <td class="flight">${esc(flight.physical_flight || '')}</td>
+          <td class="belt ${['7','8'].includes(String(flight.predicted_belt || '')) ? 'is-red' : ''}">${esc(predicted)}</td>
+          <td class="belt ${['7','8'].includes(String(flight.belt || flight.official_belt || '')) ? 'is-red' : ''}">${esc(official)}</td>
+          <td class="notes">${esc(notes)}</td>
+        </tr>`;
+      }).join('');
+      return `<section class="canary-print-day">
+        <h2>${esc(label)} <span>${group.flights.length} vuelo${group.flights.length === 1 ? '' : 's'}</span></h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Hora</th>
+              <th>Origen</th>
+              <th>Vuelo</th>
+              <th>Predicción</th>
+              <th>Aena</th>
+              <th>Notas</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </section>`;
+    }).join('');
+    els.canaryPrintSheet.innerHTML = `<div class="canary-print">
+      <header>
+        <p class="canary-print-kicker">Matriz operativa de cintas · Sevilla</p>
+        <h1>Canarias · cintas</h1>
+        <p class="canary-print-meta">${esc(canaryPrintFilterLabel())} · ${flights.length} vuelo${flights.length === 1 ? '' : 's'}</p>
+        <p class="canary-print-when">Impreso el ${esc(printedAt)}</p>
+      </header>
+      ${sections}
+      <footer>Aena prevalece sobre la predicción. Las cintas 7 y 8 van en negrita. Día operativo 02:00–01:59.</footer>
+    </div>`;
+  }
+
+  function printCanaryWeek() {
+    const flights = canaryFlightsForScope();
+    buildCanaryPrintSheet(flights);
+    if (!flights.length) {
+      window.alert('No hay vuelos canarios con los filtros actuales.');
+      return;
+    }
+    const previous = document.title;
+    document.title = 'Canarias · cintas · Sevilla';
+    const restore = () => { document.title = previous; };
+    window.addEventListener('afterprint', restore, {once: true});
+    window.print();
   }
   const nightRankValue = flight => flightScore10(flight);
 
@@ -3332,6 +3469,7 @@
   });
   els.nightFromRange?.addEventListener('change', () => applyNightFrom(els.nightFromRange.value));
   syncCoincidenceSettings();
+  els.printCanaryWeek?.addEventListener('click', printCanaryWeek);
   if (els.enableNotifications) els.enableNotifications.addEventListener('click', async () => {
     try {
       await toggleCanaryNotifications();
