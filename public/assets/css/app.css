@@ -570,7 +570,7 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
     line-height: 1.25;
     color: #111;
   }
-  .canary-print header {
+  .canary-print > header {
     margin-bottom: 8mm;
     padding-bottom: 3mm;
     border-bottom: .6pt solid #111;
@@ -611,46 +611,115 @@ body { background: radial-gradient(circle at top right, #102e46 0, var(--app-bg)
     font-weight: 700;
     color: #333;
   }
-  .canary-print table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
+  .canary-print-card {
+    margin: 0 0 4.5mm;
+    padding: 0 0 3.5mm 2.4mm;
+    border-bottom: .4pt solid #999;
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
-  .canary-print thead { display: table-header-group; }
-  .canary-print th, .canary-print td {
-    padding: 1.6mm 1.8mm;
+  .canary-print-card.is-red { box-shadow: inset 1.6mm 0 0 #111; }
+  .canary-print-card > header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1.5mm 4mm;
+    margin: 0 0 1.5mm;
+    padding: 0;
+    border: 0;
+  }
+  .canary-print-id { display: flex; flex-wrap: wrap; align-items: baseline; gap: 1.5mm 3mm; }
+  .canary-print-id strong { font-size: 13pt; font-variant-numeric: tabular-nums; }
+  .canary-print-id b { font-size: 11pt; }
+  .canary-print-id span { font-weight: 800; }
+  .canary-print-id em { font-size: 8.5pt; font-style: normal; font-weight: 800; }
+  .canary-print-assign { display: flex; flex-wrap: wrap; gap: 1mm 4mm; font-size: 9.5pt; }
+  .canary-print-assign b { font-weight: 900; }
+  .canary-print-assign .score { font-weight: 800; }
+  .canary-print-timing { margin: 0 0 2mm; font-size: 9pt; color: #333; }
+  .canary-print-occupancy {
+    margin: 0 0 2mm;
+    padding: 2mm;
     border: .4pt solid #222;
-    text-align: left;
-    vertical-align: top;
-    overflow-wrap: anywhere;
   }
-  .canary-print th {
-    font-size: 8pt;
-    font-weight: 800;
-    letter-spacing: .04em;
-    text-transform: uppercase;
-    background: #ececec;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+  .canary-print-occupancy > header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 2mm;
+    margin: 0 0 1.5mm;
+    padding: 0;
+    border: 0;
+    font-size: 8.5pt;
   }
-  .canary-print tbody tr:nth-child(even) td {
-    background: #f7f7f7;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+  .canary-print-occupancy > header span { font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+  .canary-print-occupancy > p { margin: 1.2mm 0 0; font-size: 8pt; color: #333; }
+  .print-belts { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 1mm; }
+  .print-belt {
+    display: grid;
+    place-items: center;
+    min-height: 9mm;
+    padding: .6mm 0;
+    border: .4pt solid #888;
+    text-align: center;
+    line-height: 1.1;
   }
-  .canary-print tr { break-inside: avoid; page-break-inside: avoid; }
-  .canary-print .time { width: 14%; font-variant-numeric: tabular-nums; font-weight: 800; white-space: nowrap; }
-  .canary-print .origin { width: 24%; }
-  .canary-print .flight { width: 16%; font-weight: 800; }
-  .canary-print .belt { width: 14%; font-variant-numeric: tabular-nums; font-weight: 800; }
-  .canary-print .notes { width: 18%; font-size: 8.5pt; color: #222; }
-  .canary-print tr.is-red td, .canary-print td.belt.is-red {
-    background: #ececec;
+  .print-belt b { font-size: 10pt; }
+  .print-belt small { font-size: 7.5pt; color: #333; }
+  .print-belt.occupied {
+    border-color: #111;
+    background: #e8e8e8;
     font-weight: 900;
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }
-  .canary-print tr.is-red td:first-child { box-shadow: inset 1.6mm 0 0 #111; padding-left: 3.4mm; }
+  .print-belt.red.occupied { background: #d0d0d0; }
+  .print-belt.nearby { border-style: dashed; }
+  .canary-print-around-wrap h3 {
+    margin: 0 0 1mm;
+    font-size: 8pt;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .canary-print-around {
+    display: grid;
+    gap: .6mm;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .canary-print-around li {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4mm 3mm;
+    align-items: baseline;
+    font-size: 8.5pt;
+  }
+  .canary-print-around li b { font-variant-numeric: tabular-nums; }
+  .canary-print-around li.counts { font-weight: 800; }
+  .canary-print-around li.red { font-weight: 900; }
+  .canary-print-around-empty { margin: 0 0 1.5mm; font-size: 8.5pt; color: #444; }
+  .canary-print-alert {
+    margin: 1.5mm 0 0;
+    padding: 1.2mm 1.6mm;
+    border: .6pt solid #111;
+    font-size: 8.5pt;
+    font-weight: 800;
+  }
+  .canary-print .later-night {
+    margin: 1.8mm 0 0;
+    padding: 1.5mm 1.8mm;
+    border: .4pt solid #444;
+    background: #fff;
+  }
+  .canary-print .later-night strong,
+  .canary-print .later-night span,
+  .canary-print .later-night li {
+    color: #111;
+    font-size: 8.5pt;
+  }
+  .canary-print .later-night ul { margin: .8mm 0 0; padding: 0; list-style: none; }
   .canary-print footer {
     margin-top: 5mm;
     padding-top: 2mm;
