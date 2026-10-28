@@ -54,7 +54,13 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <button type="button" class="nav-date-today d-none" id="dateToday">Hoy</button>
     </div>
     <div class="nav-utility">
-      <span id="connectionBadge" class="badge text-bg-secondary connection-badge">Conectando</span>
+      <div class="connection-wrap">
+        <button type="button" id="connectionBadge" class="connection-dot is-wait" aria-label="Conectando" aria-expanded="false" aria-controls="connectionPop" title="Conectando"></button>
+        <div id="connectionPop" class="connection-pop" hidden>
+          <strong>Conectando</strong>
+          <p>Cargando el tablero…</p>
+        </div>
+      </div>
       <button type="button" class="btn btn-sm btn-outline-light settings-link" data-bs-toggle="modal" data-bs-target="#settingsModal" aria-label="Ajustes de coincidencia" title="Ajustes">
         <span class="admin-icon" aria-hidden="true">☰</span><span class="admin-label">Ajustes</span>
       </button>

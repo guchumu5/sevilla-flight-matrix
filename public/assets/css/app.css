@@ -38,6 +38,38 @@ body {
 .admin-link,.settings-link { display:inline-flex; align-items:center; justify-content:center; gap:.38rem; }
 .app-navbar-inner { display:flex; flex-wrap:wrap; align-items:center; gap:.45rem; }
 .nav-utility { display:flex; align-items:center; gap:.4rem; order:5; }
+.connection-wrap { position:relative; display:flex; align-items:center; }
+.connection-dot {
+  width:14px; height:14px; padding:0; border:0; border-radius:50%;
+  background:#718195; box-shadow:0 0 0 3px rgba(113,129,149,.28);
+  cursor:pointer;
+}
+.connection-dot.is-ok {
+  background:#1ee394; box-shadow:0 0 0 3px rgba(30,227,148,.32);
+  animation:connection-pulse 2.4s ease-out infinite;
+}
+.connection-dot.is-warn {
+  background:#ffb547; box-shadow:0 0 0 3px rgba(255,181,71,.38);
+}
+.connection-dot.is-down {
+  background:#ff5f6d; box-shadow:0 0 0 3px rgba(255,95,109,.38);
+}
+.connection-dot:focus-visible { outline:2px solid #8fd3ff; outline-offset:3px; }
+@keyframes connection-pulse {
+  0% { box-shadow:0 0 0 3px rgba(30,227,148,.4); }
+  70% { box-shadow:0 0 0 8px rgba(30,227,148,0); }
+  100% { box-shadow:0 0 0 3px rgba(30,227,148,.32); }
+}
+@media (prefers-reduced-motion:reduce) { .connection-dot.is-ok { animation:none; } }
+.connection-pop {
+  position:absolute; top:calc(100% + 8px); right:0; z-index:40;
+  width:min(260px, 72vw); padding:.55rem .7rem;
+  border:1px solid var(--border); border-radius:10px;
+  background:#102033; box-shadow:0 12px 28px rgba(0,0,0,.35);
+  text-align:left;
+}
+.connection-pop strong { display:block; color:#fff; font-size:.82rem; }
+.connection-pop p { margin:.28rem 0 0; color:var(--muted); font-size:.72rem; line-height:1.35; }
 .nav-primary-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; order:4; margin-left:auto; }
 .nav-quick-icons { display:flex; align-items:center; gap:.35rem; flex:0 0 auto; }
 .nav-icon-btn {
@@ -449,7 +481,7 @@ body {
   .sync-now-btn{flex:1 1 auto;min-height:40px;height:auto;padding:.35rem .55rem;font-size:.82rem}
   .sync-now-status{width:100%;text-align:center;white-space:normal}
   .nav-date{flex:1 1 auto;min-width:0;margin:0}.nav-date-current{flex:1 1 auto;min-width:0}.nav-date-current strong{overflow:hidden;font-size:.86rem;text-overflow:ellipsis}.nav-date-step{width:32px;height:36px}
-  .connection-badge{display:block;width:12px;height:12px;padding:0;overflow:hidden;border-radius:50%;font-size:0;color:transparent}
+  .connection-dot{width:12px;height:12px}
   main.container-fluid{padding-top:.6rem!important}.filters-panel{margin-bottom:.45rem!important;border:0;background:transparent;box-shadow:none}.filters-panel>.radar-toggle{display:none}.filters-panel .toolbar{margin-top:.35rem;border:1px solid var(--border);border-radius:12px;background:rgba(13,27,45,.96)}.belt-daily-alert{display:none!important}
   .toolbar{padding:.8rem}.metric-card{padding:.85rem}.metric-card strong{font-size:1.35rem}.panel-header{align-items:flex-start!important}
   .flights-table thead{display:none}.flights-table,.flights-table tbody,.flights-table tr,.flights-table td{display:block;width:100%}

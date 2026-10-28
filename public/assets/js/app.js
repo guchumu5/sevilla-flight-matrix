@@ -38,7 +38,7 @@
     body: document.querySelector('#flightsBody'), table: document.querySelector('#tableWrap'),
     loading: document.querySelector('#loadingState'), empty: document.querySelector('#emptyState'),
     error: document.querySelector('#errorAlert'), updated: document.querySelector('#lastUpdated'), dailyBeltAlert:document.querySelector('#dailyBeltAlert'),
-    connection: document.querySelector('#connectionBadge'), canaryWatch: document.querySelector('#canaryWatch'),
+    connection: document.querySelector('#connectionBadge'), connectionPop: document.querySelector('#connectionPop'), canaryWatch: document.querySelector('#canaryWatch'),
     enableNotifications: document.querySelector('#enableNotifications'), printCanaryWeek: document.querySelector('#printCanaryWeek'), canaryAlertStack: document.querySelector('#canaryAlertStack'),
     canaryWatchTitle: document.querySelector('#canaryWatchTitle'),
     detailQuickBar: document.querySelector('#detailQuickBar'),
@@ -1570,6 +1570,68 @@
     } catch (_) {}
   }
 
+  const connectionState = {level: 'wait', title: 'Conectando', detail: 'Cargando el tablero…', lastOkAt: 0};
+
+  const connectionAgeText = () => {
+    if (!connectionState.lastOkAt) return '';
+    const seconds = Math.max(1, Math.round((Date.now() - connectionState.lastOkAt) / 1000));
+    if (seconds < 60) return `Última carga hace ${seconds} s.`;
+    const minutes = Math.round(seconds / 60);
+    return `Última carga hace ${minutes} min.`;
+  };
+
+  function renderConnectionPop() {
+    if (!els.connectionPop) return;
+    els.connectionPop.innerHTML = `<strong>${esc(connectionState.title)}</strong><p>${esc(connectionState.detail)}</p>`;
+  }
+
+  function setConnection(level, title, detail) {
+    connectionState.level = level;
+    connectionState.title = title;
+    connectionState.detail = detail || title;
+    if (level === 'ok') connectionState.lastOkAt = Date.now();
+    if (!els.connection) return;
+    els.connection.className = `connection-dot is-${level}`;
+    els.connection.setAttribute('aria-label', title);
+    els.connection.title = title;
+    renderConnectionPop();
+  }
+
+  function closeConnectionPop() {
+    if (!els.connection || !els.connectionPop) return;
+    els.connectionPop.hidden = true;
+    els.connection.setAttribute('aria-expanded', 'false');
+  }
+
+  function toggleConnectionPop() {
+    if (!els.connection || !els.connectionPop) return;
+    const open = els.connectionPop.hidden;
+    els.connectionPop.hidden = !open;
+    els.connection.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) renderConnectionPop();
+  }
+
+  function refreshConnectionHealth() {
+    if (!navigator.onLine) {
+      const cached = state.flights.length > 0;
+      setConnection(
+        cached ? 'warn' : 'down',
+        cached ? 'Sin red' : 'Sin conexión',
+        cached ? `El dispositivo no tiene red. ${connectionAgeText()} Se muestra la última carga.` : 'El dispositivo no tiene red.'
+      );
+      return;
+    }
+    if (connectionState.lastOkAt) {
+      const pollMs = Number(appMain?.dataset.pollSeconds || 15) * 1000;
+      const age = Date.now() - connectionState.lastOkAt;
+      if (age > pollMs * 6) {
+        setConnection('down', 'Sin conexión', `El tablero no responde. ${connectionAgeText()}`);
+      } else if (age > pollMs * 3) {
+        setConnection('warn', 'Señal retrasada', `El tablero tarda más de lo normal. ${connectionAgeText()}`);
+      }
+    }
+  }
+
   async function loadBoard(showSpinner = false) {
     if (state.loading) {
       state.queuedReload = true;
@@ -1620,8 +1682,7 @@
       }
       renderPredictionSummary(payload.prediction_summary || null);
       els.updated.textContent = `Actualizado ${time(payload.generated_at)} · ${payload.authority_note}`;
-      els.connection.className = 'badge text-bg-success';
-      els.connection.textContent = 'En directo';
+      setConnection('ok', 'En directo', `Tablero actualizado ${time(payload.generated_at)}. ${payload.authority_note || ''}`.trim());
       els.error.classList.add('d-none');
       render();
       if (state.detailFlightId) {
@@ -1639,8 +1700,14 @@
         openDetail(pending);
       }
     } catch (error) {
-      els.connection.className = 'badge text-bg-danger';
-      els.connection.textContent = 'Sin conexión';
+      const cached = state.flights.length > 0;
+      setConnection(
+        cached ? 'warn' : 'down',
+        cached ? 'Señal interrumpida' : 'Sin conexión',
+        cached
+          ? `${error.message} Se muestra la última carga.`
+          : error.message
+      );
       els.error.textContent = error.message;
       els.error.classList.remove('d-none');
     } finally {
@@ -3457,6 +3524,11 @@
   }
 
   document.addEventListener('click', event => {
+    if (event.target.closest('#connectionBadge')) {
+      toggleConnectionPop();
+      return;
+    }
+    if (!event.target.closest('.connection-wrap')) closeConnectionPop();
     const focusTab = event.target.closest('[data-focus-tab]');
     if (focusTab) {
       pinFlight(focusTab.dataset.focusTab);
@@ -3722,6 +3794,12 @@
     new Promise(resolve => setTimeout(resolve, 1500))
   ]).finally(() => loadBoard(true));
   setInterval(() => loadBoard(false), Number(document.querySelector('main').dataset.pollSeconds || 15) * 1000);
+  setInterval(refreshConnectionHealth, 5000);
+  window.addEventListener('online', () => { refreshConnectionHealth(); loadBoard(false); });
+  window.addEventListener('offline', refreshConnectionHealth);
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeConnectionPop();
+  });
   setInterval(() => { maybeTickWatchedFlights(); }, 60_000);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
