@@ -2037,6 +2037,24 @@
         : state.canaryNight ? 'Canarias noche'
         : 'Canarias · semana';
     }
+    syncCanaryViewLinks();
+  }
+
+  function canarySheetUrl() {
+    const params = new URLSearchParams();
+    if (state.canaryNight) params.set('night', '1');
+    if (state.canaryWeekScope) params.set('week', '1');
+    if (state.canaryOrigin) params.set('origin', state.canaryOrigin);
+    if (els.date?.value) params.set('date', els.date.value);
+    params.set('night_from', String(readNightFromHour()));
+    return `canarias.php?${params}`;
+  }
+
+  function syncCanaryViewLinks() {
+    const href = canarySheetUrl();
+    document.querySelectorAll('[data-view-canary]').forEach(link => {
+      link.href = href;
+    });
   }
 
   function canaryCardMarkup(f, now) {

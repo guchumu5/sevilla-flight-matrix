@@ -144,6 +144,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <div class="canary-watch-tools">
         <a class="btn btn-sm btn-success live-belts-link" href="cintas.php">Cintas en vivo</a>
         <button class="btn btn-sm btn-outline-light" id="printCanaryWeek" data-print-canary type="button">Imprimir</button>
+        <a class="btn btn-sm btn-outline-info" id="viewCanaryWeek" data-view-canary href="canarias.php" target="_blank" rel="noopener" aria-label="Ver Canarias en página limpia">Ver</a>
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>
       </div>
     </header>
@@ -151,6 +152,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <nav class="canary-origins" id="canaryOrigins" aria-label="Filtrar Canarias por origen, noche o semana"></nav>
     <div class="canary-scope-actions">
       <button class="btn btn-sm btn-outline-light" data-print-canary type="button">Imprimir</button>
+      <a class="btn btn-sm btn-outline-info" data-view-canary href="canarias.php" target="_blank" rel="noopener" aria-label="Ver Canarias en página limpia">Ver</a>
       <a class="btn btn-sm btn-success live-belts-link" href="cintas.php">Cintas en vivo</a>
     </div>
     <div class="canary-strip" id="canaryWatch" aria-live="polite"></div>
