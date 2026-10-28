@@ -48,6 +48,9 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/cintas.js') ?: '1');
       </div>
       <div class="live-actions">
         <span id="liveStatus" class="live-status is-loading">Cargando</span>
+        <button type="button" class="live-icon-btn" id="liveSettings" aria-pressed="false" title="Tiempos de cinta" aria-label="Tiempos de cinta">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 12.9a7.6 7.6 0 0 0 .06-1.8l2-1.2-1.9-3.3-2.3.6a7.7 7.7 0 0 0-1.5-.9L15 3.8h-6l-.7 2.5a7.7 7.7 0 0 0-1.5.9l-2.3-.6L3.6 9.9l2 1.2a7.6 7.6 0 0 0 0 1.8l-2 1.2 1.9 3.3 2.3-.6a7.7 7.7 0 0 0 1.5.9l.7 2.5h6l.7-2.5a7.7 7.7 0 0 0 1.5-.9l2.3.6 1.9-3.3z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        </button>
         <button type="button" class="live-icon-btn" id="liveFullscreen" aria-pressed="false" title="Pantalla completa" aria-label="Pantalla completa">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -59,6 +62,22 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/cintas.js') ?: '1');
 
     <p class="live-banner" id="liveError" role="alert" hidden></p>
 
+    <form class="live-settings" id="liveSettingsPanel" hidden>
+      <p>Mismos tiempos que Ajustes de la matriz. AHORA es el tiempo de maletas tras la llegada; ENTRA avisa antes.</p>
+      <label>
+        <span>Verdes 1–6 · AHORA <b id="liveGreenValue">15</b> min</span>
+        <input type="range" id="liveGreenRange" min="5" max="60" step="5" aria-label="Minutos AHORA en cintas verdes">
+      </label>
+      <label>
+        <span>Rojas 7–8 · AHORA <b id="liveRedValue">20</b> min</span>
+        <input type="range" id="liveRedRange" min="5" max="60" step="5" aria-label="Minutos AHORA en cintas rojas">
+      </label>
+      <label>
+        <span>ENTRA · antes <b id="liveEnterValue">5</b> min</span>
+        <input type="range" id="liveEnterRange" min="1" max="15" step="1" aria-label="Minutos de aviso ENTRA">
+      </label>
+    </form>
+
     <section class="live-grid" id="liveGrid" aria-label="Ocho cintas de equipaje"></section>
 
     <footer class="live-scrub">
@@ -68,7 +87,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/cintas.js') ?: '1');
           <strong id="liveViewTime">Ahora</strong>
         </div>
         <div class="live-scrub-meta">
-          <span id="liveModelNote">Ocupación: llegada prevista + 30 min · Aena prevalece</span>
+          <span id="liveModelNote">Ocupación según Ajustes · Aena prevalece</span>
           <span id="liveUpdated">Esperando datos…</span>
         </div>
         <button type="button" class="live-play" id="livePlay" aria-pressed="false" title="Avanzar un minuto cada segundo">▶</button>

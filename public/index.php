@@ -316,7 +316,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
       </div>
       <div class="modal-body">
-        <p class="text-secondary mb-3">La nube enseña las llegadas de la franja. Solo se colorean y cuentan las que caen en el tiempo operativo. Se guarda en este teléfono.</p>
+        <p class="text-secondary mb-3">La nube enseña las llegadas de la franja. El tiempo operativo es también lo que dura AHORA en Cintas en vivo (maletas en movimiento) tras la llegada. Se guarda en este teléfono.</p>
         <label class="form-label" for="spanWindowInput">Franja visible · nube</label>
         <div class="settings-window">
           <input type="range" id="spanWindowRange" min="10" max="90" step="5" aria-label="Franja visible de la nube">
@@ -341,6 +341,14 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
           <div class="input-group">
             <span class="input-group-text">±</span>
             <input class="form-control" type="number" id="redWindowInput" min="5" max="60" step="1" inputmode="numeric">
+            <span class="input-group-text">min</span>
+          </div>
+        </div>
+        <label class="form-label mt-3" for="enterWindowInput">Aviso ENTRA · antes de la llegada</label>
+        <div class="settings-window">
+          <input type="range" id="enterWindowRange" min="1" max="15" step="1" aria-label="Minutos de aviso ENTRA antes de la llegada">
+          <div class="input-group">
+            <input class="form-control" type="number" id="enterWindowInput" min="1" max="15" step="1" inputmode="numeric">
             <span class="input-group-text">min</span>
           </div>
         </div>

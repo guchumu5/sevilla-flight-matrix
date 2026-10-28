@@ -75,6 +75,7 @@
     greenWindowInput: document.querySelector('#greenWindowInput'), redWindowInput: document.querySelector('#redWindowInput'),
     greenWindowRange: document.querySelector('#greenWindowRange'), redWindowRange: document.querySelector('#redWindowRange'),
     spanWindowInput: document.querySelector('#spanWindowInput'), spanWindowRange: document.querySelector('#spanWindowRange'),
+    enterWindowInput: document.querySelector('#enterWindowInput'), enterWindowRange: document.querySelector('#enterWindowRange'),
     resetCoincidenceWindows: document.querySelector('#resetCoincidenceWindows'),
     nightFromInput: document.querySelector('#nightFromInput'), nightFromRange: document.querySelector('#nightFromRange'),
     nightDays: document.querySelector('#nightDays'), nightOrigins: document.querySelector('#nightOrigins'),
@@ -403,7 +404,7 @@
     return match ? Number(match[1]) : null;
   };
 
-  const COINCIDENCE_DEFAULTS = {green:15, red:20, span:30};
+  const COINCIDENCE_DEFAULTS = {green:15, red:20, span:30, enter:5};
   const NIGHT_FROM_DEFAULT = 22;
   const clampNightHour = value => Math.max(18, Math.min(23, Math.round(Number(value) || NIGHT_FROM_DEFAULT)));
   const readNightFromHour = () => clampNightHour(localStorage.getItem('matrix.nightFromHour') || NIGHT_FROM_DEFAULT);
@@ -414,12 +415,14 @@
   const readCoincidenceWindows = () => ({
     green: clampWindow(localStorage.getItem('matrix.greenWindow') || COINCIDENCE_DEFAULTS.green, 5, 60),
     red: clampWindow(localStorage.getItem('matrix.redWindow') || COINCIDENCE_DEFAULTS.red, 5, 60),
-    span: clampWindow(localStorage.getItem('matrix.spanWindow') || COINCIDENCE_DEFAULTS.span, 10, 90)
+    span: clampWindow(localStorage.getItem('matrix.spanWindow') || COINCIDENCE_DEFAULTS.span, 10, 90),
+    enter: clampWindow(localStorage.getItem('matrix.enterWindow') || COINCIDENCE_DEFAULTS.enter, 1, 15)
   });
-  const saveCoincidenceWindows = (green, red, span) => {
+  const saveCoincidenceWindows = (green, red, span, enter) => {
     localStorage.setItem('matrix.greenWindow', String(clampWindow(green, 5, 60)));
     localStorage.setItem('matrix.redWindow', String(clampWindow(red, 5, 60)));
     localStorage.setItem('matrix.spanWindow', String(clampWindow(span, 10, 90)));
+    localStorage.setItem('matrix.enterWindow', String(clampWindow(enter ?? readCoincidenceWindows().enter, 1, 15)));
   };
   const resolvedCoincidenceBelt = flight => {
     if (flight.source === 'aena') {
@@ -549,9 +552,11 @@
     if (els.greenWindowInput) els.greenWindowInput.value = String(windows.green);
     if (els.redWindowInput) els.redWindowInput.value = String(windows.red);
     if (els.spanWindowInput) els.spanWindowInput.value = String(windows.span);
+    if (els.enterWindowInput) els.enterWindowInput.value = String(windows.enter);
     if (els.greenWindowRange) els.greenWindowRange.value = String(windows.green);
     if (els.redWindowRange) els.redWindowRange.value = String(windows.red);
     if (els.spanWindowRange) els.spanWindowRange.value = String(windows.span);
+    if (els.enterWindowRange) els.enterWindowRange.value = String(windows.enter);
     const nightFrom = readNightFromHour();
     if (els.nightFromInput) els.nightFromInput.value = String(nightFrom);
     if (els.nightFromRange) els.nightFromRange.value = String(nightFrom);
@@ -564,8 +569,8 @@
     renderCanaryWatch();
   }
 
-  function updateCoincidenceWindows(green, red, span) {
-    saveCoincidenceWindows(green, red, span);
+  function updateCoincidenceWindows(green, red, span, enter) {
+    saveCoincidenceWindows(green, red, span, enter);
     syncCoincidenceSettings();
     applyBeltCoincidence(state.flights);
     applyBeltCoincidence(state.nightContext);
@@ -3709,7 +3714,8 @@
       updateCoincidenceWindows(
         side === 'green' ? value : windows.green,
         side === 'red' ? value : windows.red,
-        side === 'span' ? value : windows.span
+        side === 'span' ? value : windows.span,
+        side === 'enter' ? value : windows.enter
       );
     };
     input?.addEventListener('change', () => apply(input.value));
@@ -3721,8 +3727,9 @@
   bindWindowPair(els.greenWindowInput, els.greenWindowRange, 'green');
   bindWindowPair(els.redWindowInput, els.redWindowRange, 'red');
   bindWindowPair(els.spanWindowInput, els.spanWindowRange, 'span');
+  bindWindowPair(els.enterWindowInput, els.enterWindowRange, 'enter');
   els.resetCoincidenceWindows?.addEventListener('click', () => {
-    updateCoincidenceWindows(COINCIDENCE_DEFAULTS.green, COINCIDENCE_DEFAULTS.red, COINCIDENCE_DEFAULTS.span);
+    updateCoincidenceWindows(COINCIDENCE_DEFAULTS.green, COINCIDENCE_DEFAULTS.red, COINCIDENCE_DEFAULTS.span, COINCIDENCE_DEFAULTS.enter);
     updateNightFromHour(NIGHT_FROM_DEFAULT);
   });
   const applyNightFrom = value => updateNightFromHour(value);

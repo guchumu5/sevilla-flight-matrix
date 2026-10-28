@@ -1,11 +1,23 @@
 (() => {
   'use strict';
 
-  const DWELL_MS = 30 * 60 * 1000;
-  const ENTER_MS = 5 * 60 * 1000;
+  const LIVE_DEFAULTS = {green: 15, red: 20, enter: 5};
   const MAX_OFFSET = 90;
   const BELTS = [1, 2, 3, 4, 5, 6, 7, 8];
   const SOURCE_LABEL = {oficial: 'Aena', provisional: 'provisional', prediccion: 'estimado'};
+  const clampMin = (value, min, max) => Math.max(min, Math.min(max, Math.round(Number(value) || 0)));
+  const readLiveWindows = () => ({
+    green: clampMin(localStorage.getItem('matrix.greenWindow') || LIVE_DEFAULTS.green, 5, 60),
+    red: clampMin(localStorage.getItem('matrix.redWindow') || LIVE_DEFAULTS.red, 5, 60),
+    enter: clampMin(localStorage.getItem('matrix.enterWindow') || LIVE_DEFAULTS.enter, 1, 15)
+  });
+  const saveLiveWindows = (green, red, enter) => {
+    localStorage.setItem('matrix.greenWindow', String(clampMin(green, 5, 60)));
+    localStorage.setItem('matrix.redWindow', String(clampMin(red, 5, 60)));
+    localStorage.setItem('matrix.enterWindow', String(clampMin(enter, 1, 15)));
+  };
+  const dwellMsFor = (belt, windows = readLiveWindows()) => (belt >= 7 ? windows.red : windows.green) * 60_000;
+  const enterMs = (windows = readLiveWindows()) => windows.enter * 60_000;
 
   const shell = document.querySelector('#liveShell');
   const pollMs = Math.max(5, Number(shell?.dataset.pollSeconds || 15)) * 1000;
@@ -22,7 +34,16 @@
     updated: document.querySelector('#liveUpdated'),
     slider: document.querySelector('#liveSlider'),
     play: document.querySelector('#livePlay'),
-    fullscreen: document.querySelector('#liveFullscreen')
+    fullscreen: document.querySelector('#liveFullscreen'),
+    settings: document.querySelector('#liveSettings'),
+    settingsPanel: document.querySelector('#liveSettingsPanel'),
+    modelNote: document.querySelector('#liveModelNote'),
+    greenRange: document.querySelector('#liveGreenRange'),
+    redRange: document.querySelector('#liveRedRange'),
+    enterRange: document.querySelector('#liveEnterRange'),
+    greenValue: document.querySelector('#liveGreenValue'),
+    redValue: document.querySelector('#liveRedValue'),
+    enterValue: document.querySelector('#liveEnterValue')
   };
 
   const state = {
@@ -127,6 +148,7 @@
   };
 
   const occupancyFlights = () => {
+    const windows = readLiveWindows();
     const seen = new Set();
     const items = [];
     for (const flights of state.flightsByDate.values()) {
@@ -138,13 +160,15 @@
         if (start === null) continue;
         const assignment = resolvedBelt(flight);
         if (assignment.belt === null) continue;
+        const dwellMs = dwellMsFor(assignment.belt, windows);
         items.push({
           id,
           flight: flight.physical_flight || '',
           origin: flight.origin_name || flight.origin_iata || '',
           iata: flight.origin_iata || '',
           start,
-          end: start + DWELL_MS,
+          dwellMs,
+          end: start + dwellMs,
           belt: assignment.belt,
           hall: assignment.hall,
           source: assignment.source,
@@ -264,13 +288,18 @@
         ? `Actualizado ${clockText(state.lastOkAt)}`
         : `Instantánea a las ${hmText(at)}`;
     }
+    const windows = readLiveWindows();
+    if (els.modelNote) {
+      els.modelNote.textContent = `AHORA: verdes ${windows.green} min · rojas ${windows.red} min · ENTRA ${windows.enter} min · Aena prevalece`;
+    }
 
     els.grid.innerHTML = snapshots.map(snapshot => {
       const occupied = Boolean(snapshot.current);
-      const entering = !occupied && snapshot.untilNextMs !== null && snapshot.untilNextMs >= 0 && snapshot.untilNextMs <= ENTER_MS;
+      const entering = !occupied && snapshot.untilNextMs !== null && snapshot.untilNextMs >= 0 && snapshot.untilNextMs <= enterMs();
       const mode = occupied ? 'ahora' : entering ? 'entra' : 'libre';
+      const dwellMs = snapshot.current?.dwellMs || dwellMsFor(snapshot.belt);
       const life = occupied && snapshot.remainingMs !== null
-        ? Math.max(0, Math.min(1, snapshot.remainingMs / DWELL_MS))
+        ? Math.max(0, Math.min(1, snapshot.remainingMs / dwellMs))
         : (entering ? 1 : 0);
       const count = occupied
         ? formatMmSs(snapshot.remainingMs)
@@ -330,7 +359,8 @@
     if (state.loading) return;
     const at = viewMs();
     const today = operationalDateOf();
-    const dates = [...new Set([today, shiftDate(today, 1), operationalDateOf(at), operationalDateOf(at + DWELL_MS)])];
+    const lookahead = Math.max(dwellMsFor(1), dwellMsFor(7));
+    const dates = [...new Set([today, shiftDate(today, 1), operationalDateOf(at), operationalDateOf(at + lookahead)])];
     const stale = dates.filter(date => {
       const fetched = state.fetchedAt.get(date) || 0;
       const ttl = date === operationalDateOf() ? pollMs : 180_000;
@@ -372,6 +402,52 @@
     setOffset(els.slider.value, true);
     load(false);
   });
+
+  const syncLiveSettingsUi = () => {
+    const windows = readLiveWindows();
+    if (els.greenRange) els.greenRange.value = String(windows.green);
+    if (els.redRange) els.redRange.value = String(windows.red);
+    if (els.enterRange) els.enterRange.value = String(windows.enter);
+    if (els.greenValue) els.greenValue.textContent = String(windows.green);
+    if (els.redValue) els.redValue.textContent = String(windows.red);
+    if (els.enterValue) els.enterValue.textContent = String(windows.enter);
+  };
+
+  const applyLiveWindow = (side, value) => {
+    const windows = readLiveWindows();
+    saveLiveWindows(
+      side === 'green' ? value : windows.green,
+      side === 'red' ? value : windows.red,
+      side === 'enter' ? value : windows.enter
+    );
+    syncLiveSettingsUi();
+    render();
+  };
+
+  [
+    [els.greenRange, 'green', els.greenValue],
+    [els.redRange, 'red', els.redValue],
+    [els.enterRange, 'enter', els.enterValue]
+  ].forEach(([range, side, output]) => {
+    range?.addEventListener('input', () => {
+      if (output) output.textContent = range.value;
+    });
+    range?.addEventListener('change', () => applyLiveWindow(side, range.value));
+  });
+
+  els.settings?.addEventListener('click', () => {
+    const open = els.settingsPanel?.hidden !== false;
+    if (els.settingsPanel) els.settingsPanel.hidden = !open;
+    els.settings.setAttribute('aria-pressed', open ? 'true' : 'false');
+    els.settings.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+  els.settingsPanel?.addEventListener('submit', event => event.preventDefault());
+  window.addEventListener('storage', event => {
+    if (!['matrix.greenWindow', 'matrix.redWindow', 'matrix.enterWindow'].includes(event.key || '')) return;
+    syncLiveSettingsUi();
+    render();
+  });
+  syncLiveSettingsUi();
 
   els.play.addEventListener('click', () => {
     state.playing = !state.playing;
