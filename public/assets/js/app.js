@@ -1273,6 +1273,7 @@
         state.watchedFlightsBrief = state.watchedFlightsBrief.map(item => Number(item.id) === id ? {...item, flightstats: data.flightstats} : item);
         renderTrackedFocus();
       }
+      await loadBoard(true);
       state.pushCheckNote = (data.body || 'Comprobación enviada.') + ' Con la app abierta no hay globo: baja el centro de notificaciones o bloquea el teléfono.';
       if (els.pushStatusLine) {
         els.pushStatusLine.className = 'push-status-line push-status-ready';

@@ -38,7 +38,11 @@ final class MatrixEngine
         $this->greenWindowMinutes = $this->clampWindow($windows['green_window_minutes'] ?? self::GREEN_COINCIDENCE_MINUTES);
         $this->redWindowMinutes = $this->clampWindow($windows['red_window_minutes'] ?? self::RED_COINCIDENCE_MINUTES);
         $this->spanWindowMinutes = $this->clampWindow($windows['span_window_minutes'] ?? self::SPAN_WINDOW_MINUTES);
-        usort($flights, fn(array $a, array $b) => strcmp($a['effective_arrival'], $b['effective_arrival']));
+        foreach ($flights as &$flight) {
+            $this->applyPublishedTiming($flight);
+        }
+        unset($flight);
+        usort($flights, fn(array $a, array $b) => strcmp((string)$a['effective_arrival'], (string)$b['effective_arrival']));
 
         foreach ($flights as $index => &$flight) {
             $this->attachExpectedArrival($flight, $deviationProfile);
@@ -91,6 +95,48 @@ final class MatrixEngine
         $flights = $this->addHallLoad($flights);
         $flights = $this->addBeltOccupancy($flights);
         return $this->addBeltCoincidence($flights, false);
+    }
+
+    /**
+     * Si Aena solo repite la hora programada, un retraso de AirLabs/FlightStats
+     * debe prevalecer para pantalla, cintas y el resto de visitantes.
+     *
+     * @param array<string,mixed> $flight
+     */
+    private function applyPublishedTiming(array &$flight): void
+    {
+        $scheduled = (string)($flight['scheduled_arrival'] ?? '');
+        $scheduledAt = strtotime($scheduled);
+        $differs = static function (?string $value) use ($scheduledAt): bool {
+            if ($value === null || trim($value) === '') return false;
+            $at = strtotime($value);
+            return $at !== false && $scheduledAt !== false && abs($at - $scheduledAt) >= 60;
+        };
+
+        $actual = (string)($flight['actual_arrival'] ?? '');
+        if ($differs($actual)) {
+            $flight['effective_arrival'] = $actual;
+            return;
+        }
+
+        $stats = is_array($flight['flightstats'] ?? null) ? $flight['flightstats'] : [];
+        foreach ([
+            (string)($flight['eta'] ?? ''),
+            (string)($flight['secondary_eta'] ?? ''),
+            (string)($stats['eta'] ?? ''),
+            (string)($stats['actual_arrival'] ?? ''),
+        ] as $candidate) {
+            if (!$differs($candidate)) continue;
+            $flight['effective_arrival'] = $candidate;
+            $flight['eta'] = $candidate;
+            return;
+        }
+
+        $delay = $stats['delay_minutes'] ?? null;
+        if (!is_numeric($delay) || (int)$delay === 0 || $scheduledAt === false) return;
+        $shifted = date('Y-m-d H:i:s', $scheduledAt + ((int)$delay) * 60);
+        $flight['effective_arrival'] = $shifted;
+        $flight['eta'] = $shifted;
     }
 
     /**
@@ -355,7 +401,7 @@ final class MatrixEngine
         $serviceSeconds = self::OCCUPANCY_WINDOW_MINUTES * 60;
         $resolved = [];
         foreach ($flights as $candidate) {
-            $arrival = strtotime((string)($candidate['effective_arrival'] ?? ''));
+            $arrival = strtotime((string)($candidate['expected_arrival'] ?? $candidate['effective_arrival'] ?? ''));
             if ($arrival === false) continue;
             $assignment = $this->resolvedBelt($candidate);
             $resolved[] = [
@@ -372,7 +418,7 @@ final class MatrixEngine
         }
 
         foreach ($flights as &$flight) {
-            $target = strtotime((string)($flight['effective_arrival'] ?? ''));
+            $target = strtotime((string)($flight['expected_arrival'] ?? $flight['effective_arrival'] ?? ''));
             if ($target === false) {
                 $flight['belt_occupancy_30m'] = null;
                 continue;

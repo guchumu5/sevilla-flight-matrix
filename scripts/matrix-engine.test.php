@@ -150,4 +150,17 @@ if (!array_key_exists('is_canary', $coincidence['flights'][0] ?? [])) {
     throw new RuntimeException('decorate() por defecto también marca is_canary en la nube.');
 }
 
+$delayed = (new MatrixEngine())->decorate([
+    sampleFlight(20, 'VLG3190', '2026-10-15 21:00:00', '3', [
+        'eta' => '2026-10-15 21:00:00',
+        'secondary_eta' => '2026-10-15 21:30:00',
+        'secondary_eta_source' => 'airlabs',
+    ]),
+])[0] ?? [];
+if (($delayed['effective_arrival'] ?? null) !== '2026-10-15 21:30:00'
+    || (int)($delayed['deviation_minutes'] ?? 0) !== 30
+    || ($delayed['expected_arrival'] ?? null) !== '2026-10-15 21:30:00') {
+    throw new RuntimeException('Un retraso secundario de +30 min debe sustituir la hora programada de Aena.');
+}
+
 fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 + belt_coincidence_v1 OK\n");

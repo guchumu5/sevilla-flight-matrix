@@ -6,6 +6,7 @@ namespace SevillaMatrix\Notifications;
 use PDO;
 use RuntimeException;
 use SevillaMatrix\Env;
+use SevillaMatrix\FlightRepository;
 use SevillaMatrix\Sync\FlightStatsIngestService;
 
 final class WebPushService
@@ -182,6 +183,7 @@ final class WebPushService
         } catch (\Throwable) {
             // La comprobación sigue con Aena y, si existe, la última lectura FlightStats.
         }
+        FlightRepository::forgetSnapshotCaches();
         $notice = $this->forceCheckNotice($flightId);
         $path = $this->testNoticePath($deviceToken);
         $directory = dirname($path);

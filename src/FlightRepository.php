@@ -21,6 +21,7 @@ final class FlightRepository
             $day->modify('-1 day')->format('Y-m-d'),
             $day->modify('+1 day')->format('Y-m-d')
         );
+        $this->attachFlightStatsSnapshots($rows);
         $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
         $rows = array_values(array_filter(
             $rows,
@@ -46,7 +47,6 @@ final class FlightRepository
         $this->attachBeltAttention($rows);
         $this->attachTelemetryTrails($rows);
         $this->attachFlightAwareSnapshots($rows);
-        $this->attachFlightStatsSnapshots($rows);
         return $rows;
     }
 
@@ -129,12 +129,23 @@ final class FlightRepository
         $sql = <<<'SQL'
 SELECT
     f.*,
-    COALESCE(latest_aena.actual_arrival, latest_aena.eta,
-             latest_other.actual_arrival, latest_other.eta, f.scheduled_arrival) AS effective_arrival,
+    CASE
+      WHEN latest_aena.actual_arrival IS NOT NULL THEN latest_aena.actual_arrival
+      WHEN latest_aena.eta IS NOT NULL AND TIMESTAMPDIFF(MINUTE, latest_aena.eta, f.scheduled_arrival) <> 0 THEN latest_aena.eta
+      WHEN latest_other_time.actual_arrival IS NOT NULL THEN latest_other_time.actual_arrival
+      WHEN latest_other_time.eta IS NOT NULL AND TIMESTAMPDIFF(MINUTE, latest_other_time.eta, f.scheduled_arrival) <> 0 THEN latest_other_time.eta
+      WHEN latest_other_time.eta IS NOT NULL THEN latest_other_time.eta
+      WHEN latest_aena.eta IS NOT NULL THEN latest_aena.eta
+      ELSE f.scheduled_arrival
+    END AS effective_arrival,
     COALESCE(latest_aena.observed_at, latest_other.observed_at) AS observed_at,
     CASE WHEN latest_aena.id IS NOT NULL THEN 'aena' ELSE latest_other.source END AS source,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.status ELSE latest_other.status END AS status,
-    COALESCE(latest_aena.eta, latest_other.eta) AS eta,
+    CASE
+      WHEN latest_aena.eta IS NOT NULL AND TIMESTAMPDIFF(MINUTE, latest_aena.eta, f.scheduled_arrival) <> 0 THEN latest_aena.eta
+      WHEN latest_other_time.eta IS NOT NULL THEN latest_other_time.eta
+      ELSE COALESCE(latest_aena.eta, latest_other.eta)
+    END AS eta,
     COALESCE(latest_aena.actual_departure, latest_other.actual_departure) AS actual_departure,
     COALESCE(latest_aena.actual_arrival, latest_other.actual_arrival) AS actual_arrival,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.hall ELSE latest_other.hall END AS hall,
@@ -143,10 +154,10 @@ SELECT
     COALESCE(latest_aena.stand, latest_other.stand) AS stand,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.baggage_state ELSE latest_other.baggage_state END AS baggage_state,
     COALESCE(latest_aena.occupancy_level, latest_other.occupancy_level, 'no_verificable') AS occupancy_level,
-    latest_other.source AS secondary_eta_source,
-    latest_other.eta AS secondary_eta,
-    latest_other.actual_arrival AS secondary_actual_arrival,
-    latest_other.actual_departure AS secondary_actual_departure,
+    COALESCE(latest_other_time.source, latest_other.source) AS secondary_eta_source,
+    COALESCE(latest_other_time.eta, latest_other.eta) AS secondary_eta,
+    COALESCE(latest_other_time.actual_arrival, latest_other.actual_arrival) AS secondary_actual_arrival,
+    COALESCE(latest_other_time.actual_departure, latest_other.actual_departure) AS secondary_actual_departure,
     latest_other.status AS secondary_status,
     latest_telemetry.source AS telemetry_source,
     latest_telemetry.observed_at AS telemetry_observed_at,
@@ -208,6 +219,13 @@ LEFT JOIN observations latest_aena ON latest_aena.id = (
 LEFT JOIN observations latest_other ON latest_other.id = (
     SELECT o.id FROM observations o
     WHERE o.flight_id = f.id AND o.source <> 'aena'
+    ORDER BY o.observed_at DESC, o.id DESC
+    LIMIT 1
+)
+LEFT JOIN observations latest_other_time ON latest_other_time.id = (
+    SELECT o.id FROM observations o
+    WHERE o.flight_id = f.id AND o.source <> 'aena'
+      AND (o.actual_arrival IS NOT NULL OR o.eta IS NOT NULL)
     ORDER BY o.observed_at DESC, o.id DESC
     LIMIT 1
 )

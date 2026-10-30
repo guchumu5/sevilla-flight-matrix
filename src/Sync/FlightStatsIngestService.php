@@ -319,6 +319,12 @@ final class FlightStatsIngestService
             ?: FlightStatsParser::clockOnDay((string)($flight['scheduled_departure'] ?: $flight['scheduled_arrival']), (string)($record['dep_actual'] ?? ''));
         $delay = isset($record['delay_minutes']) && is_numeric($record['delay_minutes'])
             ? max(-24 * 60, min(24 * 60, (int)round((float)$record['delay_minutes']))) : null;
+        if ($eta === null && $delay !== null && $delay !== 0) {
+            $scheduledAt = strtotime((string)$flight['scheduled_arrival']);
+            if ($scheduledAt !== false) {
+                $eta = date('Y-m-d H:i:s', $scheduledAt + $delay * 60);
+            }
+        }
         $publicUrl = $text('public_url', 300)
             ?: IataFlightCode::trackerUrl($carrier, $number, IataFlightCode::trackerDate((string)$flight['scheduled_arrival']));
         return [
