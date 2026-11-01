@@ -745,6 +745,11 @@
     ].filter(Boolean);
     return `<p class="flightstats-watch-line"><span>FlightStats</span><strong>${esc(bits.join(' · '))}</strong><small>secundario · no sustituye a Aena</small></p>`;
   }
+  function canaryDelayHint(flight) {
+    const delay = Number(flight?.deviation_minutes ?? flight?.flightstats?.delay_minutes);
+    if (!Number.isFinite(delay) || Math.abs(delay) < 5) return '';
+    return ` <em class="${delay > 0 ? 'late' : 'early'}">${delay > 0 ? '+' : ''}${delay} min</em>`;
+  }
   const canarySnapshotKey = flight => `${flight.flight_date || els.date.value}|${flight.physical_flight}|${flight.origin_iata}`;
   const alertValue = value => value === null || value === undefined || value === '' ? 'pendiente' : String(value);
 
@@ -2176,8 +2181,9 @@
     const goto = `data-goto-date="${esc(date || '')}"`;
     if (!onBoard) {
       return `<article class="canary-card ${past?'past':''} ${beltClass} ${night?'is-night':''}" data-flight-id="${Number(f.id)}" ${goto} tabindex="0">
-        <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${night ? '☾ ' : ''}${time(arrival)}</span></div>
+        <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${night ? '☾ ' : ''}${time(arrival)}${canaryDelayHint(f)}</span></div>
         ${coincidenceBadge(f)}
+        ${flightStatsWatchMarkup(f)}
         <div class="canary-flight-code">${esc(f.physical_flight)}</div>
         <div class="canary-belts">
           <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>
@@ -2195,6 +2201,7 @@
       <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${night ? '☾ ' : ''}${esc(f.indicator)}</span></div>
       ${coincidenceBadge(f)}
       ${timingMarkup(f, 'canary-card-timing')}
+      ${flightStatsWatchMarkup(f)}
       <div class="canary-flight-code">${esc(f.physical_flight)}</div>
       ${sharedCodes.length ? `<div class="canary-codeshare"><span>Compartido:</span> <strong>${sharedCodes.map(esc).join(' · ')}</strong></div>` : ''}
       <div class="canary-belts">
@@ -2384,7 +2391,8 @@
           ${note != null ? `<span class="score">${note}/10 · ${esc(rating.short)} · ${Number(model.green_count)}V ${Number(model.red_count)}R</span>` : ''}
         </div>
       </header>
-      ${flight.scheduled_arrival ? `<p class="canary-print-timing">Previsto ${esc(time(flight.scheduled_arrival))} · Llegada ${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}</p>` : ''}
+      ${flight.scheduled_arrival ? `<p class="canary-print-timing">Previsto ${esc(time(flight.scheduled_arrival))} · Llegada ${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}${canaryDelayHint(flight)}</p>` : ''}
+      ${flightStatsWatchMarkup(flight)}
       ${canaryPrintOccupancyMarkup(flight)}
       ${canaryPrintAroundMarkup(flight)}
       ${flight.belt_attention ? `<p class="canary-print-alert">${esc(flight.belt_attention_reason || 'Atención de cinta')}</p>` : ''}
@@ -2510,8 +2518,9 @@
         <div class="night-score-note"><strong>${note}</strong><small>/10</small></div>
         <span class="night-score-belts"><i class="green">${greens} verde${greens===1?'':'s'}</i><i class="red">${reds} roja${reds===1?'':'s'}</i></span>
       </div>
-      <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${time(arrival)}</span></div>
+      <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${time(arrival)}${canaryDelayHint(f)}</span></div>
       ${coincidenceBadge(f)}
+      ${flightStatsWatchMarkup(f)}
       <div class="canary-flight-code">${esc(f.physical_flight)}</div>
       <div class="canary-belts">
         <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>

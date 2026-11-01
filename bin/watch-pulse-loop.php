@@ -9,6 +9,7 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 
 use SevillaMatrix\Database;
 use SevillaMatrix\Notifications\WebPushService;
+use SevillaMatrix\Operations\WebOperationsService;
 
 $lockPath = PROJECT_ROOT . '/storage/cache/watch-pulse-loop.lock';
 $directory = dirname($lockPath);
@@ -32,7 +33,9 @@ fflush($lock);
 
 $started = time();
 $maxSeconds = 8 * 3600;
-$service = new WebPushService(Database::connection());
+$pdo = Database::connection();
+$service = new WebPushService($pdo);
+$lastStatsAt = 0;
 echo date('c') . " bucle de itinerario (10/5 min) arrancado pid=" . getmypid() . PHP_EOL;
 
 try {
@@ -40,6 +43,20 @@ try {
         if (!$service->hasActiveWatchTargets()) {
             echo date('c') . " no quedan vuelos vigilados; paro el bucle\n";
             break;
+        }
+        if ($lastStatsAt === 0 || (time() - $lastStatsAt) >= 240) {
+            try {
+                $stats = (new WebOperationsService($pdo))->run('flightstats', 12);
+                echo date('c') . sprintf(
+                    " flightstats requested=%d saved=%d received=%d\n",
+                    (int)($stats['requested'] ?? 0),
+                    (int)($stats['saved'] ?? 0),
+                    (int)($stats['received'] ?? 0)
+                );
+            } catch (Throwable $error) {
+                fwrite(STDERR, date('c') . ' flightstats ' . $error->getMessage() . PHP_EOL);
+            }
+            $lastStatsAt = time();
         }
         $sent = $service->pulseWatches();
         echo date('c') . " pulsos={$sent}\n";

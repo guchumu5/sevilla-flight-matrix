@@ -33,6 +33,7 @@ try {
         'airlabs_watched' => ['provider' => 'airlabs_watched', 'minimum_gap' => 12, 'limit' => 50],
         'opensky' => ['provider' => 'opensky', 'minimum_gap' => 4, 'limit' => 25],
         'weather' => ['provider' => 'aviationweather', 'minimum_gap' => 8, 'limit' => 10],
+        'flightstats' => ['provider' => 'flightstats', 'minimum_gap' => 4, 'limit' => 12],
     ];
     if (!isset($settings[$action])) Response::json(['error' => 'Proceso no permitido.'], 422);
     $stmt = $pdo->prepare('SELECT GREATEST(0,TIMESTAMPDIFF(MINUTE,MAX(started_at),NOW())) FROM fetch_runs WHERE provider=:provider');

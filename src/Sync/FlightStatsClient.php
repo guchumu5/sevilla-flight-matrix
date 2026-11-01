@@ -36,7 +36,7 @@ final class FlightStatsClient
             if (is_array($parsed)) {
                 $parsed['public_url'] = $publicUrl;
                 $parsed['source_kind'] = 'json';
-                return $parsed;
+                return $this->assertSevilleArrival($parsed);
             }
         }
 
@@ -50,6 +50,16 @@ final class FlightStatsClient
         }
         $parsed['public_url'] = $publicUrl;
         $parsed['source_kind'] = 'html';
+        return $this->assertSevilleArrival($parsed);
+    }
+
+    /** @param array<string,mixed> $parsed @return array<string,mixed> */
+    private function assertSevilleArrival(array $parsed): array
+    {
+        $destination = strtoupper(trim((string)($parsed['destination_iata'] ?? '')));
+        if ($destination !== '' && $destination !== 'SVQ') {
+            throw new \RuntimeException('FlightStats devolvió destino ' . $destination . ' en lugar de SVQ.');
+        }
         return $parsed;
     }
 
@@ -62,11 +72,11 @@ final class FlightStatsClient
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_CONNECTTIMEOUT => 6,
-            CURLOPT_TIMEOUT => 12,
+            CURLOPT_TIMEOUT => 8,
             CURLOPT_USERAGENT => self::USER_AGENT,
             CURLOPT_HTTPHEADER => $json
-                ? ['Accept: application/json,text/plain,*/*', 'Referer: ' . $referer]
-                : ['Accept: text/html,application/xhtml+xml', 'Referer: ' . $referer],
+                ? ['Accept: application/json,text/plain,*/*', 'Accept-Language: es-ES,es;q=0.9,en;q=0.8', 'Referer: ' . $referer]
+                : ['Accept: text/html,application/xhtml+xml', 'Accept-Language: es-ES,es;q=0.9,en;q=0.8', 'Referer: ' . $referer],
         ]);
         $body = curl_exec($curl);
         $status = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);

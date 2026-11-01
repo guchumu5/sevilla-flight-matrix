@@ -56,6 +56,7 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
       <div class="col-sm-6 col-xl"><button class="btn btn-primary w-100 operation-button" data-action="airlabs">Actualizar AirLabs</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-info w-100 operation-button" data-action="opensky">Actualizar OpenSky</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-light w-100 operation-button" data-action="weather">Actualizar tiempo</button></div>
+      <div class="col-sm-6 col-xl"><button class="btn btn-outline-info w-100 operation-button" data-action="flightstats">Actualizar FlightStats</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-warning w-100 operation-button" data-action="push">🔔 Despachar avisos</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-success w-100 operation-button" data-action="all">Actualizar fuentes</button></div>
     </div>

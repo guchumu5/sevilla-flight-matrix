@@ -24,4 +24,18 @@ assert.equal(html.delay_minutes, 20);
 assert.equal(html.actual_departure, '2026-10-26 20:44:00');
 assert.equal(html.eta, '2026-10-26 23:55:00');
 
+const live = JSON.parse(readFileSync(new URL('./fixtures/flightstats-vy3190-20261101.json', import.meta.url), 'utf8'));
+const today = parseFlightStatsJson(live, 'https://www.flightstats.com/v2/flight-tracker/VY/3190?year=2026&month=11&date=1');
+assert.equal(today.delay_minutes, 83);
+assert.equal(today.eta, '2026-11-02 01:13:00');
+assert.equal(today.destination_iata, 'SVQ');
+assert.match(today.status_text, /Delayed by 1h 23m/i);
+
+const hours = parseFlightStatsHtml(
+  'Delayed by 1h 23m Scheduled 20:35 WET Estimated 21:58 WET Scheduled 23:50 CET Estimated 01:13 CET',
+  '2026-11-01 23:50:00'
+);
+assert.equal(hours.delay_minutes, 83);
+assert.equal(hours.eta, '2026-11-02 01:13:00');
+
 console.log('Parser FlightStats público: OK');

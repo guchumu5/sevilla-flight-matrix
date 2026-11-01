@@ -5,6 +5,7 @@ namespace SevillaMatrix\Sync;
 
 use PDO;
 use RuntimeException;
+use SevillaMatrix\FlightRepository;
 use SevillaMatrix\IataFlightCode;
 use SevillaMatrix\Notifications\WebPushService;
 use Throwable;
@@ -35,7 +36,7 @@ final class FlightStatsIngestService
      */
     public function queue(int $limit = 8): array
     {
-        $limit = max(1, min(8, $limit));
+        $limit = max(1, min(12, $limit));
         $stmt = $this->pdo->prepare(
             "SELECT f.id,f.flight_date,f.physical_flight,f.origin_iata,f.origin_name,
                     f.scheduled_arrival,f.scheduled_departure,f.is_canary,
@@ -47,25 +48,22 @@ final class FlightStatsIngestService
              WHERE f.scheduled_arrival BETWEEN DATE_SUB(NOW(),INTERVAL 8 HOUR)
                                            AND DATE_ADD(NOW(),INTERVAL 16 HOUR)
                AND (
-                 EXISTS (
+                 f.is_canary=1
+                 OR EXISTS (
                    SELECT 1 FROM flight_watches w
                    INNER JOIN push_subscriptions s ON s.id=w.subscription_id
                    WHERE w.flight_id=f.id AND w.enabled=1 AND s.active=1
-                 )
-                 OR (
-                   f.is_canary=1 AND EXISTS (
-                     SELECT 1 FROM push_subscriptions s
-                     WHERE s.watch_canary_all=1 AND s.active=1
-                   )
                  )
                  OR r.status='queued'
                )
                AND (
                  r.processed_at IS NULL
                  OR r.status='queued'
-                 OR r.processed_at<DATE_SUB(NOW(),INTERVAL 3 MINUTE)
+                 OR r.processed_at<DATE_SUB(NOW(),INTERVAL 5 MINUTE)
                )
-             ORDER BY CASE WHEN r.status='queued' THEN 0 ELSE 1 END, f.scheduled_arrival
+             ORDER BY CASE WHEN r.status='queued' THEN 0 ELSE 1 END,
+                      CASE WHEN f.is_canary=1 THEN 0 ELSE 1 END,
+                      f.scheduled_arrival
              LIMIT {$limit}"
         );
         $stmt->execute();
@@ -123,8 +121,8 @@ final class FlightStatsIngestService
     public function ingest(array $snapshots, bool $dispatch = true): array
     {
         if (!$this->ready()) throw new RuntimeException('Aplica la actualización MySQL 012 de FlightStats.');
-        if ($snapshots === [] || count($snapshots) > 8) {
-            throw new RuntimeException('snapshots debe ser una lista de hasta 8 registros.');
+        if ($snapshots === [] || count($snapshots) > 12) {
+            throw new RuntimeException('snapshots debe ser una lista de hasta 12 registros.');
         }
 
         $lookup = $this->pdo->prepare(
@@ -178,6 +176,10 @@ final class FlightStatsIngestService
                 $unchanged++;
             }
             $completed->execute(['id' => $flightId]);
+        }
+
+        if ($saved > 0) {
+            FlightRepository::forgetSnapshotCaches();
         }
 
         $sync = null;
@@ -242,6 +244,69 @@ final class FlightStatsIngestService
         $result['snapshot'] = $this->latest($flightId);
         $result['source_kind'] = $parsed['source_kind'] ?? 'json';
         return $result;
+    }
+
+    /** @return array<string,mixed> */
+    public function captureDue(int $limit = 12, bool $dispatch = true): array
+    {
+        if (!$this->ready()) {
+            return [
+                'ok' => true,
+                'configured' => false,
+                'requested' => 0,
+                'saved' => 0,
+                'unchanged' => 0,
+                'errors' => [],
+                'message' => 'Aplica la actualización MySQL 012 de FlightStats.',
+            ];
+        }
+        $flights = $this->queue($limit)['flights'] ?? [];
+        $saved = $unchanged = 0;
+        $errors = [];
+        $snapshots = [];
+        foreach ($flights as $index => $flight) {
+            $code = (string)($flight['physical_flight'] ?? '');
+            try {
+                $result = $this->captureOne((int)$flight['id']);
+                $saved += (int)($result['saved'] ?? 0);
+                $unchanged += (int)($result['unchanged'] ?? 0);
+                if (is_array($result['snapshot'] ?? null)) $snapshots[] = $result['snapshot'];
+            } catch (Throwable $error) {
+                $errors[] = trim($code . ': ' . $error->getMessage());
+                $this->markError((int)$flight['id'], $error->getMessage());
+            }
+            if ($index < count($flights) - 1) usleep(250_000);
+        }
+        $push = null;
+        if ($dispatch && $saved > 0) {
+            try {
+                $push = (new WebPushService($this->pdo))->dispatch(50);
+            } catch (Throwable $error) {
+                $push = ['error' => substr($error->getMessage(), 0, 300)];
+            }
+        }
+        if ($saved > 0) {
+            FlightRepository::forgetSnapshotCaches();
+        }
+        return [
+            'ok' => true,
+            'configured' => true,
+            'requested' => count($flights),
+            'saved' => $saved,
+            'unchanged' => $unchanged,
+            'errors' => $errors,
+            'snapshots' => count($snapshots),
+            'push' => $push,
+        ];
+    }
+
+    private function markError(int $flightId, string $message): void
+    {
+        $this->pdo->prepare(
+            "INSERT INTO flightstats_requests (flight_id,requested_at,processed_at,request_count,status,last_error)
+             VALUES (:id,NOW(),NOW(),1,'error',:error)
+             ON DUPLICATE KEY UPDATE processed_at=NOW(),status='error',last_error=:error"
+        )->execute(['id' => $flightId, 'error' => substr($message, 0, 500)]);
     }
 
     /** @return array<string,mixed>|null */

@@ -33,7 +33,10 @@ final class FlightStatsParser
         $number = trim((string)(($header['flightNumber'] ?? null) ?: ($ticket['flightNumber'] ?? '')));
         $statusLabel = trim((string)($status['status'] ?? $header['status'] ?? ''));
         $delayText = trim((string)($status['statusDescription'] ?? $header['statusDescription'] ?? ''));
-        $delayMinutes = self::nullableInt($arrivalDelay['minutes'] ?? $delayStatus['minutes'] ?? null);
+        $delayMinutes = self::parseDelayMinutes(
+            $arrivalDelay['minutes'] ?? $delayStatus['minutes'] ?? null,
+            $delayText !== '' ? $delayText : (string)($delayStatus['wording'] ?? '')
+        );
         $statusText = trim($statusLabel . ($delayText !== '' && !str_contains(strtolower($statusLabel), strtolower($delayText))
             ? ' · ' . $delayText : ($delayText !== '' && $statusLabel === '' ? $delayText : '')), ' ·');
 
@@ -45,14 +48,16 @@ final class FlightStatsParser
         $canceled = filter_var($note['canceled'] ?? false, FILTER_VALIDATE_BOOL)
             || preg_match('/cancel/i', $statusLabel . ' ' . $delayText) === 1;
 
-        $eta = self::localDateTime($schedule['estimatedActualArrival'] ?? null);
+        $eta = self::localDateTime($schedule['estimatedActualArrivalUTC'] ?? null, 'Europe/Madrid')
+            ?: self::localDateTime($schedule['estimatedActualArrival'] ?? null, 'Europe/Madrid');
         $actualArrival = ($landed || $arrTitle === 'actual') ? $eta : null;
         if ($actualArrival !== null) $eta = $actualArrival;
         if (!$landed && $arrTitle !== 'actual') $actualArrival = null;
 
         $actualDeparture = null;
         if ($depTitle === 'actual' || !empty($note['hasActualGateDepartureTime']) || !empty($note['hasActualRunwayDepartureTime'])) {
-            $actualDeparture = self::localDateTime($schedule['estimatedActualDeparture'] ?? $schedule['tookOff'] ?? null);
+            $actualDeparture = self::localDateTime($schedule['estimatedActualDeparture'] ?? $schedule['tookOff'] ?? null, 'Atlantic/Canary')
+                ?: self::localDateTime($schedule['estimatedActualDepartureUTC'] ?? null, 'Atlantic/Canary');
         }
 
         $depClock = trim((string)($depActual['time24'] ?? ''));
@@ -102,22 +107,37 @@ final class FlightStatsParser
             'origin_iata' => '',
             'destination_iata' => '',
         ];
-        if (preg_match('/Delayed by (\d+)\s*m/i', $text, $found)) {
-            $out['delay_minutes'] = (int)$found[1];
-            $out['status_text'] = 'Delayed by ' . $found[1] . 'm';
+        if (preg_match('/Delayed by\s+((?:\d+\s*h(?:ours?)?\s*)?\d+\s*m(?:in(?:utes?)?)?|\d+\s*h(?:ours?)?)/i', $text, $found)) {
+            $out['delay_minutes'] = self::parseDelayMinutes(null, $found[1]);
+            $out['status_text'] = 'Delayed by ' . trim($found[1]);
         } elseif (preg_match('/\b(On time|Arrived|Departed|Scheduled|Cancelled|Landed|In flight|En route)\b/i', $text, $found)) {
             $out['status_text'] = $found[1];
         }
-        if (preg_match('/Scheduled\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})\s+Actual\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})/', $text, $found)) {
-            $out['departure_text'] = 'Actual ' . $found[3] . ' ' . $found[4];
-            $out['actual_departure'] = self::clockOnDay($scheduledArrival, $found[3]);
-        }
-        if (preg_match('/Scheduled\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})\s+Estimated\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})/', $text, $found)) {
-            $out['arrival_text'] = 'Estimated ' . $found[3] . ' ' . $found[4];
-            $out['eta'] = self::clockOnDay($scheduledArrival, $found[3]);
-        } elseif (preg_match('/Scheduled\s+(\d{1,2}:\d{2})\s+(CET|CEST)\s+Actual\s+(\d{1,2}:\d{2})\s+(CET|CEST)/', $text, $found)) {
-            $out['arrival_text'] = 'Actual ' . $found[3] . ' ' . $found[4];
-            $out['actual_arrival'] = self::clockOnDay($scheduledArrival, $found[3]);
+        if (preg_match_all('/Scheduled\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})\s+(Actual|Estimated)\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})/', $text, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $found) {
+                $zone = strtoupper($found[5]);
+                $kind = strtolower($found[3]);
+                $label = ($kind === 'actual' ? 'Actual' : 'Estimated') . ' ' . $found[4] . ' ' . $zone;
+                $seville = in_array($zone, ['CET', 'CEST'], true);
+                if ($seville) {
+                    $out['arrival_text'] = $label;
+                    if ($kind === 'actual') $out['actual_arrival'] = self::clockOnDay($scheduledArrival, $found[4]);
+                    else $out['eta'] = self::clockOnDay($scheduledArrival, $found[4]);
+                } else {
+                    $out['departure_text'] = $label;
+                    if ($kind === 'actual') {
+                        $out['actual_departure'] = self::clockOnDay($scheduledArrival, $found[4]);
+                    }
+                }
+            }
+            if ($out['eta'] === null && $out['actual_arrival'] === null) {
+                $last = $matches[count($matches) - 1];
+                $kind = strtolower($last[3]);
+                $label = ($kind === 'actual' ? 'Actual' : 'Estimated') . ' ' . $last[4] . ' ' . $last[5];
+                $out['arrival_text'] = $label;
+                if ($kind === 'actual') $out['actual_arrival'] = self::clockOnDay($scheduledArrival, $last[4]);
+                else $out['eta'] = self::clockOnDay($scheduledArrival, $last[4]);
+            }
         }
         $useful = $out['delay_minutes'] !== null || $out['eta'] || $out['actual_departure']
             || $out['actual_arrival'] || $out['status_text'] || $out['canceled'];
@@ -139,19 +159,34 @@ final class FlightStatsParser
         }
     }
 
-    public static function localDateTime(mixed $value): ?string
+    public static function localDateTime(mixed $value, string $timezone = ''): ?string
     {
         $raw = trim((string)($value ?? ''));
         if ($raw === '') return null;
         try {
+            $zone = new \DateTimeZone($timezone !== '' ? $timezone : (date_default_timezone_get() ?: 'Europe/Madrid'));
             if (str_ends_with($raw, 'Z') || preg_match('/[+-]\d{2}:\d{2}$/', $raw)) {
-                return (new DateTimeImmutable($raw))->setTimezone(new \DateTimeZone(date_default_timezone_get()))
-                    ->format('Y-m-d H:i:s');
+                return (new DateTimeImmutable($raw))->setTimezone($zone)->format('Y-m-d H:i:s');
             }
-            return (new DateTimeImmutable(str_replace('T', ' ', substr($raw, 0, 19))))->format('Y-m-d H:i:s');
+            return (new DateTimeImmutable(str_replace('T', ' ', substr($raw, 0, 19)), $zone))->format('Y-m-d H:i:s');
         } catch (Throwable) {
             return null;
         }
+    }
+
+    public static function parseDelayMinutes(mixed $numeric, string $text = ''): ?int
+    {
+        $fromNumber = self::nullableInt($numeric);
+        if ($fromNumber !== null) return $fromNumber;
+        $text = trim($text);
+        if ($text === '') return null;
+        if (preg_match('/(?:delayed by\s*)?(?:(\d+)\s*h(?:ours?)?\s*)?(\d+)\s*m(?:in(?:utes?)?)?\b/i', $text, $match)) {
+            return self::nullableInt(((int)($match[1] ?? 0)) * 60 + (int)$match[2]);
+        }
+        if (preg_match('/(?:delayed by\s*)?(\d+)\s*h(?:ours?)?\b/i', $text, $match)) {
+            return self::nullableInt(((int)$match[1]) * 60);
+        }
+        return null;
     }
 
     private static function clockLabel(string $clock, string $zone, ?string $title): ?string

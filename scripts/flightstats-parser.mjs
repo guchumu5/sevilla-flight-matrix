@@ -1,17 +1,33 @@
 const first = (text, pattern) => text.match(pattern)?.[1]?.trim() || null;
 const pad = number => String(number).padStart(2, '0');
 
-export function localDateTime(value) {
+export function localDateTime(value, timezone = 'Europe/Madrid') {
   const raw = String(value || '').trim();
   if (!raw) return null;
   if (raw.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(raw)) {
     const stamp = new Date(raw);
     if (Number.isNaN(stamp.getTime())) return null;
-    return `${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())} ${pad(stamp.getHours())}:${pad(stamp.getMinutes())}:${pad(stamp.getSeconds())}`;
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || 'Europe/Madrid', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).formatToParts(stamp).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}:${parts.second}`;
   }
   const slice = raw.replace('T', ' ').slice(0, 19);
   const match = slice.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})(?::(\d{2}))?/);
   return match ? `${match[1]} ${match[2]}:${match[3] || '00'}` : null;
+}
+
+export function parseDelayMinutes(numeric, text = '') {
+  if (numeric !== null && numeric !== undefined && numeric !== '' && Number.isFinite(Number(numeric))) {
+    return Math.max(-24 * 60, Math.min(24 * 60, Math.round(Number(numeric))));
+  }
+  const raw = String(text || '').trim();
+  if (!raw) return null;
+  const withMinutes = raw.match(/(?:delayed by\s*)?(?:(\d+)\s*h(?:ours?)?\s*)?(\d+)\s*m(?:in(?:utes?)?)?\b/i);
+  if (withMinutes) return Number(withMinutes[1] || 0) * 60 + Number(withMinutes[2]);
+  const hoursOnly = raw.match(/(?:delayed by\s*)?(\d+)\s*h(?:ours?)?\b/i);
+  return hoursOnly ? Number(hoursOnly[1]) * 60 : null;
 }
 
 export function clockOnDay(baseDateTime, hhmm) {
@@ -49,18 +65,23 @@ export function parseFlightStatsJson(payload, publicUrl = '') {
   const number = String(header.flightNumber || ticket.flightNumber || '').trim();
   const statusLabel = String(status.status || header.status || '').trim();
   const delayText = String(status.statusDescription || header.statusDescription || '').trim();
-  const delayMinutes = Number(status.delay?.arrival?.minutes ?? status.delayStatus?.minutes);
+  const delayMinutes = parseDelayMinutes(
+    status.delay?.arrival?.minutes ?? status.delayStatus?.minutes,
+    delayText || status.delayStatus?.wording || ''
+  );
   const statusText = [statusLabel, delayText && !statusLabel.toLowerCase().includes(delayText.toLowerCase()) ? delayText : '']
     .filter(Boolean).join(' · ') || delayText;
   const depTitle = String(schedule.estimatedActualDepartureTitle || departure.times?.estimatedActual?.title || '').toLowerCase();
   const arrTitle = String(schedule.estimatedActualArrivalTitle || arrival.times?.estimatedActual?.title || '').toLowerCase();
   const landed = Boolean(data.isLanded || note.landed);
   const canceled = Boolean(note.canceled) || /cancel/i.test(`${statusLabel} ${delayText}`);
-  let eta = localDateTime(schedule.estimatedActualArrival);
+  let eta = localDateTime(schedule.estimatedActualArrivalUTC, 'Europe/Madrid')
+    || localDateTime(schedule.estimatedActualArrival, 'Europe/Madrid');
   let actualArrival = landed || arrTitle === 'actual' ? eta : null;
   if (!(landed || arrTitle === 'actual')) actualArrival = null;
   const actualDeparture = (depTitle === 'actual' || note.hasActualGateDepartureTime || note.hasActualRunwayDepartureTime)
-    ? localDateTime(schedule.estimatedActualDeparture || schedule.tookOff)
+    ? localDateTime(schedule.estimatedActualDeparture || schedule.tookOff, 'Atlantic/Canary')
+      || localDateTime(schedule.estimatedActualDepartureUTC, 'Atlantic/Canary')
     : null;
   if (actualArrival) eta = null;
   if (!statusText && !eta && !actualDeparture && !actualArrival) return null;
@@ -68,7 +89,7 @@ export function parseFlightStatsJson(payload, publicUrl = '') {
     iata_carrier: /^[A-Z][A-Z0-9]$/.test(carrier) ? carrier : null,
     iata_number: /^\d{1,4}[A-Z]?$/.test(number) ? number : null,
     status_text: (statusText || (canceled ? 'Cancelled' : '')).slice(0, 160) || null,
-    delay_minutes: Number.isFinite(delayMinutes) ? Math.round(delayMinutes) : null,
+    delay_minutes: delayMinutes == null ? null : delayMinutes,
     eta,
     actual_departure: actualDeparture,
     actual_arrival: actualArrival,
@@ -91,28 +112,33 @@ export function parseFlightStatsHtml(html, scheduledArrival = '', publicUrl = ''
     arrival_text: null, phase: null, public_url: publicUrl, canceled: /\bCancelled\b/i.test(text),
     origin_iata: '', destination_iata: '',
   };
-  const delay = first(text, /Delayed by (\d+)\s*m/i);
+  const delay = first(text, /Delayed by\s+((?:\d+\s*h(?:ours?)?\s*)?\d+\s*m(?:in(?:utes?)?)?|\d+\s*h(?:ours?)?)/i);
   if (delay) {
-    out.delay_minutes = Number(delay);
-    out.status_text = `Delayed by ${delay}m`;
+    out.delay_minutes = parseDelayMinutes(null, delay);
+    out.status_text = `Delayed by ${delay}`;
   } else {
     out.status_text = first(text, /\b(On time|Arrived|Departed|Scheduled|Cancelled|Landed|In flight|En route)\b/i);
   }
-  const dep = text.match(/Scheduled\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})\s+Actual\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})/);
-  if (dep) {
-    out.departure_text = `Actual ${dep[3]} ${dep[4]}`;
-    out.actual_departure = clockOnDay(scheduledArrival, dep[3]);
-  }
-  const est = text.match(/Scheduled\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})\s+Estimated\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})/);
-  if (est) {
-    out.arrival_text = `Estimated ${est[3]} ${est[4]}`;
-    out.eta = clockOnDay(scheduledArrival, est[3]);
-  } else {
-    const arrived = text.match(/Scheduled\s+(\d{1,2}:\d{2})\s+(CET|CEST)\s+Actual\s+(\d{1,2}:\d{2})\s+(CET|CEST)/);
-    if (arrived) {
-      out.arrival_text = `Actual ${arrived[3]} ${arrived[4]}`;
-      out.actual_arrival = clockOnDay(scheduledArrival, arrived[3]);
+  const blocks = [...text.matchAll(/Scheduled\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})\s+(Actual|Estimated)\s+(\d{1,2}:\d{2})\s+([A-Z]{2,4})/g)];
+  for (const found of blocks) {
+    const zone = String(found[5] || '').toUpperCase();
+    const kind = String(found[3] || '').toLowerCase();
+    const label = `${kind === 'actual' ? 'Actual' : 'Estimated'} ${found[4]} ${zone}`;
+    if (zone === 'CET' || zone === 'CEST') {
+      out.arrival_text = label;
+      if (kind === 'actual') out.actual_arrival = clockOnDay(scheduledArrival, found[4]);
+      else out.eta = clockOnDay(scheduledArrival, found[4]);
+    } else {
+      out.departure_text = label;
+      if (kind === 'actual') out.actual_departure = clockOnDay(scheduledArrival, found[4]);
     }
+  }
+  if (!out.eta && !out.actual_arrival && blocks.length) {
+    const last = blocks[blocks.length - 1];
+    const kind = String(last[3] || '').toLowerCase();
+    out.arrival_text = `${kind === 'actual' ? 'Actual' : 'Estimated'} ${last[4]} ${last[5]}`;
+    if (kind === 'actual') out.actual_arrival = clockOnDay(scheduledArrival, last[4]);
+    else out.eta = clockOnDay(scheduledArrival, last[4]);
   }
   return (out.delay_minutes != null || out.eta || out.actual_departure || out.actual_arrival || out.status_text || out.canceled)
     ? out : null;

@@ -1,0 +1,98 @@
+{
+  "data": {
+    "flightId": 1417513080,
+    "flightNote": {
+      "final": false,
+      "canceled": false,
+      "hasDepartedGate": false,
+      "hasDepartedRunway": false,
+      "landed": false,
+      "message": "Tracking will begin after departure",
+      "messageCode": "S",
+      "pastExpectedTakeOff": false,
+      "tracking": false,
+      "hasPositions": false,
+      "trackingUnavailable": false,
+      "phase": null,
+      "hasActualRunwayDepartureTime": false,
+      "hasActualGateDepartureTime": false
+    },
+    "isTracking": false,
+    "isLanded": false,
+    "isScheduled": true,
+    "sortTime": "2026-11-01T20:35:00.000Z",
+    "schedule": {
+      "scheduledDeparture": "2026-11-01T20:35:00.000",
+      "scheduledDepartureUTC": "2026-11-01T20:35:00.000Z",
+      "estimatedActualDepartureRunway": false,
+      "estimatedActualDepartureTitle": "Estimated",
+      "estimatedActualDeparture": "2026-11-01T21:58:00.000",
+      "estimatedActualDepartureUTC": "2026-11-01T21:58:00.000Z",
+      "scheduledArrival": "2026-11-01T23:50:00.000",
+      "scheduledArrivalUTC": "2026-11-01T22:50:00.000Z",
+      "estimatedActualArrivalRunway": false,
+      "estimatedActualArrivalTitle": "Estimated",
+      "estimatedActualArrival": "2026-11-02T01:13:00.000",
+      "estimatedActualArrivalUTC": "2026-11-02T00:13:00.000Z"
+    },
+    "status": {
+      "statusCode": "S",
+      "status": "Scheduled",
+      "color": "yellow",
+      "statusDescription": "Delayed by 1h 23m",
+      "delay": {
+        "departure": {"minutes": 83},
+        "arrival": {"minutes": 83}
+      },
+      "delayStatus": {
+        "wording": "Delayed by 1h 23m",
+        "minutes": 83
+      },
+      "lastUpdatedText": "Status Last Updated 22 Minutes Ago",
+      "diverted": false
+    },
+    "resultHeader": {
+      "statusDescription": "Delayed by 1h 23m",
+      "carrier": {"name": "Vueling", "fs": "VY"},
+      "flightNumber": "3190",
+      "status": "Scheduled",
+      "diverted": false,
+      "color": "yellow",
+      "departureAirportFS": "LPA",
+      "arrivalAirportFS": "SVQ",
+      "divertedAirport": null
+    },
+    "ticketHeader": {
+      "carrier": {"name": "Vueling", "fs": "VY"},
+      "flightNumber": "3190"
+    },
+    "departureAirport": {
+      "fs": "LPA",
+      "iata": "LPA",
+      "timeZoneRegionName": "Atlantic/Canary",
+      "times": {
+        "scheduled": {"time24": "20:35", "timezone": "WET"},
+        "estimatedActual": {"title": "Estimated", "time24": "21:58", "timezone": "WET"}
+      }
+    },
+    "arrivalAirport": {
+      "fs": "SVQ",
+      "iata": "SVQ",
+      "timeZoneRegionName": "Europe/Madrid",
+      "baggage": "3",
+      "times": {
+        "scheduled": {"time24": "23:50", "timezone": "CET"},
+        "estimatedActual": {"title": "Estimated", "time24": "01:13", "timezone": "CET"}
+      }
+    },
+    "positional": {
+      "flexTrack": {
+        "flightId": 1417513080,
+        "carrierFsCode": "VY",
+        "flightNumber": "3190",
+        "delayMinutes": 83
+      }
+    },
+    "flightState": "currentDatePreFlight"
+  }
+}

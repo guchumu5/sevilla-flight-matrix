@@ -163,4 +163,22 @@ if (($delayed['effective_arrival'] ?? null) !== '2026-10-15 21:30:00'
     throw new RuntimeException('Un retraso secundario de +30 min debe sustituir la hora programada de Aena.');
 }
 
+$fsDelay = (new MatrixEngine())->decorate([
+    sampleFlight(21, 'VLG3190', '2026-11-01 23:50:00', '3', [
+        'origin_iata' => 'LPA',
+        'is_canary' => 1,
+        'eta' => '2026-11-01 23:50:00',
+        'flightstats' => [
+            'delay_minutes' => 83,
+            'eta' => '2026-11-02 01:13:00',
+            'status_text' => 'Scheduled · Delayed by 1h 23m',
+        ],
+    ]),
+])[0] ?? [];
+if (($fsDelay['effective_arrival'] ?? null) !== '2026-11-02 01:13:00'
+    || (int)($fsDelay['deviation_minutes'] ?? 0) !== 83
+    || ($fsDelay['expected_arrival'] ?? null) !== '2026-11-02 01:13:00') {
+    throw new RuntimeException('FlightStats +83 min debe mover la hora publicada aunque Aena siga en hora.');
+}
+
 fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 + belt_coincidence_v1 OK\n");

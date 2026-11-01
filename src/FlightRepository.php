@@ -91,6 +91,7 @@ final class FlightRepository
             $from->modify('-1 day')->format('Y-m-d'),
             $from->modify('+' . ($days + 1) . ' day')->format('Y-m-d')
         );
+        $this->attachFlightStatsSnapshots($rows);
         $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
         $inRange = array_flip($dates);
         $summary = [];
@@ -312,6 +313,10 @@ SQL;
             'expected_deviation_samples' => (int)($row['expected_deviation_samples'] ?? 0),
             'actual_arrival' => $row['actual_arrival'] ?? null,
             'eta' => $row['eta'] ?? null,
+            'deviation_minutes' => $row['deviation_minutes'] ?? null,
+            'secondary_eta' => $row['secondary_eta'] ?? null,
+            'secondary_eta_source' => $row['secondary_eta_source'] ?? null,
+            'flightstats' => $this->publicFlightStats($row['flightstats'] ?? null),
             'hall' => $row['hall'] ?? null,
             'belt' => $row['belt'] ?? null,
             'source' => $row['source'] ?? null,
@@ -709,8 +714,10 @@ SQL;
         if ($flights === []) return;
         $from = (new \DateTimeImmutable($fromDate))->modify('-1 day')->format('Y-m-d');
         $to = (new \DateTimeImmutable($fromDate))->modify('+' . ($days + 1) . ' day')->format('Y-m-d');
+        $rows = $this->boardRows($from, $to);
+        $this->attachFlightStatsSnapshots($rows);
         $rows = (new MatrixEngine())->decorate(
-            $this->boardRows($from, $to),
+            $rows,
             $this->arrivalDeviationProfile(),
             [],
             'canary'
@@ -727,6 +734,9 @@ SQL;
             $flight['belt_coincidence'] = $coincidence;
             $flight['expected_arrival'] = (string)($row['expected_arrival'] ?? $row['effective_arrival'] ?? $flight['effective_arrival']);
             $flight['effective_arrival'] = (string)($row['effective_arrival'] ?? $flight['effective_arrival']);
+            $flight['eta'] = $row['eta'] ?? $flight['eta'] ?? null;
+            $flight['deviation_minutes'] = $row['deviation_minutes'] ?? null;
+            $flight['flightstats'] = $this->publicFlightStats($row['flightstats'] ?? null);
             $flight['belt'] = $row['belt'] ?? null;
             $flight['hall'] = $row['hall'] ?? null;
             $flight['source'] = $row['source'] ?? null;
@@ -864,6 +874,25 @@ SQL;
         $stmt->execute([$flightId]);
         $row = $stmt->fetch();
         return is_array($row) ? $row : null;
+    }
+
+    /** @param array<string,mixed>|null $snapshot @return array<string,mixed>|null */
+    private function publicFlightStats(mixed $snapshot): ?array
+    {
+        if (!is_array($snapshot) || $snapshot === []) return null;
+        return [
+            'observed_at' => $snapshot['observed_at'] ?? null,
+            'public_url' => $snapshot['public_url'] ?? null,
+            'status_text' => $snapshot['status_text'] ?? null,
+            'delay_minutes' => isset($snapshot['delay_minutes']) && $snapshot['delay_minutes'] !== null
+                ? (int)$snapshot['delay_minutes'] : null,
+            'eta' => $snapshot['eta'] ?? null,
+            'actual_departure' => $snapshot['actual_departure'] ?? null,
+            'actual_arrival' => $snapshot['actual_arrival'] ?? null,
+            'departure_text' => $snapshot['departure_text'] ?? null,
+            'arrival_text' => $snapshot['arrival_text'] ?? null,
+            'phase' => $snapshot['phase'] ?? null,
+        ];
     }
 
     /** @param array<int,array<string,mixed>> $rows */

@@ -55,7 +55,13 @@ const readSnapshot = async (flight) => {
     const payload = await fetchText(jsonUrl, publicUrl, true);
     if (payload.type.includes('json') || payload.text.startsWith('{')) {
       const parsed = parseFlightStatsJson(JSON.parse(payload.text), publicUrl);
-      if (parsed) return {...parsed, source_kind:'json'};
+      if (parsed) {
+        const destination = String(parsed.destination_iata || '').toUpperCase();
+        if (destination && destination !== 'SVQ') {
+          throw new Error(`FlightStats devolvió destino ${destination} en lugar de SVQ.`);
+        }
+        return {...parsed, source_kind:'json'};
+      }
     }
   } catch (error) {
     console.warn(`::warning::${flight.physical_flight}: JSON FlightStats no usable (${error.message}); se intenta la ficha HTML.`);
@@ -71,7 +77,7 @@ if (!control.configured) {
   console.log(control.message || 'FlightStats pendiente de actualización MySQL.');
   process.exit(0);
 }
-const flights = Array.isArray(control.flights) ? control.flights.slice(0, 8) : [];
+const flights = Array.isArray(control.flights) ? control.flights.slice(0, 12) : [];
 if (!flights.length) {
   console.log('Sin vuelos vigilados en la ventana de FlightStats.');
   process.exit(0);

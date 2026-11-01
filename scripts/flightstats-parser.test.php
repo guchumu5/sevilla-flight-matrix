@@ -42,4 +42,18 @@ $html = FlightStatsParser::fromHtml(
 expectSame(20, $html['delay_minutes'] ?? null, 'El HTML de reserva debe leer el retraso.');
 expectSame('2026-10-26 23:55:00', $html['eta'] ?? null, 'ETA HTML 23:55.');
 
+$live = json_decode((string)file_get_contents(dirname(__DIR__) . '/scripts/fixtures/flightstats-vy3190-20261101.json'), true);
+$today = FlightStatsParser::fromJson($live);
+expectSame(83, $today['delay_minutes'] ?? null, 'VY3190 del 1 nov debe leer +83 min.');
+expectSame('2026-11-02 01:13:00', $today['eta'] ?? null, 'ETA local 01:13.');
+expectSame('SVQ', $today['destination_iata'] ?? null, 'El destino debe ser Sevilla.');
+expectSame(83, FlightStatsParser::parseDelayMinutes(null, 'Delayed by 1h 23m'), 'El texto 1h 23m son 83 min.');
+
+$hours = FlightStatsParser::fromHtml(
+    'Delayed by 1h 23m Scheduled 20:35 WET Estimated 21:58 WET Scheduled 23:50 CET Estimated 01:13 CET',
+    '2026-11-01 23:50:00'
+);
+expectSame(83, $hours['delay_minutes'] ?? null, 'El HTML debe leer Delayed by 1h 23m.');
+expectSame('2026-11-02 01:13:00', $hours['eta'] ?? null, 'ETA HTML 01:13 al día siguiente.');
+
 fwrite(STDOUT, "Parser FlightStats PHP: OK\n");

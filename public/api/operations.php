@@ -23,7 +23,7 @@ try {
     if (!Auth::verifyCsrf($input['csrf'] ?? null)) {
         Response::json(['error' => 'La sesión ha caducado. Recarga la página.'], 419);
     }
-    @set_time_limit(120);
+    @set_time_limit(150);
     $action = strtolower(trim((string)($input['action'] ?? '')));
     $limit = filter_var($input['limit'] ?? 10, FILTER_VALIDATE_INT) ?: 10;
     Response::json($service->run($action, $limit));

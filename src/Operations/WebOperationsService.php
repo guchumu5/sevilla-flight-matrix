@@ -11,11 +11,12 @@ use SevillaMatrix\Api\OpenSkyClient;
 use SevillaMatrix\Env;
 use SevillaMatrix\Notifications\WebPushService;
 use SevillaMatrix\Sync\FlightReconciliationService;
+use SevillaMatrix\Sync\FlightStatsIngestService;
 use Throwable;
 
 final class WebOperationsService
 {
-    private const ACTIONS = ['aena', 'airlabs', 'airlabs_watched', 'opensky', 'weather', 'push', 'all'];
+    private const ACTIONS = ['aena', 'airlabs', 'airlabs_watched', 'opensky', 'weather', 'flightstats', 'push', 'all'];
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -115,6 +116,13 @@ final class WebOperationsService
                 'configured' => true,
                 'cadence_minutes' => $this->envMinutes('WEATHER_CADENCE_MINUTES', 10),
                 'stale_minutes' => $this->envMinutes('WEATHER_STALE_MINUTES', 35),
+                'request_factor' => 1,
+            ],
+            'flightstats' => [
+                'label' => 'FlightStats Canarias',
+                'configured' => true,
+                'cadence_minutes' => 5,
+                'stale_minutes' => 20,
                 'request_factor' => 1,
             ],
         ];
@@ -299,6 +307,7 @@ final class WebOperationsService
             'airlabs_watched' => $this->recordFetch('airlabs_watched', fn(): array => $this->withLock('airlabs', fn(): array => $this->airLabs($this->clamp($limit, 1, 50), true))),
             'opensky' => $this->recordFetch('opensky', fn(): array => $this->withLock('opensky', fn(): array => $this->openSky($this->clamp($limit, 1, 25)))),
             'weather' => $this->recordFetch('aviationweather', fn(): array => $this->withLock('weather', fn(): array => $this->weather())),
+            'flightstats' => $this->recordFetch('flightstats', fn(): array => $this->withLock('flightstats', fn(): array => $this->flightStats($this->clamp($limit, 1, 12)))),
             'push' => $this->dispatchPush(),
             'all' => $this->runAll($this->clamp($limit, 1, 10)),
         };
@@ -784,6 +793,34 @@ final class WebOperationsService
             'errors' => $errors,
             'sync' => $sync,
             'push' => $push,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function flightStats(int $limit): array
+    {
+        $service = new FlightStatsIngestService($this->pdo);
+        $result = $service->captureDue($limit, true);
+        $received = (int)($result['saved'] ?? 0) + (int)($result['unchanged'] ?? 0);
+        $errors = is_array($result['errors'] ?? null) ? $result['errors'] : [];
+        return [
+            'ok' => true,
+            'action' => 'flightstats',
+            'useful' => (int)($result['saved'] ?? 0) > 0,
+            'message' => empty($result['configured'])
+                ? (string)($result['message'] ?? 'FlightStats pendiente de actualización MySQL.')
+                : sprintf(
+                    'FlightStats leyó %d vuelos Canarias/vigilados (%d nuevos, %d iguales).',
+                    $received,
+                    (int)($result['saved'] ?? 0),
+                    (int)($result['unchanged'] ?? 0)
+                ),
+            'requested' => (int)($result['requested'] ?? 0),
+            'received' => $received,
+            'saved' => (int)($result['saved'] ?? 0),
+            'unchanged' => (int)($result['unchanged'] ?? 0),
+            'errors' => $errors,
+            'push' => $result['push'] ?? null,
         ];
     }
 

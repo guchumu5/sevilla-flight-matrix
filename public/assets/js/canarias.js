@@ -91,6 +91,22 @@
     return `${date}T${String(minutes < 120 ? minutes + 1440 : minutes).padStart(4, '0')}`;
   };
   const isCanaryEntry = item => Number(item?.is_canary) === 1;
+  function printDelayHint(flight) {
+    const delay = Number(flight?.deviation_minutes ?? flight?.flightstats?.delay_minutes);
+    if (!Number.isFinite(delay) || Math.abs(delay) < 5) return '';
+    return ` · ${delay > 0 ? '+' : ''}${delay} min`;
+  }
+  function flightStatsPrintMarkup(flight) {
+    const snapshot = flight?.flightstats;
+    if (!snapshot) return '';
+    const delay = Number(snapshot.delay_minutes);
+    const bits = [
+      snapshot.status_text || 'FlightStats',
+      Number.isFinite(delay) && delay !== 0 ? `${delay > 0 ? '+' : ''}${delay} min` : '',
+      snapshot.eta ? `ETA ${time(snapshot.eta)}` : '',
+    ].filter(Boolean);
+    return `<p class="canary-print-timing">FlightStats · ${esc(bits.join(' · '))} · secundario, no sustituye a Aena</p>`;
+  }
   const rankAroundEntries = entries => [...(Array.isArray(entries) ? entries : [])].sort((a, b) =>
     (isCanaryEntry(b) ? 1 : 0) - (isCanaryEntry(a) ? 1 : 0)
     || Math.abs(Number(a.offset_minutes)) - Math.abs(Number(b.offset_minutes))
@@ -261,7 +277,8 @@
           ${note != null ? `<span class="score">${note}/10 · ${esc(rating.short)} · ${Number(model.green_count)}V ${Number(model.red_count)}R</span>` : ''}
         </div>
       </header>
-      ${flight.scheduled_arrival ? `<p class="canary-print-timing">Previsto ${esc(time(flight.scheduled_arrival))} · Llegada ${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}</p>` : ''}
+      ${flight.scheduled_arrival ? `<p class="canary-print-timing">Previsto ${esc(time(flight.scheduled_arrival))} · Llegada ${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}${printDelayHint(flight)}</p>` : ''}
+      ${flightStatsPrintMarkup(flight)}
       ${occupancyMarkup(flight)}
       ${aroundMarkup(flight)}
       ${flight.belt_attention ? `<p class="canary-print-alert">${esc(flight.belt_attention_reason || 'Atención de cinta')}</p>` : ''}

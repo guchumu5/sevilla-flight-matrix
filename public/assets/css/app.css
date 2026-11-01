@@ -216,6 +216,9 @@ body {
 .flightaware-snapshot > header { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.65rem .75rem; border-bottom:1px solid var(--border); background:rgba(255,181,71,.08); }
 .flightaware-snapshot > header div { display:flex; align-items:center; gap:.45rem; }.flightaware-snapshot > header time { color:var(--muted); font-size:.68rem; }
 .flightaware-snapshot > p { margin:0; padding:.6rem .75rem 0; color:#ffd78b; font-size:.78rem; font-weight:800; }
+.canary-card em.late,.night-card em.late { color:#ffb3b3; font-style:normal; font-size:.78rem; font-weight:800; }
+.canary-card em.early,.night-card em.early { color:#78efbc; font-style:normal; font-size:.78rem; font-weight:800; }
+.canary-card .flightstats-watch-line,.night-card .flightstats-watch-line { margin-top:.35rem; }
 .flightstats-watch-line { display:grid; gap:.08rem; margin:.55rem 0 0; padding:.48rem .55rem; border:1px solid rgba(82,168,255,.38); border-radius:10px; background:rgba(18,58,96,.28); }
 .flightstats-watch-line span { color:#8fd3ff; font-size:.58rem; font-weight:950; letter-spacing:.08em; text-transform:uppercase; }
 .flightstats-watch-line strong { color:#e7f4ff; font-size:.78rem; line-height:1.3; }

@@ -154,7 +154,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <header class="panel-header canary-watch-header">
       <div class="canary-watch-copy">
         <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias · semana</h2>
-        <p class="mb-0 text-secondary small">Filtra por origen, solo noche (hora en Ajustes, 22:00 de serie) o mira toda la semana. Al vigilar, Aena va cada 5 min; si hay retraso en FlightStats o AirLabs también avisa, aunque Aena siga en hora.</p>
+        <p class="mb-0 text-secondary small">Filtra por origen, solo noche (hora en Ajustes, 22:00 de serie) o mira toda la semana. Los Canarias leen FlightStats cada 5 min: si hay retraso se ve y se avisa aunque Aena siga en hora.</p>
       </div>
       <div class="canary-watch-tools">
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>

@@ -41,13 +41,13 @@ try {
     }
 
     if ($method === 'GET') {
-        Response::json($service->queue(8));
+        Response::json($service->queue(12));
     }
 
     if ($method !== 'POST') Response::json(['error' => 'Método no permitido.'], 405);
     $records = $input['snapshots'] ?? null;
-    if (!is_array($records) || !array_is_list($records) || count($records) > 8) {
-        Response::json(['error' => 'snapshots debe ser una lista de hasta 8 registros.'], 422);
+    if (!is_array($records) || !array_is_list($records) || count($records) > 12) {
+        Response::json(['error' => 'snapshots debe ser una lista de hasta 12 registros.'], 422);
     }
     Response::json($service->ingest($records, true));
 } catch (Throwable $error) {
