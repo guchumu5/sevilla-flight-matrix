@@ -1137,7 +1137,7 @@ final class WebPushService
             && abs((int)$snap['feeder_delay']) >= FlightFeederService::MIN_DELAY) {
             $delay = (int)$snap['feeder_delay'];
             $code = (string)($snap['feeder_code'] ?: 'ida');
-            $body = '🔄 El avión venía de ' . $code . ' · ' . ($delay > 0 ? '+' : '') . $delay . ' min';
+            $body = '🔄 Arrastra retraso de ' . $code . ' · ' . ($delay > 0 ? '+' : '') . $delay . ' min';
             $aenaAt = strtotime((string)($snap['aena_eta'] ?: $row['scheduled_arrival']));
             if ($scheduled && $aenaAt && abs((int)round(($aenaAt - $scheduled) / 60)) < 5) {
                 $body .= ' · Aena aún en hora';

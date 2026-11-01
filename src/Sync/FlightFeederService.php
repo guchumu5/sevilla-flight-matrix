@@ -144,6 +144,10 @@ final class FlightFeederService
         $code = strtoupper(trim((string)($row['feeder_code'] ?? '')));
         if ($code === '') return null;
         $tail = strtoupper(trim((string)($row['aircraft_registration'] ?? '')));
+        $reason = (string)($row['match_reason'] ?? 'same_aircraft');
+        if ($reason === 'paired_number' && !preg_match('/^[A-Z0-9-]{3,15}$/', $tail)) {
+            return null;
+        }
         return [
             'feeder_code' => $code,
             'origin_iata' => strtoupper(trim((string)($row['origin_iata'] ?? ''))),
@@ -154,7 +158,7 @@ final class FlightFeederService
             'actual_departure' => $row['actual_departure'] ?? null,
             'actual_arrival' => $row['actual_arrival'] ?? null,
             'status_text' => $row['status_text'] ?? null,
-            'match_reason' => (string)($row['match_reason'] ?? 'same_aircraft'),
+            'match_reason' => $reason,
             'aircraft_registration' => preg_match('/^[A-Z0-9-]{3,15}$/', $tail) ? $tail : null,
             'public_url' => $row['public_url'] ?? null,
             'observed_at' => $row['observed_at'] ?? null,

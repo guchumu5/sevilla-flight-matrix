@@ -223,10 +223,16 @@ body {
 .flightstats-watch-line span { color:#8fd3ff; font-size:.58rem; font-weight:950; letter-spacing:.08em; text-transform:uppercase; }
 .flightstats-watch-line strong { color:#e7f4ff; font-size:.78rem; line-height:1.3; }
 .flightstats-watch-line small { color:#8fa5bd; font-size:.62rem; }
-.feeder-watch-line { border-color:rgba(255,181,71,.42); background:rgba(96,58,18,.28); }
-.feeder-watch-line span { color:#ffd78b; }
-.feeder-watch-line.is-late { border-color:rgba(255,110,110,.55); background:rgba(96,22,22,.32); }
-.feeder-watch-line.is-late span,.feeder-watch-line.is-late strong { color:#ffb3b3; }
+.feeder-watch-line,.delay-origin { border-color:rgba(255,181,71,.42); background:rgba(96,58,18,.28); }
+.feeder-watch-line span,.delay-origin span { color:#ffd78b; }
+.delay-origin { display:grid; gap:.1rem; margin:.45rem 0 0; padding:.55rem .6rem; border:1px solid rgba(255,181,71,.5); border-radius:11px; }
+.delay-origin span { font-size:.62rem; font-weight:950; letter-spacing:.07em; text-transform:uppercase; }
+.delay-origin strong { color:#ffe7b5; font-size:.88rem; line-height:1.3; }
+.delay-origin small { color:#c9b089; font-size:.66rem; line-height:1.35; }
+.feeder-watch-line.is-late,.delay-origin.is-drag { border-color:rgba(255,110,110,.62); background:rgba(110,18,18,.38); }
+.feeder-watch-line.is-late span,.feeder-watch-line.is-late strong,.delay-origin.is-drag span,.delay-origin.is-drag strong { color:#ffb3b3; }
+.delay-origin.is-drag small { color:#f0b8b8; }
+.delay-origin.is-own { border-color:rgba(255,181,71,.5); background:rgba(88,52,12,.32); }
 .canary-card em.late,.night-card em.late,.canary-card-timing em.late { white-space:nowrap; }
 .flightstats-snapshot { border-color:rgba(82,168,255,.42); }
 .flightstats-snapshot > header { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.65rem .75rem; border-bottom:1px solid var(--border); background:rgba(82,168,255,.08); }
@@ -870,6 +876,18 @@ body {
   .canary-print-card.coincidence-parcial .score { background: #90caf9 !important; color: #0d47a1 !important; }
   .canary-print-card.is-red .score { background: #ef9a9a !important; color: #7b1113 !important; }
   .canary-print-timing { margin: 0 0 2mm; font-size: 9pt; color: #222 !important; }
+  .delay-origin, .canary-print-timing.delay-origin {
+    padding: 1.4mm 2mm;
+    border: 0.4mm solid #c62828 !important;
+    background: #ffebee !important;
+    color: #7b1113 !important;
+    font-weight: 800;
+  }
+  .delay-origin.is-own, .canary-print-timing.delay-origin.is-own {
+    border-color: #ef6c00 !important;
+    background: #fff3e0 !important;
+    color: #e65100 !important;
+  }
   .canary-print-occupancy {
     margin: 0 0 2mm;
     padding: 2mm;

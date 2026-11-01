@@ -219,7 +219,7 @@ if (($feederDelay['effective_arrival'] ?? null) !== '2026-11-02 00:30:00'
     || ($feederDelay['timing_source'] ?? '') !== 'arrastre'
     || ($feederDelay['delay_reason']['kind'] ?? '') !== 'feeder'
     || ($feederDelay['delay_reason']['flight'] ?? '') !== 'VY3191'
-    || ($feederDelay['delay_reason']['label'] ?? '') !== 'por VY3191') {
+    || ($feederDelay['delay_reason']['label'] ?? '') !== 'arrastrado de VY3191') {
     throw new RuntimeException('El retraso del avión (VY3191) debe arrastrarse a VY3190 si Aena sigue en hora.');
 }
 
@@ -236,9 +236,56 @@ $feederYieldsToAena = (new MatrixEngine())->decorate([
     ]),
 ])[0] ?? [];
 if (($feederYieldsToAena['timing_source'] ?? '') !== 'aena'
-    || ($feederYieldsToAena['delay_reason']['kind'] ?? '') !== 'this'
-    || !str_contains((string)($feederYieldsToAena['delay_reason']['detail'] ?? ''), 'VY3191')) {
-    throw new RuntimeException('Aena prevalece sobre el arrastre, pero debe decir que el avión venía tarde.');
+    || ($feederYieldsToAena['delay_reason']['kind'] ?? '') !== 'feeder'
+    || ($feederYieldsToAena['delay_reason']['label'] ?? '') !== 'arrastrado de VY3191') {
+    throw new RuntimeException('Aunque Aena publique la hora, el motivo debe ser el tramo anterior del avión.');
+}
+
+$fsOwnsButAircraftLate = (new MatrixEngine())->decorate([
+    sampleFlight(25, 'VLG3190', '2026-11-01 23:50:00', '3', [
+        'origin_iata' => 'LPA',
+        'is_canary' => 1,
+        'eta' => '2026-11-01 23:50:00',
+        'flightstats' => [
+            'delay_minutes' => 72,
+            'eta' => '2026-11-02 01:02:00',
+            'status_text' => 'Departed · Delayed by 1h 12m',
+        ],
+        'feeder' => [
+            'feeder_code' => 'VY3191',
+            'origin_iata' => 'SVQ',
+            'destination_iata' => 'LPA',
+            'aircraft_registration' => 'EC-LOP',
+            'match_reason' => 'same_aircraft',
+            'delay_minutes' => 79,
+        ],
+    ]),
+])[0] ?? [];
+if (($fsOwnsButAircraftLate['timing_source'] ?? '') !== 'flightstats'
+    || ($fsOwnsButAircraftLate['delay_reason']['kind'] ?? '') !== 'feeder'
+    || ($fsOwnsButAircraftLate['delay_reason']['label'] ?? '') !== 'arrastrado de VY3191') {
+    throw new RuntimeException('Si FlightStats ya marca +72, el motivo sigue siendo el tramo anterior del avión.');
+}
+
+$stalePair = (new MatrixEngine())->decorate([
+    sampleFlight(26, 'VLG3190', '2026-11-01 23:50:00', '3', [
+        'origin_iata' => 'LPA',
+        'is_canary' => 1,
+        'eta' => '2026-11-01 23:50:00',
+        'flightstats' => [
+            'delay_minutes' => 72,
+            'eta' => '2026-11-02 01:02:00',
+        ],
+        'feeder' => [
+            'feeder_code' => 'VY3189',
+            'match_reason' => 'paired_number',
+            'delay_minutes' => 0,
+        ],
+    ]),
+])[0] ?? [];
+if (($stalePair['delay_reason']['kind'] ?? '') !== 'this'
+    || str_contains((string)($stalePair['delay_reason']['label'] ?? ''), 'VY3189')) {
+    throw new RuntimeException('La ida/vuelta VY3189 no debe aparecer como origen del retraso.');
 }
 
 fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 + belt_coincidence_v1 OK\n");

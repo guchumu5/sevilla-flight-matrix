@@ -208,6 +208,8 @@ body {
 .canary-print-card.coincidence-parcial .score { background: #90caf9; color: #0d47a1; }
 .canary-print-card.is-red .score { background: #ef9a9a; color: #7b1113; }
 .canary-print-timing { margin: 0 0 .45rem; font-size: .82rem; color: #222; }
+.canary-print-timing.delay-origin { padding: .35rem .45rem; border: 1px solid #c62828; background: #ffebee; font-weight: 800; }
+.canary-print-timing.delay-origin.is-own { border-color: #ef6c00; background: #fff3e0; }
 
 .canary-print-occupancy {
   margin: 0 0 .5rem;

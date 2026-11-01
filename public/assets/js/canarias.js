@@ -91,10 +91,20 @@
     return `${date}T${String(minutes < 120 ? minutes + 1440 : minutes).padStart(4, '0')}`;
   };
   const isCanaryEntry = item => Number(item?.is_canary) === 1;
+  function aircraftFeeder(flight) {
+    const feeder = flight?.feeder;
+    if (!feeder || !feeder.feeder_code) return null;
+    if (feeder.match_reason === 'paired_number' && !feeder.aircraft_registration) return null;
+    return feeder;
+  }
   function printDelayHint(flight) {
     const delay = Number(flight?.deviation_minutes ?? flight?.flightstats?.delay_minutes);
     if (!Number.isFinite(delay) || Math.abs(delay) < 5) return '';
-    const reason = flight?.delay_reason?.label || '';
+    const feeder = aircraftFeeder(flight);
+    const feederDelay = Number(feeder?.delay_minutes);
+    const reason = feeder && Number.isFinite(feederDelay) && Math.abs(feederDelay) >= 5
+      ? `arrastrado de ${feeder.feeder_code}`
+      : (flight?.delay_reason?.kind === 'feeder' && !feeder ? '' : (flight?.delay_reason?.label || ''));
     return ` · ${delay > 0 ? '+' : ''}${delay} min${reason ? ' · ' + reason : ''}`;
   }
   function flightStatsPrintMarkup(flight) {
@@ -121,20 +131,28 @@
     return `<p class="canary-print-timing">FlightStats · ${esc(bits.join(' · '))} · ${esc(note)}</p>`;
   }
   function feederPrintMarkup(flight) {
-    const feeder = flight?.feeder;
-    if (!feeder || !feeder.feeder_code) return '';
-    const delay = Number(feeder.delay_minutes);
-    const delayed = Number.isFinite(delay) && Math.abs(delay) >= 5;
-    const route = feeder.origin_iata && feeder.destination_iata
-      ? ` ${feeder.origin_iata}→${feeder.destination_iata}`
+    const feeder = aircraftFeeder(flight);
+    const published = Number(flight?.deviation_minutes);
+    const late = Number.isFinite(published) && Math.abs(published) >= 5;
+    const feederDelay = Number(feeder?.delay_minutes);
+    const feederLate = feeder && Number.isFinite(feederDelay) && Math.abs(feederDelay) >= 5;
+    if (!feeder && !late) return '';
+    const code = feeder?.feeder_code || '';
+    const route = feeder?.origin_iata && feeder?.destination_iata
+      ? `${feeder.origin_iata}→${feeder.destination_iata}`
       : '';
-    const bits = [`${feeder.feeder_code}${route}`];
-    if (delayed) bits.push(`${delay > 0 ? '+' : ''}${delay} min`);
-    else bits.push('en hora');
-    const tail = feeder.aircraft_registration ? ` · ${feeder.aircraft_registration}` : '';
-    const reason = flight?.delay_reason?.detail
-      || (delayed ? `el avión venía de ${feeder.feeder_code}` : `${feeder.feeder_code} en hora`);
-    return `<p class="canary-print-timing">${delayed ? 'Retraso del avión' : 'Avión'} · ${esc(bits.join(' · '))}${esc(tail)} · ${esc(reason)}</p>`;
+    const tail = feeder?.aircraft_registration || '';
+    if (feederLate) {
+      const bits = [code, route, tail, `${feederDelay > 0 ? '+' : ''}${feederDelay} min`].filter(Boolean);
+      return `<p class="canary-print-timing delay-origin is-drag">Arrastra retraso de ${esc(bits.join(' · '))}</p>`;
+    }
+    if (late && feeder) {
+      return `<p class="canary-print-timing delay-origin is-own">Retraso de este vuelo · no viene de ${esc(code)}${route ? ' ' + esc(route) : ''}</p>`;
+    }
+    if (late) {
+      return `<p class="canary-print-timing delay-origin is-own">Retraso de este vuelo · aún no está el tramo anterior del avión</p>`;
+    }
+    return `<p class="canary-print-timing delay-origin">${esc(code)}${route ? ' ' + esc(route) : ''} · en hora · no arrastra</p>`;
   }
   const rankAroundEntries = entries => [...(Array.isArray(entries) ? entries : [])].sort((a, b) =>
     (isCanaryEntry(b) ? 1 : 0) - (isCanaryEntry(a) ? 1 : 0)
@@ -307,8 +325,8 @@
         </div>
       </header>
       ${flight.scheduled_arrival ? `<p class="canary-print-timing">Previsto ${esc(time(flight.scheduled_arrival))} · Llegada ${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}${printDelayHint(flight)}</p>` : ''}
-      ${flightStatsPrintMarkup(flight)}
       ${feederPrintMarkup(flight)}
+      ${flightStatsPrintMarkup(flight)}
       ${occupancyMarkup(flight)}
       ${aroundMarkup(flight)}
       ${flight.belt_attention ? `<p class="canary-print-alert">${esc(flight.belt_attention_reason || 'Atención de cinta')}</p>` : ''}

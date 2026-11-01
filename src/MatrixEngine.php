@@ -176,63 +176,59 @@ final class MatrixEngine
         $feederDelay = isset($feeder['delay_minutes']) && is_numeric($feeder['delay_minutes'])
             ? (int)$feeder['delay_minutes'] : null;
         $feederLate = $feederDelay !== null && abs($feederDelay) >= 5;
+        $trusted = $code !== '' && (
+            ($feeder['match_reason'] ?? '') !== 'paired_number' || $tail !== ''
+        );
         $signed = static fn(int $minutes): string => ($minutes > 0 ? '+' : '') . $minutes;
         $own = match ($source) {
             'aena', 'real' => 'Aena',
             'flightstats' => 'FlightStats',
             'airlabs' => 'AirLabs',
             'opensky' => 'OpenSky',
+            'arrastre' => 'avión anterior',
             default => '',
         };
         $ownLate = abs((int)($flight['deviation_minutes'] ?? 0)) >= 5;
 
-        if ($source === 'arrastre' && $code !== '') {
+        if ($trusted && $feederLate) {
             $flight['delay_reason'] = [
                 'kind' => 'feeder',
                 'flight' => $code,
                 'route' => $route,
                 'aircraft' => $tail !== '' ? $tail : null,
                 'minutes' => $feederDelay,
-                'label' => 'por ' . $code,
-                'detail' => $plane . ' venía de ' . $code . ' ' . $route
-                    . '. Ese retraso se arrastra a esta llegada. Aena aún no lo ha puesto.',
+                'label' => 'arrastrado de ' . $code,
+                'detail' => $plane . ' venía de ' . $code . ($route !== '' ? ' ' . $route : '')
+                    . ' con ' . $signed($feederDelay) . ' min. Ese retraso se arrastra a esta llegada.',
             ];
             return;
         }
 
-        if ($own !== '' && $ownLate) {
+        if ($ownLate) {
             $flight['delay_reason'] = [
                 'kind' => 'this',
                 'source' => $source,
                 'flight' => (string)($flight['physical_flight'] ?? ''),
                 'minutes' => (int)($flight['deviation_minutes'] ?? 0),
-                'label' => 'este vuelo · ' . $own,
-                'detail' => $feederLate && $code !== ''
-                    ? $own . ' ya marca retraso en esta llegada. El avión venía de ' . $code
-                        . ' con ' . $signed($feederDelay) . ' min.'
-                    : $own . ' marca el retraso de este mismo vuelo.',
+                'label' => $trusted && $code !== ''
+                    ? 'este vuelo · no de ' . $code
+                    : 'este vuelo' . ($own !== '' ? ' · ' . $own : ''),
+                'detail' => $trusted && $code !== ''
+                    ? $plane . ' venía de ' . $code . ($route !== '' ? ' ' . $route : '')
+                        . ' en hora. El +' . abs((int)($flight['deviation_minutes'] ?? 0))
+                        . ' min es de esta llegada, no de ese tramo.'
+                    : ($own !== '' ? $own . ' marca el retraso de esta llegada. ' : '')
+                        . 'Aún no está el vuelo anterior de esta aeronave.',
             ];
             return;
         }
 
-        if ($feederLate && $code !== '') {
-            $flight['delay_reason'] = [
-                'kind' => 'feeder',
-                'flight' => $code,
-                'route' => $route,
-                'minutes' => $feederDelay,
-                'label' => 'por ' . $code,
-                'detail' => $plane . ' venía de ' . $code . ' con ' . $signed($feederDelay)
-                    . ' min. Esta llegada aún no lo refleja en Aena.',
-            ];
-            return;
-        }
-
-        $flight['delay_reason'] = $code !== ''
+        $flight['delay_reason'] = $trusted && $code !== ''
             ? [
                 'kind' => 'feeder_ok',
                 'flight' => $code,
                 'route' => $route,
+                'aircraft' => $tail !== '' ? $tail : null,
                 'minutes' => $feederDelay,
                 'label' => $code . ' en hora',
                 'detail' => $plane . ' venía de ' . $code . '. Ese tramo no arrastra retraso.',

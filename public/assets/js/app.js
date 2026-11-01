@@ -703,7 +703,7 @@
         <span><small>Cinta confirmada</small><b>${esc(official)}</b></span>
         <span><small>Predicción</small><b>${esc(predicted)}</b></span>
       </div>
-      ${flightStatsWatchMarkup(flight)}${feederWatchMarkup(flight)}${secondaryWatchMarkup(flight)}
+      ${delayOriginMarkup(flight)}${flightStatsWatchMarkup(flight)}${secondaryWatchMarkup(flight)}
       ${laterNightMarkup(flight)}
       ${hideActions ? '' : `<div class="focus-hero-actions">
         <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${meta.disabled?'disabled':''}>↻ ${esc(meta.label)}</button>
@@ -755,9 +755,9 @@
     if (source === 'flightstats') return 'ETA / real · FlightStats';
     if (source === 'airlabs') return 'ETA / real · AirLabs';
     if (source === 'opensky') return 'ETA / real · OpenSky';
-    if (source === 'arrastre') {
+    if (source === 'arrastre' || delayReasonOf(flight)?.kind === 'feeder') {
       const code = flight?.delay_reason?.flight || flight?.feeder?.feeder_code;
-      return code ? `ETA · avión venía de ${code}` : 'ETA · avión anterior';
+      return code ? `ETA · arrastrado de ${code}` : 'ETA · avión anterior';
     }
     if (source && source !== 'programada' && source !== 'eta') return `ETA / real · ${prettyWatchSource(source)}`;
     const scheduled = parseDate(flight.scheduled_arrival);
@@ -809,49 +809,65 @@
     }
     return `<p class="flightstats-watch-line"><span>FlightStats</span><strong>${esc(bits.join(' · ') || status || 'sin retraso')}</strong><small>${esc(flightStatsNote(flight, delay, eta))}</small></p>`;
   }
-  function delayReasonOf(flight) {
-    const reason = flight?.delay_reason;
-    if (reason && reason.kind) return reason;
+  function aircraftFeeder(flight) {
     const feeder = flight?.feeder;
+    if (!feeder || !feeder.feeder_code) return null;
+    if (feeder.match_reason === 'paired_number' && !feeder.aircraft_registration) return null;
+    return feeder;
+  }
+  function delayReasonOf(flight) {
+    const feeder = aircraftFeeder(flight);
     const code = feeder?.feeder_code || '';
     const delay = Number(feeder?.delay_minutes);
-    const source = String(flight?.timing_source || '').toLowerCase();
-    if (source === 'arrastre' && code) {
-      const tail = feeder?.aircraft_registration ? ` (${feeder.aircraft_registration})` : '';
-      return {kind:'feeder', flight:code, label:`por ${code}`, detail:`El avión${tail} venía de ${code}.`};
-    }
     if (code && Number.isFinite(delay) && Math.abs(delay) >= 5) {
-      return {kind:'feeder', flight:code, label:`por ${code}`, minutes:delay};
+      return {
+        kind: 'feeder',
+        flight: code,
+        aircraft: feeder.aircraft_registration,
+        label: `arrastrado de ${code}`,
+        minutes: delay,
+        detail: flight?.delay_reason?.kind === 'feeder' ? flight.delay_reason.detail : '',
+      };
     }
+    const reason = flight?.delay_reason;
+    if (reason && reason.kind === 'feeder' && !feeder) return null;
+    if (reason && reason.kind) return reason;
     return null;
   }
   function delayReasonLabel(flight) {
     return delayReasonOf(flight)?.label || '';
   }
-  function feederWatchMarkup(flight) {
-    const feeder = flight?.feeder;
-    if (!feeder || !feeder.feeder_code) return '';
-    const delay = Number(feeder.delay_minutes);
-    const delayed = Number.isFinite(delay) && Math.abs(delay) >= 5;
-    const route = feeder.origin_iata && feeder.destination_iata
-      ? `${feeder.origin_iata}→${feeder.destination_iata}`
-      : '';
+  function delayOriginMarkup(flight) {
+    const published = Number(flight?.deviation_minutes);
+    const late = Number.isFinite(published) && Math.abs(published) >= 5;
+    const feeder = aircraftFeeder(flight);
     const reason = delayReasonOf(flight);
-    const tail = feeder.aircraft_registration || reason?.aircraft || '';
-    const title = delayed
-      ? (reason?.kind === 'this' ? 'El avión también venía tarde' : 'Retraso del avión')
-      : 'Avión localizado';
-    const bits = [`${feeder.feeder_code}${route ? ' ' + route : ''}`];
-    if (tail) bits.push(tail);
-    if (delayed) bits.push(`${delay > 0 ? '+' : ''}${delay} min`);
-    else bits.push('en hora');
-    if (feeder.actual_departure) bits.push(`salió ${time(feeder.actual_departure)}`);
-    const note = reason?.detail || (delayed
-      ? (aenaStillOnTime(flight, parseDate(flight.scheduled_arrival))
-        ? `El avión${tail ? ' ' + tail : ''} venía de ${feeder.feeder_code}. Ese retraso se arrastra a esta llegada.`
-        : `El avión venía de ${feeder.feeder_code}. Aena ya marca otra hora en esta llegada.`)
-      : `El avión${tail ? ' ' + tail : ''} venía de ${feeder.feeder_code}. Ese tramo no arrastra retraso.`);
-    return `<p class="flightstats-watch-line feeder-watch-line ${delayed ? 'is-late' : ''}"><span>${esc(title)}</span><strong>${esc(bits.join(' · '))}</strong><small>${esc(note)}</small></p>`;
+    if (!late && !feeder) return '';
+    const code = feeder?.feeder_code || reason?.flight || '';
+    const route = feeder?.origin_iata && feeder?.destination_iata
+      ? `${feeder.origin_iata} → ${feeder.destination_iata}`
+      : (reason?.route || '');
+    const tail = feeder?.aircraft_registration || reason?.aircraft || '';
+    const feederDelay = Number(feeder?.delay_minutes);
+    const feederLate = Number.isFinite(feederDelay) && Math.abs(feederDelay) >= 5;
+    const dest = feeder?.destination_iata || '';
+    if (feeder && feederLate) {
+      const bits = [code, route, tail ? `avión ${tail}` : '', `${feederDelay > 0 ? '+' : ''}${feederDelay} min en ${dest || 'el origen'}`].filter(Boolean);
+      return `<p class="delay-origin is-drag"><span>Arrastra retraso de</span><strong>${esc(bits.join(' · '))}</strong><small>${esc(reason?.detail || `Ese avión llegó tarde a ${dest || 'la isla'} en ${code}. Por eso esta llegada va ${signed(published)}.`)}</small></p>`;
+    }
+    if (late && feeder) {
+      return `<p class="delay-origin is-own"><span>Retraso de este vuelo</span><strong>${esc(signed(published))} · no viene de ${esc(code)}${route ? ' ' + esc(route) : ''}</strong><small>${esc(reason?.detail || `El avión${tail ? ' ' + tail : ''} venía de ${code} en hora. El retraso es de esta llegada.`)}</small></p>`;
+    }
+    if (late) {
+      return `<p class="delay-origin is-own"><span>Retraso de este vuelo</span><strong>${esc(signed(published))} · ${esc(prettyWatchSource(flight.timing_source) || 'publicado')}</strong><small>Todavía no sabemos de qué vuelo venía este avión.</small></p>`;
+    }
+    if (feeder) {
+      return `<p class="delay-origin"><span>Avión</span><strong>${esc([code, route, tail].filter(Boolean).join(' · '))} · en hora</strong><small>${esc(reason?.detail || `Venía de ${code}. Ese tramo no arrastra retraso.`)}</small></p>`;
+    }
+    return '';
+  }
+  function feederWatchMarkup(flight) {
+    return delayOriginMarkup(flight);
   }
   function secondaryWatchMarkup(flight) {
     if (!flight?.secondary_eta) return '';
@@ -2177,7 +2193,7 @@
         <div><small>${esc(relativeDayLabel(current.date))} · ${esc(dayName(current.date))}</small>
         <strong>${esc(current.label)} · ${esc(current.origin)}</strong>
         <span>Programado a las ${time(current.brief.scheduled_arrival)}. Estás viendo ${esc(dayName(els.date.value))}.</span>
-        ${flightStatsWatchMarkup(current.brief)}${feederWatchMarkup(current.brief)}</div>
+        ${delayOriginMarkup(current.brief)}${flightStatsWatchMarkup(current.brief)}</div>
         <button class="btn btn-info" type="button" data-goto-date="${esc(current.date)}">Ver ${esc(relativeDayLabel(current.date).toLowerCase())}</button>
       </div>`;
       return;
@@ -2394,8 +2410,8 @@
       return `<article class="canary-card ${past?'past':''} ${beltClass} ${night?'is-night':''}" data-flight-id="${Number(f.id)}" ${goto} tabindex="0">
         <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${night ? '☾ ' : ''}${time(arrival)}${canaryDelayHint(f)}</span></div>
         ${coincidenceBadge(f)}
+        ${delayOriginMarkup(f)}
         ${flightStatsWatchMarkup(f)}
-        ${feederWatchMarkup(f)}
         <div class="canary-flight-code">${esc(f.physical_flight)}</div>
         <div class="canary-belts">
           <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>
@@ -2413,8 +2429,8 @@
       <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${night ? '☾ ' : ''}${esc(f.indicator)}</span></div>
       ${coincidenceBadge(f)}
       ${timingMarkup(f, 'canary-card-timing')}
+      ${delayOriginMarkup(f)}
       ${flightStatsWatchMarkup(f)}
-      ${feederWatchMarkup(f)}
       <div class="canary-flight-code">${esc(f.physical_flight)}</div>
       ${sharedCodes.length ? `<div class="canary-codeshare"><span>Compartido:</span> <strong>${sharedCodes.map(esc).join(' · ')}</strong></div>` : ''}
       <div class="canary-belts">
@@ -2605,8 +2621,8 @@
         </div>
       </header>
       ${flight.scheduled_arrival ? `<p class="canary-print-timing">Previsto ${esc(time(flight.scheduled_arrival))} · Llegada ${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}${canaryDelayHint(flight)}</p>` : ''}
+      ${delayOriginMarkup(flight)}
       ${flightStatsWatchMarkup(flight)}
-      ${feederWatchMarkup(flight)}
       ${canaryPrintOccupancyMarkup(flight)}
       ${canaryPrintAroundMarkup(flight)}
       ${flight.belt_attention ? `<p class="canary-print-alert">${esc(flight.belt_attention_reason || 'Atención de cinta')}</p>` : ''}
@@ -2734,8 +2750,8 @@
       </div>
       <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${time(arrival)}${canaryDelayHint(f)}</span></div>
       ${coincidenceBadge(f)}
+      ${delayOriginMarkup(f)}
       ${flightStatsWatchMarkup(f)}
-      ${feederWatchMarkup(f)}
       <div class="canary-flight-code">${esc(f.physical_flight)}</div>
       <div class="canary-belts">
         <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>
