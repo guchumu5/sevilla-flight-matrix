@@ -4,6 +4,7 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/src/bootstrap.php';
 
 use SevillaMatrix\OperationalDay;
+use SevillaMatrix\OperationalStatus;
 use SevillaMatrix\TrackingCadence;
 
 function expectSame(mixed $expected, mixed $actual, string $message): void
@@ -26,5 +27,12 @@ expectSame(5, TrackingCadence::intervalMinutes(-25, true, false), 'La entrega de
 expectSame(5, TrackingCadence::intervalMinutes(-180, true, false), 'El refuerzo no debe caducar antes de que el vuelo finalice.');
 expectSame(15, TrackingCadence::intervalMinutes(-25, true, true), 'Un vuelo finalizado debe abandonar el refuerzo.');
 expectSame(15, TrackingCadence::intervalMinutes(10, false, false), 'Un vuelo no vigilado no debe consumir el refuerzo.');
+
+expectSame('delayed', OperationalStatus::phase('Scheduled · Delayed by 1h 23m'), 'Un retraso de FlightStats no es «en hora».');
+expectSame('scheduled', OperationalStatus::phase('Scheduled · On time'), 'On time debe agruparse con programado.');
+expectSame(true, OperationalStatus::isCosmeticChange('Scheduled · On time', 'Scheduled'), 'No avisar por un cambio de texto sin cambio de fase.');
+expectSame(false, OperationalStatus::isCosmeticChange('Scheduled · On time', 'Scheduled · Delayed by 1h 23m'), 'El paso a retraso sí es un aviso.');
+expectSame(false, OperationalStatus::isActionablePhase('Programado'), 'Programado / On time no debe generar aviso de estado.');
+expectSame(true, OperationalStatus::isActionablePhase('Delayed by 1h 23m'), 'Un retraso sí es un aviso de estado.');
 
 fwrite(STDOUT, "Política operativa y cadencia: OK\n");

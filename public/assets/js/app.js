@@ -949,16 +949,18 @@
       const changes = [];
       const fields = [
         ['position','Cinta/sala'], ['scheduled_arrival','Hora programada'], ['eta','ETA'], ['status','Estado'], ['actual_arrival','Llegada real'],
-        ['baggage_state','Equipaje'], ['gate','Puerta'], ['stand','Posición'],
-        ['aircraft_registration','Matrícula'], ['aircraft_type','Aeronave'],
-        ['secondary_position','Propuesta secundaria'], ['secondary_belt_state','Estado de propuesta']
-        ,['predicted_position','Predicción histórica']
+        ['baggage_state','Equipaje'], ['gate','Puerta'], ['stand','Posición']
       ];
       fields.forEach(([field,label]) => {
-        if (alertValue(before[field]) !== alertValue(snapshot[field])) {
-          const formatter = ['scheduled_arrival','eta','actual_arrival'].includes(field) ? time : alertValue;
-          changes.push(`${label}: ${formatter(before[field])} → ${formatter(snapshot[field])}`);
+        if (alertValue(before[field]) === alertValue(snapshot[field])) return;
+        if (field === 'eta') {
+          const prevAt = parseDate(before.eta);
+          const nextAt = parseDate(snapshot.eta);
+          if (!prevAt || !nextAt || Math.abs(nextAt.getTime() - prevAt.getTime()) < 5 * 60_000) return;
         }
+        if (field === 'status' && !/cancel|aterriz|landed|retras|delay|despeg|finaliz|entrega/i.test(String(snapshot.status || ''))) return;
+        const formatter = ['scheduled_arrival','eta','actual_arrival'].includes(field) ? time : alertValue;
+        changes.push(`${label}: ${formatter(before[field])} → ${formatter(snapshot[field])}`);
       });
       if (state.canaryWatchEnabled && changes.length) showCanaryAlert(snapshot, changes);
     });
@@ -1042,42 +1044,6 @@
     } catch (_) {}
   }
 
-  function watchedItineraryBody(flight) {
-    const snap = watchSnapshot(flight);
-    const dep = snap.secondary_departure ? time(snap.secondary_departure) : time(flight.scheduled_departure);
-    const arr = flight.actual_arrival ? time(flight.actual_arrival) : time(effectiveArrival(flight));
-    const belt = snap.belt || 'pendiente';
-    const clock = new Intl.DateTimeFormat('es-ES', {hour:'2-digit', minute:'2-digit'}).format(new Date());
-    return `${clock} · Itinerario · Despegue ${dep} · Llegada ${arr} · Cinta ${belt}`;
-  }
-
-  function watchItineraryIntervalMinutes(flight) {
-    if (['finalizado', 'final'].includes(String(flight.baggage_state || ''))) return null;
-    const arrival = parseDate(flight.actual_arrival || flight.eta || flight.effective_arrival || flight.scheduled_arrival);
-    if (!arrival) return null;
-    const minutes = Math.round((arrival.getTime() - Date.now()) / 60_000);
-    if (minutes > 60) return null;
-    return minutes > 30 ? 10 : 5;
-  }
-
-  function watchLocalPulseDue(flightId, intervalMinutes) {
-    let stamps = {};
-    try { stamps = JSON.parse(localStorage.getItem('matrix.watchTicks') || '{}') || {}; } catch (_) { stamps = {}; }
-    const last = Number(stamps[String(flightId)] || 0);
-    return last <= Date.now() - Math.max(1, Number(intervalMinutes) || 5) * 60_000;
-  }
-
-  function markWatchLocalPulse(flightId) {
-    let stamps = {};
-    try { stamps = JSON.parse(localStorage.getItem('matrix.watchTicks') || '{}') || {}; } catch (_) { stamps = {}; }
-    stamps[String(flightId)] = Date.now();
-    const keys = Object.keys(stamps);
-    if (keys.length > 80) {
-      keys.sort((a, b) => Number(stamps[a]) - Number(stamps[b])).slice(0, keys.length - 40).forEach(key => { delete stamps[key]; });
-    }
-    try { localStorage.setItem('matrix.watchTicks', JSON.stringify(stamps)); } catch (_) {}
-  }
-
   async function maybeTickWatchedFlights() {
     if (!state.watchedFlightIds.length) return;
     if (Date.now() - (state.watchTickAt || 0) < 55_000) return;
@@ -1102,20 +1068,6 @@
     const seen = new Set(fromBoard.map(flight => Number(flight.id)));
     const extra = (state.watchedFlightsBrief || []).filter(item => !seen.has(Number(item.id)));
     const list = [...fromBoard, ...extra];
-    if (!document.hidden) {
-      for (const flight of list) {
-        const interval = watchItineraryIntervalMinutes(flight);
-        if (interval == null || !watchLocalPulseDue(flight.id, interval)) continue;
-        markWatchLocalPulse(flight.id);
-        const title = `${flight.origin_name || ''} · ${flight.physical_flight}`;
-        await notifyWatchedChange(
-          flight,
-          title,
-          watchedItineraryBody(flight),
-          'matrix-watch-' + flight.id + '-min'
-        );
-      }
-    }
     holdWatchWakeLock();
     const token = localStorage.getItem('matrix.pushDevice');
     if (!token) return;
@@ -1167,8 +1119,10 @@
       let namedEta = false;
       if (before.eta !== snap.eta && snap.eta) {
         const etaAt = parseDate(snap.eta);
+        const prevEta = parseDate(before.eta);
+        const sameEta = prevEta && etaAt && Math.abs(etaAt.getTime() - prevEta.getTime()) < 5 * 60_000;
         const delay = scheduled && etaAt ? Math.round((etaAt.getTime() - scheduled.getTime()) / 60000) : null;
-        if (delay !== null && Math.abs(delay) >= 5) {
+        if (!sameEta && delay !== null && Math.abs(delay) >= 5) {
           const source = etaSourceLabel(flight, snap);
           const lag = source !== 'Aena' && aenaStillOnTime(flight, scheduled) ? ' · Aena aún en hora' : '';
           notifyWatchedChange(flight, title, `⏱️ ${source} ETA ${time(snap.eta)} · ${delay > 0 ? '+' : ''}${delay} min sobre programada${lag}`, 'matrix-watch-' + flight.id + '-eta');
@@ -1185,7 +1139,7 @@
           namedEta = true;
         }
       }
-      if (!namedEta && before.fs_delay !== snap.fs_delay && snap.fs_delay !== '' && Math.abs(Number(snap.fs_delay)) >= 5) {
+      if (!namedEta && before.fs_delay !== snap.fs_delay && snap.fs_delay !== '' && Math.abs(Number(snap.fs_delay)) >= 5 && Math.abs(Number(snap.fs_delay) - Number(before.fs_delay || 0)) >= 5) {
         const lag = aenaStillOnTime(flight, scheduled) ? ' · Aena aún en hora' : '';
         notifyWatchedChange(flight, title, `⏱️ FlightStats ${Number(snap.fs_delay) > 0 ? '+' : ''}${snap.fs_delay} min${lag}`, 'matrix-watch-' + flight.id + '-fs');
       }
@@ -1198,7 +1152,7 @@
           : ('🧳 En la cinta' + (snap.belt ? ' · ' + snap.belt : ''));
         notifyWatchedChange(flight, title, bag, 'matrix-watch-' + flight.id + '-bag');
       }
-      if (before.status !== snap.status && snap.status) {
+      if (before.status !== snap.status && snap.status && /cancel|aterriz|landed|retras|delay|despeg|finaliz/i.test(snap.status)) {
         notifyWatchedChange(flight, title, snap.status, 'matrix-watch-' + flight.id + '-st');
       }
       if (before.secondary_departure !== snap.secondary_departure && snap.secondary_departure) {

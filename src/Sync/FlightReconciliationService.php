@@ -8,6 +8,7 @@ use InvalidArgumentException;
 use PDO;
 use RuntimeException;
 use SevillaMatrix\FlightRepository;
+use SevillaMatrix\OperationalStatus;
 use SevillaMatrix\PredictionEngine;
 use Throwable;
 
@@ -333,6 +334,16 @@ final class FlightReconciliationService
             }
             if ($before === $after) {
                 continue;
+            }
+            if ($field === 'status' && OperationalStatus::isCosmeticChange($before, $after)) {
+                continue;
+            }
+            if ($field === 'eta') {
+                $left = $before !== null ? strtotime($before) : false;
+                $right = $after !== null ? strtotime($after) : false;
+                if ($left !== false && $right !== false && abs($left - $right) < 5 * 60) {
+                    continue;
+                }
             }
             [$type, $reasonCode, $detail] = $this->eventMeaning($field, $before, $after);
             $this->addEvent(
