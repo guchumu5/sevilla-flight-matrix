@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/src/bootstrap.php';
 
+use SevillaMatrix\BeltAlarm;
 use SevillaMatrix\OperationalDay;
 use SevillaMatrix\OperationalStatus;
 use SevillaMatrix\TrackingCadence;
@@ -34,5 +35,10 @@ expectSame(true, OperationalStatus::isCosmeticChange('Scheduled · On time', 'Sc
 expectSame(false, OperationalStatus::isCosmeticChange('Scheduled · On time', 'Scheduled · Delayed by 1h 23m'), 'El paso a retraso sí es un aviso.');
 expectSame(false, OperationalStatus::isActionablePhase('Programado'), 'Programado / On time no debe generar aviso de estado.');
 expectSame(true, OperationalStatus::isActionablePhase('Delayed by 1h 23m'), 'Un retraso sí es un aviso de estado.');
+
+expectSame(true, BeltAlarm::isBlockChange('A/3', 'B/7'), 'A/3 → B/7 es el cambio de bloque que hay que alarmar.');
+expectSame(true, BeltAlarm::isBlockChange('3', '7'), 'El dígito 3 → 7 también es cambio de bloque.');
+expectSame(false, BeltAlarm::isBlockChange('A/3', 'A/4'), 'Un cambio dentro de 1–6 no es alarma de bloque.');
+expectSame('A/3 → B/7 · cambio de bloque 1–6 a 7–8. Hay que moverse YA.', BeltAlarm::pushBody('A/3', 'B/7'), 'El texto de alarma debe decir el bloque.');
 
 fwrite(STDOUT, "Política operativa y cadencia: OK\n");

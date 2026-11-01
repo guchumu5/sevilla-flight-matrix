@@ -109,6 +109,7 @@ $jsVersion = (string)(@filemtime(__DIR__ . '/assets/js/cintas.js') ?: '1');
       </label>
     </footer>
   </div>
+  <script src="assets/js/belt-alarm.js?v=<?= e((string)(@filemtime(__DIR__ . '/assets/js/belt-alarm.js') ?: '1')) ?>"></script>
   <script src="assets/js/cintas.js?v=<?= e($jsVersion) ?>"></script>
 </body>
 </html>

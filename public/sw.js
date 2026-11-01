@@ -14,11 +14,15 @@ self.addEventListener('message', event => {
 });
 
 function show(notice) {
+  const urgent = Boolean(notice.urgent || /belt-critical|ALARMA CINTA/.test(String(notice.tag || '') + String(notice.title || '') + String(notice.body || '')));
   return self.registration.showNotification(notice.title || 'Matriz Sevilla', {
     body: notice.body || 'Actualización operativa',
     tag: notice.tag || 'matrix-' + (notice.target_url || 'flight'),
     renotify: true,
-    data: {url: notice.target_url || 'index.php'}
+    requireInteraction: urgent,
+    silent: false,
+    vibrate: urgent ? [500, 120, 500, 120, 900, 160, 500] : [180, 80, 180],
+    data: {url: notice.target_url || 'index.php', urgent}
   });
 }
 

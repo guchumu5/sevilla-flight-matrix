@@ -5,6 +5,7 @@ namespace SevillaMatrix\Notifications;
 
 use PDO;
 use RuntimeException;
+use SevillaMatrix\BeltAlarm;
 use SevillaMatrix\Env;
 use SevillaMatrix\FlightRepository;
 use SevillaMatrix\OperationalStatus;
@@ -574,13 +575,16 @@ final class WebPushService
                  AND e.source IN ('flightstats','airlabs','opensky')
                )"
         );
+        $criticalBelt = $this->queueCriticalBeltAlarms();
 
         $stmt = $this->pdo->prepare(
             'SELECT o.id,o.subscription_id,o.title,o.body,o.target_url,s.endpoint,s.p256dh,s.auth_secret,
-                    e.flight_id,e.event_type
+                    e.flight_id,e.event_type,e.before_value,e.after_value,
+                    f.physical_flight,f.origin_name,f.is_canary
              FROM push_outbox o
              JOIN push_subscriptions s ON s.id=o.subscription_id
              JOIN flight_events e ON e.id=o.flight_event_id
+             JOIN flights f ON f.id=e.flight_id
              WHERE o.pushed_at IS NULL AND o.attempts<4 AND s.active=1
              ORDER BY o.id LIMIT :limit'
         );
@@ -600,12 +604,7 @@ final class WebPushService
             $reserve->execute(['id' => $row['id']]);
             if ($reserve->rowCount() !== 1) continue;
             try {
-                $notice = [
-                    'title' => (string)$row['title'],
-                    'body' => (string)$row['body'],
-                    'target_url' => (string)$row['target_url'],
-                    'tag' => 'matrix-watch-' . (int)$row['flight_id'] . '-' . $this->eventTag((string)$row['event_type']),
-                ];
+                $notice = $this->outboxNotice($row);
                 $delivery = $this->deliverToRow([
                     'id' => (int)$row['subscription_id'],
                     'endpoint' => $row['endpoint'],
@@ -636,7 +635,85 @@ final class WebPushService
             'failed' => $failed,
             'pulses' => $pulses,
             'state_notices' => $stateNotices,
+            'critical_belt' => $criticalBelt,
             'loop' => $loop,
+        ];
+    }
+
+    /**
+     * Un A/3 → B/7 no puede depender de que alguien vigile el vuelo:
+     * avisa a todos los teléfonos con push activo.
+     */
+    private function queueCriticalBeltAlarms(): int
+    {
+        $events = $this->pdo->query(
+            "SELECT e.id,e.flight_id,e.event_type,e.before_value,e.after_value,e.detected_at,
+                    f.physical_flight,f.origin_name,f.flight_date,f.is_canary
+             FROM flight_events e
+             INNER JOIN flights f ON f.id=e.flight_id
+             WHERE e.source='aena'
+               AND e.event_type IN ('belt_changed','hall_changed')
+               AND e.detected_at>=DATE_SUB(NOW(),INTERVAL 20 MINUTE)
+             ORDER BY e.id DESC
+             LIMIT 30"
+        );
+        $subscriptions = $this->pdo->query(
+            'SELECT id FROM push_subscriptions WHERE active=1'
+        )->fetchAll();
+        if ($subscriptions === []) return 0;
+        $insert = $this->pdo->prepare(
+            'INSERT IGNORE INTO push_outbox (subscription_id,flight_event_id,title,body,target_url)
+             VALUES (:subscription_id,:flight_event_id,:title,:body,:target_url)'
+        );
+        $queued = 0;
+        foreach ($events as $event) {
+            if (!BeltAlarm::isBlockChange((string)$event['before_value'], (string)$event['after_value'])) {
+                continue;
+            }
+            $title = '🚨 ALARMA CINTA · '
+                . ((int)$event['is_canary'] === 1 ? 'Canarias · ' : '')
+                . $event['origin_name'] . ' · ' . $event['physical_flight'];
+            $body = BeltAlarm::pushBody((string)$event['before_value'], (string)$event['after_value']);
+            $url = 'index.php?date=' . rawurlencode(substr((string)$event['flight_date'], 0, 10))
+                . '&flight=' . (int)$event['flight_id'];
+            foreach ($subscriptions as $subscription) {
+                $insert->execute([
+                    'subscription_id' => (int)$subscription['id'],
+                    'flight_event_id' => (int)$event['id'],
+                    'title' => substr($title, 0, 180),
+                    'body' => substr($body, 0, 500),
+                    'target_url' => $url,
+                ]);
+                if ($insert->rowCount() > 0) $queued++;
+            }
+        }
+        return $queued;
+    }
+
+    /** @param array<string,mixed> $row @return array<string,mixed> */
+    private function outboxNotice(array $row): array
+    {
+        $flightId = (int)$row['flight_id'];
+        $eventType = (string)$row['event_type'];
+        $critical = in_array($eventType, ['belt_changed', 'hall_changed'], true)
+            && BeltAlarm::isBlockChange((string)($row['before_value'] ?? ''), (string)($row['after_value'] ?? ''));
+        $title = (string)$row['title'];
+        $body = (string)$row['body'];
+        $tag = 'matrix-watch-' . $flightId . '-' . ($critical ? 'belt-critical' : $this->eventTag($eventType));
+        if ($critical) {
+            $prefix = '🚨 ALARMA CINTA · ';
+            if (!str_contains($title, 'ALARMA CINTA')) {
+                $title = $prefix . ((int)($row['is_canary'] ?? 0) === 1 && !str_starts_with($title, 'Canarias') ? 'Canarias · ' : '')
+                    . preg_replace('/^(Canarias · )?/u', '', $title);
+            }
+            $body = BeltAlarm::pushBody((string)($row['before_value'] ?? ''), (string)($row['after_value'] ?? ''));
+        }
+        return [
+            'title' => $title,
+            'body' => $body,
+            'target_url' => (string)$row['target_url'],
+            'tag' => $tag,
+            'urgent' => $critical,
         ];
     }
 
@@ -976,7 +1053,14 @@ final class WebPushService
         $url = 'index.php?date=' . rawurlencode($date) . '&flight=' . (int)$row['flight_id'];
         $tag = 'matrix-watch-' . (int)$row['flight_id'];
         $notice = function (string $body, string $suffix) use ($title, $url, $tag): array {
-            return ['title' => $title, 'body' => $body, 'target_url' => $url, 'tag' => $tag . $suffix];
+            $urgent = str_contains($suffix, 'critical');
+            return [
+                'title' => $urgent ? '🚨 ALARMA CINTA · ' . $title : $title,
+                'body' => $body,
+                'target_url' => $url,
+                'tag' => $tag . $suffix,
+                'urgent' => $urgent,
+            ];
         };
         $out = [];
         if ($before['actual_arrival'] !== $snap['actual_arrival'] && $snap['actual_arrival'] !== '') {
@@ -1031,10 +1115,14 @@ final class WebPushService
         $beltBefore = $before['belt'] === 'cinta pendiente' ? '' : $before['belt'];
         $beltNow = $snap['belt'] === 'cinta pendiente' ? '' : $snap['belt'];
         if ($beltBefore !== $beltNow && $beltNow !== '') {
-            $out[] = $notice(
-                ($beltBefore !== '' ? '⚠️ Cambio de cinta · ' . $beltBefore . ' → ' : '🧳 Asignación de cinta · ') . $beltNow,
-                '-belt'
-            );
+            if ($beltBefore !== '' && BeltAlarm::isBlockChange($beltBefore, $beltNow)) {
+                $out[] = $notice(BeltAlarm::pushBody($beltBefore, $beltNow), '-belt-critical');
+            } else {
+                $out[] = $notice(
+                    ($beltBefore !== '' ? '⚠️ Cambio de cinta · ' . $beltBefore . ' → ' : '🧳 Asignación de cinta · ') . $beltNow,
+                    '-belt'
+                );
+            }
         }
         if ($before['baggage'] !== $snap['baggage'] && $snap['baggage'] !== '' && $snap['baggage'] !== 'pendiente') {
             $out[] = $notice(
@@ -1123,6 +1211,7 @@ final class WebPushService
             'eta_published', 'eta_changed' => 'eta',
             'status_published', 'status_changed' => 'st',
             'belt_assigned', 'belt_changed', 'belt_removed' => 'belt',
+            'hall_changed' => 'belt',
             'departure_recorded' => 'dep',
             'arrival_recorded', 'arrival_reminder' => 'arr',
             'baggage_started', 'baggage_finished' => 'bag',
@@ -1423,10 +1512,10 @@ final class WebPushService
 
     private function noticeCooldownSeconds(string $tag): ?int
     {
-        if ($tag === '' || str_contains($tag, '-itinerary') || str_contains($tag, '-min') || str_contains($tag, '-on') || str_contains($tag, '-force')) {
+        if ($tag === '' || str_contains($tag, '-itinerary') || str_contains($tag, '-min') || str_contains($tag, '-on') || str_contains($tag, '-force') || str_contains($tag, 'belt-critical')) {
             return null;
         }
-        if (preg_match('/-(belt|arr|dep|bag)$/', $tag) === 1) return 90;
+        if (preg_match('/-(belt|arr|dep|bag)$/', $tag) === 1) return 30;
         if (preg_match('/-(eta|eta2|fs|st)(-|$)/', $tag) === 1) return 15 * 60;
         return 5 * 60;
     }

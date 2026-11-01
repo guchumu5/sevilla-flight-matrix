@@ -930,6 +930,26 @@
     }
   }
 
+  function raiseBeltCrisis(flight, from, to) {
+    const alarm = window.MatrixBeltAlarm;
+    if (!alarm || !alarm.isBlockChange(from, to)) return false;
+    alarm.show({
+      flight: flight.physical_flight,
+      origin: flight.origin_name,
+      from,
+      to,
+      onOpen: () => openDetail(flight.id)
+    });
+    notifyWatchedChange(
+      flight,
+      `🚨 ALARMA CINTA · ${flight.origin_name || ''} · ${flight.physical_flight}`,
+      `${alarm.format(from)} → ${alarm.format(to)} · cambio de bloque. Hay que moverse YA.`,
+      'matrix-watch-' + flight.id + '-belt-critical',
+      true
+    );
+    return true;
+  }
+
   function processCanaryAlerts(incoming, date) {
     const storageKey = `svq-canary-snapshot:${date}`;
     let previous = {};
@@ -962,6 +982,7 @@
         const formatter = ['scheduled_arrival','eta','actual_arrival'].includes(field) ? time : alertValue;
         changes.push(`${label}: ${formatter(before[field])} → ${formatter(snapshot[field])}`);
       });
+      raiseBeltCrisis(f, before.position, snapshot.position);
       if (state.canaryWatchEnabled && changes.length) showCanaryAlert(snapshot, changes);
     });
     try { localStorage.setItem(storageKey, JSON.stringify(current)); } catch (_) {}
@@ -1021,12 +1042,13 @@
     state.pushCheckNote = body + ' Baja el centro de notificaciones o bloquea el teléfono.';
   }
 
-  async function notifyWatchedChange(flight, title, body, tag) {
+  async function notifyWatchedChange(flight, title, body, tag, urgent = false) {
     const notice = {
       title,
       body,
       tag: tag || ('matrix-watch-' + flight.id),
-      target_url: `index.php?date=${encodeURIComponent(els.date.value)}&flight=${flight.id}`
+      target_url: `index.php?date=${encodeURIComponent(els.date.value)}&flight=${flight.id}`,
+      urgent: Boolean(urgent)
     };
     try {
       const registration = await ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '');
@@ -1039,7 +1061,10 @@
         body: notice.body,
         tag: notice.tag,
         renotify: true,
-        data: {url: notice.target_url}
+        requireInteraction: Boolean(urgent),
+        silent: false,
+        vibrate: urgent ? [500, 120, 500, 120, 900] : [180, 80, 180],
+        data: {url: notice.target_url, urgent: Boolean(urgent)}
       });
     } catch (_) {}
   }
@@ -1144,7 +1169,9 @@
         notifyWatchedChange(flight, title, `⏱️ FlightStats ${Number(snap.fs_delay) > 0 ? '+' : ''}${snap.fs_delay} min${lag}`, 'matrix-watch-' + flight.id + '-fs');
       }
       if (before.belt !== snap.belt && snap.belt) {
-        notifyWatchedChange(flight, title, (before.belt ? '⚠️ Cambio de cinta · ' + before.belt + ' → ' : '🧳 Asignación de cinta · ') + snap.belt, 'matrix-watch-' + flight.id + '-belt');
+        if (!raiseBeltCrisis(flight, before.belt, snap.belt)) {
+          notifyWatchedChange(flight, title, (before.belt ? '⚠️ Cambio de cinta · ' + before.belt + ' → ' : '🧳 Asignación de cinta · ') + snap.belt, 'matrix-watch-' + flight.id + '-belt');
+        }
       }
       if (before.baggage !== snap.baggage && snap.baggage && snap.baggage !== 'pendiente') {
         const bag = snap.baggage === 'finalizado' || snap.baggage === 'final'
