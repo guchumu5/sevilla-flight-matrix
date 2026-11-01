@@ -218,7 +218,9 @@
       return `<p class="canary-print-around-empty">Sin vuelos alrededor en ±${Number(model?.span_window_minutes || 30)} min.</p>`;
     }
     const sourceLabel = value => value === 'oficial' ? 'Aena' : value === 'prediccion' ? 'pred.' : (value || '');
-    const rows = rankAroundEntries(entries).map(item => {
+    const rows = [...entries].sort((a, b) =>
+      Number(a.offset_minutes) - Number(b.offset_minutes) || Number(a.id) - Number(b.id)
+    ).map(item => {
       const belt = item.belt ? `${Number(item.belt) >= 7 ? 'B' : 'A'}/${item.belt}` : 'sin cinta';
       const role = item.counts ? 'cuenta' : (item.kind === 'unknown' ? 'sin cinta' : 'nube');
       const source = sourceLabel(item.assignment_source);
