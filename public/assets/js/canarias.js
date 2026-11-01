@@ -102,10 +102,7 @@
     if (!Number.isFinite(delay) || Math.abs(delay) < 5) return '';
     const feeder = aircraftFeeder(flight);
     const feederDelay = Number(feeder?.delay_minutes);
-    const reason = feeder && Number.isFinite(feederDelay) && Math.abs(feederDelay) >= 5
-      ? `arrastrado de ${feeder.feeder_code}`
-      : (flight?.delay_reason?.kind === 'feeder' && !feeder ? '' : (flight?.delay_reason?.label || ''));
-    return ` · ${delay > 0 ? '+' : ''}${delay} min${reason ? ' · ' + reason : ''}`;
+    return ` · ${delay > 0 ? '+' : ''}${delay} min`;
   }
   function flightStatsPrintMarkup(flight) {
     const snapshot = flight?.flightstats;
@@ -144,16 +141,16 @@
     const tail = feeder?.aircraft_registration || '';
     if (feederLate) {
       const bits = [code, route, tail, `${feederDelay > 0 ? '+' : ''}${feederDelay} min`].filter(Boolean);
-      return `<p class="canary-print-timing delay-origin is-drag">Arrastra retraso de ${esc(bits.join(' · '))}</p>`;
+      return `<p class="canary-print-timing delay-origin is-drag">De dónde viene el retraso · arrastra de ${esc(bits.join(' · '))}</p>`;
     }
     if (late && feeder) {
-      return `<p class="canary-print-timing delay-origin is-own">Retraso de este vuelo · no viene de ${esc(code)}${route ? ' ' + esc(route) : ''}</p>`;
+      return `<p class="canary-print-timing delay-origin is-own">De dónde viene el retraso · de este vuelo · ${esc(code)}${route ? ' ' + esc(route) : ''} en hora</p>`;
     }
     if (late) {
-      const tail = feeder?.aircraft_registration || flight?.aircraft_registration || '';
-      return `<p class="canary-print-timing delay-origin is-own">Retraso de este vuelo${tail ? ' · avión ' + esc(tail) : ''} · aún no leímos el vuelo anterior</p>`;
+      const plane = feeder?.aircraft_registration || flight?.aircraft_registration || '';
+      return `<p class="canary-print-timing delay-origin is-own">De dónde viene el retraso · de este vuelo${plane ? ' · avión ' + esc(plane) : ''} · aún no está el anterior</p>`;
     }
-    return `<p class="canary-print-timing delay-origin">${esc(code)}${route ? ' ' + esc(route) : ''} · en hora · no arrastra</p>`;
+    return `<p class="canary-print-timing delay-origin">Avión anterior · ${esc(code)}${route ? ' ' + esc(route) : ''} · en hora</p>`;
   }
   const rankAroundEntries = entries => [...(Array.isArray(entries) ? entries : [])].sort((a, b) =>
     (isCanaryEntry(b) ? 1 : 0) - (isCanaryEntry(a) ? 1 : 0)

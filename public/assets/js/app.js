@@ -139,11 +139,10 @@
     const effective = effectiveArrival(flight);
     const actual = Boolean(flight.actual_arrival);
     const deviationClass = deviation > 0 ? 'late' : deviation < 0 ? 'early' : 'ontime';
-    const reason = delayReasonLabel(flight);
     return '<div class="' + esc(className) + '">' +
       '<span><small>Previsto</small><b>' + time(flight.scheduled_arrival) + '</b></span>' +
       '<span><small>' + (actual ? 'Llegó' : 'Llegará') + '</small><b>' + time(effective) + '</b>' +
-      '<em class="' + deviationClass + '">' + signed(deviation) + (reason ? ' · ' + esc(reason) : '') + '</em></span></div>';
+      '<em class="' + deviationClass + '">' + signed(deviation) + '</em></span></div>';
   };
   const pressureText = p => ({baja:'Sin presión',media:'Presión media',alta:'Presión alta',muy_alta:'Presión muy alta'}[p] || p);
   const hallLoadText = p => ({baja:'Baja',media:'Media',alta:'Alta'}[p] || p);
@@ -755,10 +754,7 @@
     if (source === 'flightstats') return 'ETA / real · FlightStats';
     if (source === 'airlabs') return 'ETA / real · AirLabs';
     if (source === 'opensky') return 'ETA / real · OpenSky';
-    if (source === 'arrastre' || delayReasonOf(flight)?.kind === 'feeder') {
-      const code = flight?.delay_reason?.flight || flight?.feeder?.feeder_code;
-      return code ? `ETA · arrastrado de ${code}` : 'ETA · avión anterior';
-    }
+    if (source === 'arrastre') return 'ETA · avión anterior';
     if (source && source !== 'programada' && source !== 'eta') return `ETA / real · ${prettyWatchSource(source)}`;
     const scheduled = parseDate(flight.scheduled_arrival);
     if (!aenaStillOnTime(flight, scheduled) && Math.abs(Number(flight.deviation_minutes)) >= 5) {
@@ -840,6 +836,9 @@
   function delayReasonLabel(flight) {
     return delayReasonOf(flight)?.label || '';
   }
+  function delayOriginBox(kind, title, meta, note) {
+    return `<aside class="delay-origin ${kind}"><p class="delay-origin-kicker">De dónde viene el retraso</p><p class="delay-origin-title">${esc(title)}</p>${meta ? `<p class="delay-origin-meta">${esc(meta)}</p>` : ''}${note ? `<p class="delay-origin-note">${esc(note)}</p>` : ''}</aside>`;
+  }
   function delayOriginMarkup(flight) {
     const published = Number(flight?.deviation_minutes);
     const late = Number.isFinite(published) && Math.abs(published) >= 5;
@@ -854,23 +853,42 @@
     const feederDelay = Number(feeder?.delay_minutes);
     const feederLate = Number.isFinite(feederDelay) && Math.abs(feederDelay) >= 5;
     const dest = feeder?.destination_iata || '';
+    const plane = tail ? `Avión ${tail}` : '';
     if (feeder && feederLate) {
-      const bits = [code, route, tail ? `avión ${tail}` : '', `${feederDelay > 0 ? '+' : ''}${feederDelay} min en ${dest || 'el origen'}`].filter(Boolean);
-      return `<p class="delay-origin is-drag"><span>Arrastra retraso de</span><strong>${esc(bits.join(' · '))}</strong><small>${esc(reason?.detail || `Ese avión llegó tarde a ${dest || 'la isla'} en ${code}. Por eso esta llegada va ${signed(published)}.`)}</small></p>`;
+      return delayOriginBox(
+        'is-drag',
+        `Arrastra de ${code}`,
+        [route, plane, `${feederDelay > 0 ? '+' : ''}${feederDelay} min en ${dest || 'el tramo anterior'}`].filter(Boolean).join(' · '),
+        reason?.detail || `Ese avión llegó tarde en ${code}. Por eso esta llegada va ${signed(published)}.`
+      );
     }
     if (late && feeder) {
-      return `<p class="delay-origin is-own"><span>Retraso de este vuelo</span><strong>${esc(signed(published))} · no viene de ${esc(code)}${route ? ' ' + esc(route) : ''}</strong><small>${esc(reason?.detail || `El avión${tail ? ' ' + tail : ''} venía de ${code} en hora. El retraso es de esta llegada.`)}</small></p>`;
+      return delayOriginBox(
+        'is-own',
+        `De este vuelo · ${signed(published)}`,
+        [code, route, plane, 'en hora'].filter(Boolean).join(' · '),
+        reason?.detail || `El avión venía de ${code} en hora. El retraso es de esta llegada, no de ese tramo.`
+      );
     }
     if (late) {
-      return `<p class="delay-origin is-own"><span>Retraso de este vuelo</span><strong>${esc(signed(published))} · ${esc(prettyWatchSource(flight.timing_source) || 'publicado')}</strong><small>${tail ? `Avión ${esc(tail)}. ` : ''}Aún no leímos el vuelo anterior de esta aeronave.</small></p>`;
+      return delayOriginBox(
+        'is-own',
+        `De este vuelo · ${signed(published)}`,
+        plane || prettyWatchSource(flight.timing_source) || '',
+        plane
+          ? 'Aún no leímos el vuelo anterior de esta aeronave.'
+          : 'Aún no está el vuelo anterior de esta aeronave.'
+      );
     }
     if (feeder) {
-      return `<p class="delay-origin"><span>Avión</span><strong>${esc([code, route, tail].filter(Boolean).join(' · '))} · en hora</strong><small>${esc(reason?.detail || `Venía de ${code}. Ese tramo no arrastra retraso.`)}</small></p>`;
+      return delayOriginBox(
+        '',
+        `${code} en hora`,
+        [route, plane].filter(Boolean).join(' · '),
+        reason?.detail || `Venía de ${code}. Ese tramo no arrastra retraso.`
+      );
     }
-    if (tail) {
-      return `<p class="delay-origin"><span>Avión</span><strong>${esc(tail)}</strong><small>Aún no leímos el vuelo anterior de esta matrícula.</small></p>`;
-    }
-    return '';
+    return delayOriginBox('', plane, '', 'Aún no leímos el vuelo anterior de esta matrícula.');
   }
   function feederWatchMarkup(flight) {
     return delayOriginMarkup(flight);
@@ -890,8 +908,7 @@
   function canaryDelayHint(flight) {
     const delay = Number(flight?.deviation_minutes ?? flight?.flightstats?.delay_minutes);
     if (!Number.isFinite(delay) || Math.abs(delay) < 5) return '';
-    const reason = delayReasonLabel(flight);
-    return ` <em class="${delay > 0 ? 'late' : 'early'}">${delay > 0 ? '+' : ''}${delay} min${reason ? ' · ' + esc(reason) : ''}</em>`;
+    return ` <em class="${delay > 0 ? 'late' : 'early'}">${delay > 0 ? '+' : ''}${delay} min</em>`;
   }
   const canarySnapshotKey = flight => `${flight.flight_date || els.date.value}|${flight.physical_flight}|${flight.origin_iata}`;
   const alertValue = value => value === null || value === undefined || value === '' ? 'pendiente' : String(value);

@@ -301,11 +301,14 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
 
 <div class="offcanvas offcanvas-end detail-drawer" tabindex="-1" id="flightDetail" aria-labelledby="flightDetailLabel">
   <div class="offcanvas-header border-bottom detail-drawer-header">
-    <div><small class="text-secondary">Centro de atención del vuelo</small><h2 class="offcanvas-title h5" id="flightDetailLabel">Detalle</h2></div>
-    <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Cerrar"></button>
+    <div><small class="text-secondary">Ficha del vuelo</small><h2 class="offcanvas-title h5" id="flightDetailLabel">Detalle</h2></div>
+    <button type="button" class="detail-close" data-bs-dismiss="offcanvas">Cerrar</button>
   </div>
   <div class="detail-quick-bar" id="detailQuickBar" data-focus-surface hidden></div>
   <div class="offcanvas-body" id="detailBody"><div class="loading-state"><div class="spinner-border spinner-border-sm"></div></div></div>
+  <div class="detail-close-bar">
+    <button type="button" class="btn btn-light" data-bs-dismiss="offcanvas">Cerrar ficha</button>
+  </div>
 </div>
 
 <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
