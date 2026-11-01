@@ -147,6 +147,7 @@ SELECT
       WHEN latest_other_time.eta IS NOT NULL THEN latest_other_time.eta
       ELSE COALESCE(latest_aena.eta, latest_other.eta)
     END AS eta,
+    latest_aena.eta AS aena_published_eta,
     COALESCE(latest_aena.actual_departure, latest_other.actual_departure) AS actual_departure,
     COALESCE(latest_aena.actual_arrival, latest_other.actual_arrival) AS actual_arrival,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.hall ELSE latest_other.hall END AS hall,

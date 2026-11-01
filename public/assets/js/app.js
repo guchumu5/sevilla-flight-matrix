@@ -895,6 +895,27 @@
     state.alertDate = date;
   }
 
+  function prettyWatchSource(value) {
+    const key = String(value || '').toLowerCase();
+    if (key === 'flightstats') return 'FlightStats';
+    if (key === 'airlabs') return 'AirLabs';
+    if (key === 'opensky') return 'OpenSky';
+    if (key === 'aena') return 'Aena';
+    return value ? String(value) : 'API';
+  }
+  function aenaStillOnTime(flight, scheduled) {
+    const aena = parseDate(flight.actual_arrival || flight.aena_published_eta);
+    if (!scheduled) return true;
+    if (!aena) return true;
+    return Math.abs(Math.round((aena.getTime() - scheduled.getTime()) / 60000)) < 5;
+  }
+  function etaSourceLabel(flight, snap) {
+    const stats = flight.flightstats || {};
+    const fsEta = stats.eta || stats.actual_arrival || '';
+    if (fsEta && snap.eta && Math.abs(parseDate(fsEta)?.getTime() - parseDate(snap.eta)?.getTime()) < 120000) return 'FlightStats';
+    if (snap.secondary_eta && snap.eta === snap.secondary_eta) return prettyWatchSource(snap.secondary_source);
+    return 'Aena';
+  }
   function watchSnapshot(flight) {
     const stats = flight.flightstats || {};
     return {
@@ -914,7 +935,7 @@
   async function notifyWatchSequenceStart(flight) {
     if (!flight) return;
     const title = `${flight.origin_name} · ${flight.physical_flight}`;
-    const body = `Vigilancia activa · ${flight.physical_flight}. Última hora cada 10 min, últimos 30 min cada 5. Si cambia cinta, hora o estado, aviso al momento.`;
+    const body = `Vigilancia activa · ${flight.physical_flight}. Última hora cada 10 min, últimos 30 min cada 5. Si Aena, AirLabs o FlightStats cambia hora, cinta o estado, aviso al momento y dice quién lo vio.`;
     try {
       const registration = await ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '');
       await registration.showNotification(title, {
@@ -1048,7 +1069,7 @@
           ? `Aviso de itinerario enviado (${data.sent}). Baja el centro de notificaciones o bloquea el teléfono.`
           : (data.loop
             ? 'El servidor avisa en la última hora cada 10 min y en los últimos 30 min cada 5, aunque duerma la pantalla. Si algo cambia, aviso al momento.'
-            : 'Itinerario en la última hora cada 10 min y en los últimos 30 min cada 5. Si cambia cinta, hora o estado, aviso al momento.');
+            : 'Itinerario en la última hora cada 10 min y en los últimos 30 min cada 5. Si una fuente ve un cambio, aviso al momento y dice quién lo vio.');
       }
     } catch (_) {}
   }
@@ -1068,27 +1089,34 @@
       if (before.actual_arrival !== snap.actual_arrival && snap.actual_arrival) {
         notifyWatchedChange(flight, title, '🛬 Aterriza · ' + time(snap.actual_arrival), 'matrix-watch-' + flight.id + '-arr');
       } else if (before.secondary_arrival !== snap.secondary_arrival && snap.secondary_arrival && !snap.actual_arrival) {
-        notifyWatchedChange(flight, title, '🛬 Aterrizaje (AirLabs/FlightStats) · ' + time(snap.secondary_arrival), 'matrix-watch-' + flight.id + '-arr2');
+        const source = prettyWatchSource(snap.secondary_source) || 'AirLabs/FlightStats';
+        notifyWatchedChange(flight, title, `🛬 Aterrizaje ${source} · ` + time(snap.secondary_arrival), 'matrix-watch-' + flight.id + '-arr2');
       }
+      const scheduled = parseDate(flight.scheduled_arrival);
+      let namedEta = false;
       if (before.eta !== snap.eta && snap.eta) {
-        const scheduled = parseDate(flight.scheduled_arrival);
         const etaAt = parseDate(snap.eta);
         const delay = scheduled && etaAt ? Math.round((etaAt.getTime() - scheduled.getTime()) / 60000) : null;
         if (delay !== null && Math.abs(delay) >= 5) {
-          notifyWatchedChange(flight, title, `⏱️ ETA ${time(snap.eta)} · ${delay > 0 ? '+' : ''}${delay} min sobre programada`, 'matrix-watch-' + flight.id + '-eta');
+          const source = etaSourceLabel(flight, snap);
+          const lag = source !== 'Aena' && aenaStillOnTime(flight, scheduled) ? ' · Aena aún en hora' : '';
+          notifyWatchedChange(flight, title, `⏱️ ${source} ETA ${time(snap.eta)} · ${delay > 0 ? '+' : ''}${delay} min sobre programada${lag}`, 'matrix-watch-' + flight.id + '-eta');
+          namedEta = source !== 'Aena';
         }
       }
       if (before.secondary_eta !== snap.secondary_eta && snap.secondary_eta && snap.secondary_eta !== snap.eta) {
-        const scheduled = parseDate(flight.scheduled_arrival);
         const etaAt = parseDate(snap.secondary_eta);
         const delay = scheduled && etaAt ? Math.round((etaAt.getTime() - scheduled.getTime()) / 60000) : null;
         if (delay !== null && Math.abs(delay) >= 5) {
-          const source = (snap.secondary_source || 'API').toUpperCase();
-          notifyWatchedChange(flight, title, `⏱️ Retraso ${source} · ETA ${time(snap.secondary_eta)} · ${delay > 0 ? '+' : ''}${delay} min`, 'matrix-watch-' + flight.id + '-eta2');
+          const source = prettyWatchSource(snap.secondary_source);
+          const lag = aenaStillOnTime(flight, scheduled) ? ' · Aena aún en hora' : '';
+          notifyWatchedChange(flight, title, `⏱️ ${source} ETA ${time(snap.secondary_eta)} · ${delay > 0 ? '+' : ''}${delay} min sobre programada${lag}`, 'matrix-watch-' + flight.id + '-eta2');
+          namedEta = true;
         }
       }
-      if (before.fs_delay !== snap.fs_delay && snap.fs_delay !== '' && Math.abs(Number(snap.fs_delay)) >= 5) {
-        notifyWatchedChange(flight, title, `⏱️ FlightStats ${Number(snap.fs_delay) > 0 ? '+' : ''}${snap.fs_delay} min`, 'matrix-watch-' + flight.id + '-fs');
+      if (!namedEta && before.fs_delay !== snap.fs_delay && snap.fs_delay !== '' && Math.abs(Number(snap.fs_delay)) >= 5) {
+        const lag = aenaStillOnTime(flight, scheduled) ? ' · Aena aún en hora' : '';
+        notifyWatchedChange(flight, title, `⏱️ FlightStats ${Number(snap.fs_delay) > 0 ? '+' : ''}${snap.fs_delay} min${lag}`, 'matrix-watch-' + flight.id + '-fs');
       }
       if (before.belt !== snap.belt && snap.belt) {
         notifyWatchedChange(flight, title, (before.belt ? '⚠️ Cambio de cinta · ' + before.belt + ' → ' : '🧳 Asignación de cinta · ') + snap.belt, 'matrix-watch-' + flight.id + '-belt');
@@ -1103,7 +1131,8 @@
         notifyWatchedChange(flight, title, snap.status, 'matrix-watch-' + flight.id + '-st');
       }
       if (before.secondary_departure !== snap.secondary_departure && snap.secondary_departure) {
-        notifyWatchedChange(flight, title, '✈️ Despega · ' + time(snap.secondary_departure), 'matrix-watch-' + flight.id + '-dep');
+        const source = prettyWatchSource(snap.secondary_source);
+        notifyWatchedChange(flight, title, `✈️ Despega · ${source} · ` + time(snap.secondary_departure), 'matrix-watch-' + flight.id + '-dep');
       }
     });
     Object.keys(current).forEach(id => { if (!flightIsWatched(id)) delete current[id]; });
@@ -3531,7 +3560,7 @@
           <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
         </article>`;
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
-      const watchSupport = `<p class="watch-explanation mb-3">Avisos: itinerario en la última hora cada 10 min y en los últimos 30 min cada 5. Cualquier cambio de cinta, hora o estado (Aena, AirLabs, FlightStats u OpenSky) se avisa al momento. Con la app abierta iOS no enseña globo.</p>
+      const watchSupport = `<p class="watch-explanation mb-3">Avisos: itinerario en la última hora cada 10 min y en los últimos 30 min cada 5. Si Aena, AirLabs, FlightStats u OpenSky ve un cambio que otra fuente aún no tiene, aviso al momento y dice quién lo vio. Con la app abierta iOS no enseña globo.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita al abrir la ficha o al buscar matrícula y telemetría.</small></div>`;
       renderDetailQuickBar(flight);
       els.detailBody.innerHTML = `<div class="tracked-focus-layout detail-focus-layout">

@@ -501,36 +501,53 @@ final class WebPushService
                  OR (s.watch_canary_all=1 AND f.is_canary=1 AND e.detected_at>=s.updated_at)
                )"
         );
+        $sourceName = "CASE e.source
+            WHEN 'aena' THEN 'Aena'
+            WHEN 'airlabs' THEN 'AirLabs'
+            WHEN 'flightstats' THEN 'FlightStats'
+            WHEN 'opensky' THEN 'OpenSky'
+            WHEN 'system' THEN ''
+            ELSE CONVERT(e.source USING utf8mb4)
+          END";
+        $aenaStillOnTime = "e.source<>'aena' AND ABS(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,COALESCE((
+            SELECT o.eta FROM observations o
+            WHERE o.flight_id=f.id AND o.source='aena' AND o.eta IS NOT NULL
+            ORDER BY o.observed_at DESC,o.id DESC LIMIT 1
+          ),f.scheduled_arrival)))<5";
         $this->pdo->exec(
             "INSERT IGNORE INTO push_outbox (subscription_id,flight_event_id,title,body,target_url)
              SELECT s.id,e.id,
                     CONCAT(IF(f.is_canary=1,'Canarias · ',''),CONVERT(f.origin_name USING utf8mb4),' · ',CONVERT(f.physical_flight USING utf8mb4)),
                     LEFT(CASE e.event_type
-                      WHEN 'departure_recorded' THEN CONCAT('✈️ Despega',IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
+                      WHEN 'departure_recorded' THEN CONCAT('✈️ Despega',IF({$sourceName}='','',CONCAT(' · ',{$sourceName})),IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
                       WHEN 'belt_assigned' THEN CONCAT('🧳 Asignación de cinta · ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'pendiente de número'))
                       WHEN 'belt_changed' THEN CONCAT('⚠️ Cambio de cinta · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'))
                       WHEN 'belt_removed' THEN CONCAT('⚠️ Aena retiró la cinta ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' · nueva asignación pendiente')
                       WHEN 'eta_published' THEN CONCAT(
-                        '⏱️ Nueva ETA ',DATE_FORMAT(e.after_value,'%H:%i'),' · ',
-                        IF(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value)>0,'+',''),
-                        TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value),' min sobre programada'
-                      )
-                      WHEN 'eta_changed' THEN CONCAT(
-                        '⏱️ ETA ',DATE_FORMAT(e.after_value,'%H:%i'),' · ',
+                        '⏱️ ',IF({$sourceName}='','',CONCAT({$sourceName},' ')),
+                        'ETA ',DATE_FORMAT(e.after_value,'%H:%i'),' · ',
                         IF(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value)>0,'+',''),
                         TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value),' min sobre programada',
-                        ' · antes ',DATE_FORMAT(e.before_value,'%H:%i')
+                        IF({$aenaStillOnTime},' · Aena aún en hora','')
+                      )
+                      WHEN 'eta_changed' THEN CONCAT(
+                        '⏱️ ',IF({$sourceName}='','',CONCAT({$sourceName},' ')),
+                        'ETA ',DATE_FORMAT(e.after_value,'%H:%i'),' · ',
+                        IF(TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value)>0,'+',''),
+                        TIMESTAMPDIFF(MINUTE,f.scheduled_arrival,e.after_value),' min sobre programada',
+                        ' · antes ',DATE_FORMAT(e.before_value,'%H:%i'),
+                        IF({$aenaStillOnTime},' · Aena aún en hora','')
                       )
                       WHEN 'schedule_changed' THEN CONCAT('🗓️ Cambio de programación · ',DATE_FORMAT(e.before_value,'%H:%i'),' → ',DATE_FORMAT(e.after_value,'%H:%i'))
                       WHEN 'hall_changed' THEN CONCAT('⚠️ Cambio de sala · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'))
                       WHEN 'gate_changed' THEN CONCAT('🚪 Cambio de puerta · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'))
                       WHEN 'stand_changed' THEN CONCAT('🅿️ Cambio de posición · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'))
-                      WHEN 'arrival_recorded' THEN CONCAT('🛬 Aterriza',IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
+                      WHEN 'arrival_recorded' THEN CONCAT('🛬 Aterriza',IF({$sourceName}='','',CONCAT(' · ',{$sourceName})),IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
                       WHEN 'arrival_reminder' THEN CONCAT('🚗 Aviso 40 min · llegada prevista ',DATE_FORMAT(e.after_value,'%H:%i'))
-                      WHEN 'flight_cancelled' THEN '🚫 Vuelo cancelado por la fuente'
-                      WHEN 'flight_missing' THEN '⚠️ El vuelo dejó de aparecer temporalmente en la fuente'
-                      WHEN 'flight_withdrawn' THEN '🚫 Vuelo retirado tras varias comprobaciones'
-                      WHEN 'flight_reappeared' THEN '✅ El vuelo vuelve a aparecer en la fuente'
+                      WHEN 'flight_cancelled' THEN CONCAT('🚫 Vuelo cancelado',IF({$sourceName}='','',CONCAT(' · ',{$sourceName})))
+                      WHEN 'flight_missing' THEN CONCAT('⚠️ El vuelo dejó de aparecer temporalmente',IF({$sourceName}='','',CONCAT(' · ',{$sourceName})))
+                      WHEN 'flight_withdrawn' THEN CONCAT('🚫 Vuelo retirado tras varias comprobaciones',IF({$sourceName}='','',CONCAT(' · ',{$sourceName})))
+                      WHEN 'flight_reappeared' THEN CONCAT('✅ El vuelo vuelve a aparecer',IF({$sourceName}='','',CONCAT(' · ',{$sourceName})))
                       WHEN 'baggage_started' THEN CONCAT(
                         '🧳 En la cinta',
                         COALESCE((SELECT CONCAT(' · ',IF(NULLIF(o.hall,'') IS NULL,'',CONCAT(CONVERT(o.hall USING utf8mb4),'/')),CONVERT(o.belt USING utf8mb4))
@@ -539,8 +556,8 @@ final class WebPushService
                                   ORDER BY (o.source='aena') DESC,o.observed_at DESC,o.id DESC LIMIT 1),'')
                       )
                       WHEN 'baggage_finished' THEN '✅ Entrega de equipaje finalizada'
-                      WHEN 'status_published' THEN CONCAT('ℹ️ ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'Estado publicado'))
-                      WHEN 'status_changed' THEN CONCAT('ℹ️ ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'Cambio de estado'))
+                      WHEN 'status_published' THEN CONCAT('ℹ️ ',IF({$sourceName}='','',CONCAT({$sourceName},' · ')),COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'Estado publicado'))
+                      WHEN 'status_changed' THEN CONCAT('ℹ️ ',IF({$sourceName}='','',CONCAT({$sourceName},' · ')),COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'Cambio de estado'))
                     END,500),
                     CONCAT('index.php?date=',DATE_FORMAT(f.flight_date,'%Y-%m-%d'),'&flight=',f.id)
              FROM push_subscriptions s
@@ -696,7 +713,7 @@ final class WebPushService
         $ctx = $this->flightNoticeContext($flightId);
         if ($ctx === null) throw new RuntimeException('El vuelo ya no existe.');
         return $this->watchNoticeBase($ctx, $flightId) + [
-            'body' => 'Vigilancia activa · ' . $ctx['physical_flight'] . '. Última hora cada 10 min, últimos 30 min cada 5. Si cambia cinta, hora o estado, aviso al momento.',
+            'body' => 'Vigilancia activa · ' . $ctx['physical_flight'] . '. Última hora cada 10 min, últimos 30 min cada 5. Si Aena, AirLabs o FlightStats cambia hora, cinta o estado, aviso al momento y dice quién lo vio.',
             'tag' => 'matrix-watch-' . $flightId . '-on',
         ];
     }
@@ -862,6 +879,10 @@ final class WebPushService
                      WHERE o.flight_id=f.id AND o.source IN ('airlabs','flightstats')
                        AND (o.eta IS NOT NULL OR o.actual_arrival IS NOT NULL)
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS secondary_eta,
+                    (SELECT o.source FROM observations o
+                     WHERE o.flight_id=f.id AND o.source IN ('airlabs','flightstats')
+                       AND (o.eta IS NOT NULL OR o.actual_arrival IS NOT NULL)
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS secondary_eta_source,
                     (SELECT o.actual_departure FROM observations o
                      WHERE o.flight_id=f.id AND o.actual_departure IS NOT NULL
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS secondary_departure,
@@ -925,15 +946,26 @@ final class WebPushService
         if ($ctx === null) {
             return [
                 'aena_status' => '', 'airlabs_status' => '', 'opensky_status' => '', 'flightstats_status' => '',
-                'eta' => '', 'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => '',
+                'eta' => '', 'aena_eta' => '', 'secondary_eta' => '', 'secondary_source' => '', 'fs_delay' => '',
+                'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => '',
             ];
         }
+        $stats = $this->latestFlightStats([$flightId])[$flightId] ?? null;
+        $fsEta = is_array($stats) ? (string)($stats['eta'] ?: $stats['actual_arrival'] ?: '') : '';
+        $fsDelay = is_array($stats) && $stats['delay_minutes'] !== null && $stats['delay_minutes'] !== ''
+            ? (string)(int)$stats['delay_minutes'] : '';
+        $secondary = (string)($ctx['secondary_eta'] ?: $fsEta ?: '');
+        $secondarySource = (string)($ctx['secondary_eta_source'] ?: ($fsEta !== '' ? 'flightstats' : ''));
         return [
             'aena_status' => $this->statusLabel((string)($ctx['aena_status'] ?? '')),
             'airlabs_status' => $this->statusLabel((string)($ctx['airlabs_status'] ?? '')),
             'opensky_status' => $this->statusLabel((string)($ctx['opensky_status'] ?? '')),
             'flightstats_status' => $this->statusLabel((string)($ctx['flightstats_status'] ?? '')),
-            'eta' => (string)($ctx['aena_eta'] ?: $ctx['secondary_eta'] ?: ''),
+            'eta' => (string)($this->preferredEta($ctx) ?: ''),
+            'aena_eta' => (string)($ctx['aena_eta'] ?: ''),
+            'secondary_eta' => $secondary,
+            'secondary_source' => $secondarySource,
+            'fs_delay' => $fsDelay,
             'actual_arrival' => (string)($ctx['actual_arrival'] ?: ''),
             'actual_departure' => (string)($ctx['airlabs_departure'] ?: $ctx['secondary_departure'] ?: ''),
             'belt' => $this->beltLabel($ctx['hall'] ?? null, $ctx['belt'] ?? null),
@@ -951,7 +983,8 @@ final class WebPushService
     {
         $before = array_merge([
             'aena_status' => '', 'airlabs_status' => '', 'opensky_status' => '', 'flightstats_status' => '',
-            'eta' => '', 'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => '',
+            'eta' => '', 'aena_eta' => '', 'secondary_eta' => '', 'secondary_source' => '', 'fs_delay' => '',
+            'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => '',
         ], $before);
         $title = ((int)$row['is_canary'] === 1 ? 'Canarias · ' : '')
             . $row['origin_name'] . ' · ' . $row['physical_flight'];
@@ -975,16 +1008,46 @@ final class WebPushService
         if ($before['actual_departure'] !== $snap['actual_departure'] && $snap['actual_departure'] !== '') {
             $out[] = $notice('✈️ Despega · ' . date('H:i', strtotime($snap['actual_departure'])), '-dep');
         }
-        if ($before['eta'] !== $snap['eta'] && $snap['eta'] !== '') {
-            $scheduled = strtotime((string)$row['scheduled_arrival']);
+        $scheduled = strtotime((string)$row['scheduled_arrival']);
+        if ($before['aena_eta'] !== $snap['aena_eta'] && $snap['aena_eta'] !== '' && $scheduled) {
+            $etaAt = strtotime($snap['aena_eta']);
+            $delay = $etaAt ? (int)round(($etaAt - $scheduled) / 60) : 0;
+            if ($etaAt && abs($delay) >= 5) {
+                $out[] = $notice(
+                    '⏱️ Aena ETA ' . date('H:i', $etaAt) . ' · ' . ($delay > 0 ? '+' : '') . $delay . ' min sobre programada',
+                    '-eta'
+                );
+            }
+        } elseif ($before['eta'] !== $snap['eta'] && $snap['eta'] !== '' && $scheduled && ($snap['aena_eta'] ?? '') === '') {
             $etaAt = strtotime($snap['eta']);
-            if ($scheduled && $etaAt && abs((int)round(($etaAt - $scheduled) / 60)) >= 5) {
-                $delay = (int)round(($etaAt - $scheduled) / 60);
+            $delay = $etaAt ? (int)round(($etaAt - $scheduled) / 60) : 0;
+            if ($etaAt && abs($delay) >= 5) {
                 $out[] = $notice(
                     '⏱️ ETA ' . date('H:i', $etaAt) . ' · ' . ($delay > 0 ? '+' : '') . $delay . ' min sobre programada',
                     '-eta'
                 );
             }
+        }
+        if ($before['secondary_eta'] !== $snap['secondary_eta'] && $snap['secondary_eta'] !== '' && $scheduled) {
+            $etaAt = strtotime($snap['secondary_eta']);
+            $delay = $etaAt ? (int)round(($etaAt - $scheduled) / 60) : 0;
+            $aenaAt = strtotime((string)($snap['aena_eta'] ?: $row['scheduled_arrival']));
+            $vsAena = ($etaAt && $aenaAt) ? abs((int)round(($etaAt - $aenaAt) / 60)) : abs($delay);
+            if ($etaAt && abs($delay) >= 5) {
+                $source = $this->prettySource((string)$snap['secondary_source']);
+                $body = '⏱️ ' . $source . ' ETA ' . date('H:i', $etaAt)
+                    . ' · ' . ($delay > 0 ? '+' : '') . $delay . ' min sobre programada';
+                if ($vsAena >= 5) $body .= ' · Aena aún en hora';
+                $out[] = $notice($body, '-eta2');
+            }
+        } elseif ($before['fs_delay'] !== ($snap['fs_delay'] ?? '') && ($snap['fs_delay'] ?? '') !== '' && abs((int)$snap['fs_delay']) >= 5) {
+            $delay = (int)$snap['fs_delay'];
+            $body = '⏱️ FlightStats ' . ($delay > 0 ? '+' : '') . $delay . ' min';
+            $aenaAt = strtotime((string)($snap['aena_eta'] ?: $row['scheduled_arrival']));
+            if ($scheduled && $aenaAt && abs((int)round(($aenaAt - $scheduled) / 60)) < 5) {
+                $body .= ' · Aena aún en hora';
+            }
+            $out[] = $notice($body, '-fs');
         }
         $beltBefore = $before['belt'] === 'cinta pendiente' ? '' : $before['belt'];
         $beltNow = $snap['belt'] === 'cinta pendiente' ? '' : $snap['belt'];
@@ -1017,6 +1080,36 @@ final class WebPushService
         return array_slice($out, 0, 5);
     }
 
+    /** @param array<string,mixed> $ctx */
+    private function preferredEta(array $ctx): string
+    {
+        $scheduled = (string)($ctx['scheduled_arrival'] ?? '');
+        $aena = (string)($ctx['aena_arrival'] ?: $ctx['aena_eta'] ?: '');
+        $secondary = (string)($ctx['secondary_eta'] ?? '');
+        if ($this->differsAtLeast($aena, $scheduled, 5)) return $aena;
+        if ($this->differsAtLeast($secondary, $scheduled, 5)) return $secondary;
+        return $aena !== '' ? $aena : $scheduled;
+    }
+
+    private function differsAtLeast(string $value, string $scheduled, int $minutes): bool
+    {
+        if ($value === '' || $scheduled === '') return false;
+        $left = strtotime($value);
+        $right = strtotime($scheduled);
+        return $left !== false && $right !== false && abs($left - $right) >= $minutes * 60;
+    }
+
+    private function prettySource(string $source): string
+    {
+        return match (strtolower(trim($source))) {
+            'aena' => 'Aena',
+            'airlabs' => 'AirLabs',
+            'flightstats' => 'FlightStats',
+            'opensky' => 'OpenSky',
+            default => $source !== '' ? $source : 'API',
+        };
+    }
+
     private function statusLabel(string $status): string
     {
         $map = [
@@ -1032,7 +1125,7 @@ final class WebPushService
 
     private function isActionableStatus(string $label): bool
     {
-        return preg_match('/vuelo|tierra|aterriz|aproxima|finaliz|entrega|landed|active|cancel|despeg|en hora/i', $label) === 1;
+        return preg_match('/vuelo|tierra|aterriz|aproxima|finaliz|entrega|landed|active|cancel|despeg|en hora|delay|retras|programad|scheduled|departed|enruta/i', $label) === 1;
     }
 
     /** @param array<string,string> $snap */
@@ -1093,7 +1186,7 @@ final class WebPushService
             ? date('H:i', strtotime($depActual))
             : ($depPlan !== '' ? date('H:i', strtotime($depPlan)) : 'pendiente');
         $landed = (string)($ctx['actual_arrival'] ?: '');
-        $eta = (string)($ctx['aena_arrival'] ?: $ctx['aena_eta'] ?: $ctx['secondary_eta'] ?: $ctx['scheduled_arrival'] ?: '');
+        $eta = $this->preferredEta($ctx);
         $llegada = $landed !== ''
             ? date('H:i', strtotime($landed))
             : ($eta !== '' ? date('H:i', strtotime($eta)) : 'pendiente');

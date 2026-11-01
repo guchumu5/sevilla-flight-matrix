@@ -440,19 +440,25 @@ final class WebOperationsService
             throw new RuntimeException('No hay ninguna clave AirLabs configurada en .env.');
         }
 
-        $watchSql = $watchedOnly
-            ? "INNER JOIN flight_watches w ON w.flight_id=f.id AND w.enabled=1
-               INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1"
+        $prioritySql = $watchedOnly
+            ? "AND (
+                 f.is_canary=1
+                 OR EXISTS (
+                   SELECT 1 FROM flight_watches w
+                   INNER JOIN push_subscriptions s ON s.id=w.subscription_id
+                   WHERE w.flight_id=f.id AND w.enabled=1 AND s.active=1
+                 )
+               )"
             : '';
         $stmt = $this->pdo->prepare(
             "SELECT f.*,
                     GROUP_CONCAT(DISTINCT fc.flight_code ORDER BY fc.flight_code SEPARATOR ',') AS codeshares
              FROM flights f
-             {$watchSql}
              LEFT JOIN flight_codes fc ON fc.flight_id=f.id AND fc.flight_code<>f.physical_flight
              WHERE f.scheduled_arrival BETWEEN DATE_SUB(NOW(), INTERVAL 3 HOUR) AND DATE_ADD(NOW(), INTERVAL 10 HOUR)
+             {$prioritySql}
              GROUP BY f.id
-             ORDER BY f.scheduled_arrival
+             ORDER BY CASE WHEN f.is_canary=1 THEN 0 ELSE 1 END, f.scheduled_arrival
              LIMIT 250"
         );
         $stmt->execute();
@@ -694,7 +700,7 @@ final class WebOperationsService
         }
 
         $stmt = $this->pdo->prepare(
-            'SELECT f.id, f.physical_flight, f.origin_iata, f.origin_name, f.flight_date, f.scheduled_arrival, f.aircraft_icao24,
+            'SELECT f.id, f.physical_flight, f.origin_iata, f.origin_name, f.flight_date, f.scheduled_arrival, f.aircraft_icao24, f.is_canary,
                     EXISTS (
                       SELECT 1 FROM flight_watches w
                       INNER JOIN push_subscriptions s ON s.id=w.subscription_id
@@ -703,7 +709,7 @@ final class WebOperationsService
              FROM flights f
              WHERE f.scheduled_arrival BETWEEN DATE_SUB(NOW(), INTERVAL 3 HOUR) AND DATE_ADD(NOW(), INTERVAL 8 HOUR)
                AND f.aircraft_icao24 IS NOT NULL AND f.aircraft_icao24<>\'\'
-             ORDER BY watched DESC, ABS(TIMESTAMPDIFF(MINUTE, NOW(), f.scheduled_arrival)) LIMIT :limit'
+             ORDER BY watched DESC, f.is_canary DESC, ABS(TIMESTAMPDIFF(MINUTE, NOW(), f.scheduled_arrival)) LIMIT :limit'
         );
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
