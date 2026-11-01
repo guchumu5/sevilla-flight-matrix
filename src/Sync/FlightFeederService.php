@@ -5,6 +5,7 @@ namespace SevillaMatrix\Sync;
 
 use PDO;
 use SevillaMatrix\FlightRepository;
+use SevillaMatrix\IataFlightCode;
 use SevillaMatrix\OperationalDay;
 use Throwable;
 
@@ -64,9 +65,12 @@ final class FlightFeederService
         if ($tail === '' || !preg_match('/^[A-Z0-9-]{3,15}$/', $tail)) {
             $tail = $this->resolveTail($mapped, $inboundSnapshot);
         }
+        if ($tail !== '') {
+            $this->rememberTail((int)$flight['id'], $tail);
+        }
         if ($tail === '') return null;
 
-        $html = $this->httpGet(FlightAwareActivityParser::tailUrl($tail));
+        $html = $this->fetchTailHistory($tail);
         if (!is_string($html) || $html === '') return null;
         $bootstrap = FlightAwareActivityParser::bootstrapFromHtml($html);
         if ($bootstrap === null) return null;
@@ -76,6 +80,7 @@ final class FlightFeederService
         $sector = FlightAwareActivityParser::previousSector($bootstrap, $current, $island);
         if ($sector === null) return null;
         $sector['aircraft_registration'] = $sector['aircraft_registration'] ?: $tail;
+        $sector = $this->enrichFromFlightStats($sector);
         return $this->store((int)$flight['id'], $sector);
     }
 
@@ -166,9 +171,66 @@ final class FlightFeederService
     }
 
     /**
-     * @param array<string,mixed> $mapped
-     * @param array<string,mixed>|null $inboundSnapshot
+     * @param array<string,mixed> $sector
+     * @return array<string,mixed>
      */
+    private function enrichFromFlightStats(array $sector): array
+    {
+        $split = IataFlightCode::split((string)($sector['feeder_code'] ?? ''));
+        $when = (string)(($sector['actual_arrival'] ?? null) ?: ($sector['eta'] ?? ''));
+        if ($split === null || $when === '') return $sector;
+        try {
+            $parts = IataFlightCode::trackerDate($when);
+            $parsed = ($this->client ?? new FlightStatsClient())->fetchRoute([
+                'iata_carrier' => $split['carrier'],
+                'iata_number' => $split['number'],
+                'year' => $parts['year'],
+                'month' => $parts['month'],
+                'date' => $parts['date'],
+                'scheduled_arrival' => $when,
+            ], (string)($sector['destination_iata'] ?? '') ?: null, (string)($sector['origin_iata'] ?? '') ?: null, true);
+        } catch (Throwable) {
+            return $sector;
+        }
+        if (isset($parsed['delay_minutes']) && is_numeric($parsed['delay_minutes'])) {
+            $sector['delay_minutes'] = (int)$parsed['delay_minutes'];
+        }
+        foreach (['eta', 'actual_departure', 'actual_arrival', 'status_text'] as $key) {
+            if (!empty($parsed[$key])) $sector[$key] = $parsed[$key];
+        }
+        $fsTail = strtoupper(trim((string)($parsed['aircraft_registration'] ?? '')));
+        if (preg_match('/^[A-Z0-9-]{3,15}$/', $fsTail)) {
+            $sector['aircraft_registration'] = $fsTail;
+        }
+        return $sector;
+    }
+
+    private function rememberTail(int $flightId, string $tail): void
+    {
+        if ($flightId < 1 || !preg_match('/^[A-Z0-9-]{3,15}$/', $tail)) return;
+        try {
+            $this->pdo->prepare(
+                'UPDATE flights SET aircraft_registration=:tail WHERE id=:id'
+            )->execute(['tail' => $tail, 'id' => $flightId]);
+        } catch (Throwable) {
+        }
+    }
+
+    private function fetchTailHistory(string $tail): ?string
+    {
+        $plain = strtoupper((string)preg_replace('/[^A-Z0-9]/', '', $tail));
+        foreach (array_unique(array_filter([
+            FlightAwareActivityParser::tailUrl($tail),
+            $plain !== '' ? 'https://www.flightaware.com/live/flight/' . rawurlencode($plain) : '',
+        ])) as $url) {
+            $html = $this->httpGet($url);
+            if (is_string($html) && $html !== '' && str_contains($html, 'trackpollBootstrap')) {
+                return $html;
+            }
+        }
+        return null;
+    }
+
     private function resolveTail(array $mapped, ?array $inboundSnapshot): string
     {
         $fromSnapshot = strtoupper(trim((string)($inboundSnapshot['aircraft_registration'] ?? '')));
@@ -272,12 +334,14 @@ final class FlightFeederService
         curl_setopt_array($curl, [
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_CONNECTTIMEOUT => 6,
-            CURLOPT_TIMEOUT => 12,
+            CURLOPT_CONNECTTIMEOUT => 8,
+            CURLOPT_TIMEOUT => 20,
             CURLOPT_USERAGENT => self::USER_AGENT,
             CURLOPT_HTTPHEADER => [
                 'Accept: text/html,application/xhtml+xml',
                 'Accept-Language: es-ES,es;q=0.9,en;q=0.8',
+                'Cache-Control: no-cache',
+                'Referer: https://www.flightaware.com/',
             ],
         ]);
         $body = curl_exec($curl);

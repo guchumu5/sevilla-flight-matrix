@@ -150,7 +150,8 @@
       return `<p class="canary-print-timing delay-origin is-own">Retraso de este vuelo · no viene de ${esc(code)}${route ? ' ' + esc(route) : ''}</p>`;
     }
     if (late) {
-      return `<p class="canary-print-timing delay-origin is-own">Retraso de este vuelo · aún no está el tramo anterior del avión</p>`;
+      const tail = feeder?.aircraft_registration || flight?.aircraft_registration || '';
+      return `<p class="canary-print-timing delay-origin is-own">Retraso de este vuelo${tail ? ' · avión ' + esc(tail) : ''} · aún no leímos el vuelo anterior</p>`;
     }
     return `<p class="canary-print-timing delay-origin">${esc(code)}${route ? ' ' + esc(route) : ''} · en hora · no arrastra</p>`;
   }

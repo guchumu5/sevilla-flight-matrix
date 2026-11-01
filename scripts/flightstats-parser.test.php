@@ -105,4 +105,32 @@ expectSame(79, $sector['delay_minutes'] ?? null, 'VY3191 llegó a LPA con +79.')
 expectSame('EC-LOP', $sector['aircraft_registration'] ?? null, 'La matrícula es EC-LOP.');
 expectSame('same_aircraft', $sector['match_reason'] ?? null, 'El enlace es por la misma aeronave.');
 
+$anyDest = FlightAwareActivityParser::previousSector($activity, 'VLG3190', 'MAD');
+expectSame('VY3191', $anyDest['feeder_code'] ?? null, 'El tramo anterior cuenta aunque no aterrice en la isla.');
+
+$fromBarcelona = FlightAwareActivityParser::previousSector([
+    'flights' => [
+        'now' => [
+            'displayIdent' => 'VLG3191',
+            'origin' => ['iata' => 'SVQ'],
+            'destination' => ['iata' => 'LPA'],
+            'aircraft' => ['tail' => 'EC-LOP'],
+            'activityLog' => [
+                'flights' => [
+                    ['displayIdent' => 'VLG3191', 'origin' => ['iata' => 'SVQ'], 'destination' => ['iata' => 'LPA']],
+                    [
+                        'displayIdent' => 'VLG1382',
+                        'origin' => ['iata' => 'BCN', 'TZ' => ':Europe/Madrid'],
+                        'destination' => ['iata' => 'SVQ', 'TZ' => ':Europe/Madrid'],
+                        'gateArrivalTimes' => ['scheduled' => 1793552700, 'actual' => 1793557680],
+                    ],
+                ],
+            ],
+        ],
+    ],
+], 'VY3191', 'SVQ');
+expectSame('VY1382', $fromBarcelona['feeder_code'] ?? null, 'Si el avión venía de BCN, ese es el tramo anterior.');
+expectSame('BCN', $fromBarcelona['origin_iata'] ?? null, 'Origen del tramo anterior.');
+expectSame('SVQ', $fromBarcelona['destination_iata'] ?? null, 'Destino del tramo anterior, aunque no sea Canarias.');
+
 fwrite(STDOUT, "Parser FlightStats PHP: OK\n");

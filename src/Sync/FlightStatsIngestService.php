@@ -242,6 +242,7 @@ final class FlightStatsIngestService
         $result = ['ok' => true, 'saved' => 0, 'unchanged' => 0];
         try {
             $parsed = (new FlightStatsClient())->fetch($mapped);
+            $this->rememberAircraft($flightId, $parsed);
             $snapshot = $parsed + [
                 'flight_id' => $flightId,
                 'physical_flight' => (string)$row['physical_flight'],
@@ -486,5 +487,17 @@ final class FlightStatsIngestService
                 'public_url' => $snapshot['public_url'],
             ],
         ];
+    }
+
+    /** @param array<string,mixed> $parsed */
+    private function rememberAircraft(int $flightId, array $parsed): void
+    {
+        $tail = strtoupper(trim((string)($parsed['aircraft_registration'] ?? '')));
+        if ($flightId < 1 || !preg_match('/^[A-Z0-9-]{3,15}$/', $tail)) return;
+        try {
+            $this->pdo->prepare('UPDATE flights SET aircraft_registration=:tail WHERE id=:id')
+                ->execute(['tail' => $tail, 'id' => $flightId]);
+        } catch (Throwable) {
+        }
     }
 }

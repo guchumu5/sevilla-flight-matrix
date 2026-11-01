@@ -809,6 +809,9 @@
     }
     return `<p class="flightstats-watch-line"><span>FlightStats</span><strong>${esc(bits.join(' · ') || status || 'sin retraso')}</strong><small>${esc(flightStatsNote(flight, delay, eta))}</small></p>`;
   }
+  function aircraftTail(flight) {
+    return String(flight?.feeder?.aircraft_registration || flight?.aircraft_registration || flight?.flightstats?.aircraft_registration || '').toUpperCase();
+  }
   function aircraftFeeder(flight) {
     const feeder = flight?.feeder;
     if (!feeder || !feeder.feeder_code) return null;
@@ -842,12 +845,12 @@
     const late = Number.isFinite(published) && Math.abs(published) >= 5;
     const feeder = aircraftFeeder(flight);
     const reason = delayReasonOf(flight);
-    if (!late && !feeder) return '';
+    const tail = feeder?.aircraft_registration || reason?.aircraft || aircraftTail(flight);
+    if (!late && !feeder && !tail) return '';
     const code = feeder?.feeder_code || reason?.flight || '';
     const route = feeder?.origin_iata && feeder?.destination_iata
       ? `${feeder.origin_iata} → ${feeder.destination_iata}`
       : (reason?.route || '');
-    const tail = feeder?.aircraft_registration || reason?.aircraft || '';
     const feederDelay = Number(feeder?.delay_minutes);
     const feederLate = Number.isFinite(feederDelay) && Math.abs(feederDelay) >= 5;
     const dest = feeder?.destination_iata || '';
@@ -859,10 +862,13 @@
       return `<p class="delay-origin is-own"><span>Retraso de este vuelo</span><strong>${esc(signed(published))} · no viene de ${esc(code)}${route ? ' ' + esc(route) : ''}</strong><small>${esc(reason?.detail || `El avión${tail ? ' ' + tail : ''} venía de ${code} en hora. El retraso es de esta llegada.`)}</small></p>`;
     }
     if (late) {
-      return `<p class="delay-origin is-own"><span>Retraso de este vuelo</span><strong>${esc(signed(published))} · ${esc(prettyWatchSource(flight.timing_source) || 'publicado')}</strong><small>Todavía no sabemos de qué vuelo venía este avión.</small></p>`;
+      return `<p class="delay-origin is-own"><span>Retraso de este vuelo</span><strong>${esc(signed(published))} · ${esc(prettyWatchSource(flight.timing_source) || 'publicado')}</strong><small>${tail ? `Avión ${esc(tail)}. ` : ''}Aún no leímos el vuelo anterior de esta aeronave.</small></p>`;
     }
     if (feeder) {
       return `<p class="delay-origin"><span>Avión</span><strong>${esc([code, route, tail].filter(Boolean).join(' · '))} · en hora</strong><small>${esc(reason?.detail || `Venía de ${code}. Ese tramo no arrastra retraso.`)}</small></p>`;
+    }
+    if (tail) {
+      return `<p class="delay-origin"><span>Avión</span><strong>${esc(tail)}</strong><small>Aún no leímos el vuelo anterior de esta matrícula.</small></p>`;
     }
     return '';
   }

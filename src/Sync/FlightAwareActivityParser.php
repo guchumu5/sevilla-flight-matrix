@@ -56,40 +56,38 @@ final class FlightAwareActivityParser
     }
 
     /**
-     * Tramo anterior de la misma cola que aterrizó en $island.
+     * Siguiente ítem del activityLog de la misma cola: el vuelo que
+     * acaba de hacer esa aeronave, da igual origen y destino.
      *
      * @param array<string,mixed> $bootstrap
      * @return array<string,mixed>|null
      */
-    public static function previousSector(array $bootstrap, string $currentCode, string $island): ?array
+    public static function previousSector(array $bootstrap, string $currentCode, string $originHint = ''): ?array
     {
-        $island = strtoupper(trim($island));
         $currentCode = self::ident($currentCode);
-        if ($island === '' || $currentCode === '') return null;
+        $originHint = strtoupper(trim($originHint));
+        if ($currentCode === '') return null;
         $flights = is_array($bootstrap['flights'] ?? null) ? $bootstrap['flights'] : [];
         if ($flights === []) return null;
-        $current = self::currentEntry($flights, $currentCode, $island);
+        $current = self::currentEntry($flights, $currentCode, $originHint);
         $log = is_array($current['activityLog']['flights'] ?? null) ? $current['activityLog']['flights'] : [];
         $tail = strtoupper(trim((string)(($current['aircraft']['tail'] ?? '') ?: '')));
         $afterCurrent = false;
         foreach ($log as $item) {
             if (!is_array($item)) continue;
             $ident = self::ident((string)($item['displayIdent'] ?? $item['ident'] ?? ''));
-            $origin = strtoupper(trim((string)(($item['origin']['iata'] ?? '') ?: '')));
-            $dest = strtoupper(trim((string)(($item['destination']['iata'] ?? '') ?: '')));
-            $isCurrent = $ident === $currentCode && $origin === $island;
+            if ($ident === '') continue;
             if (!$afterCurrent) {
-                if ($isCurrent) $afterCurrent = true;
+                if (self::isCurrentItem($item, $currentCode, $originHint)) $afterCurrent = true;
                 continue;
             }
-            if ($dest !== $island || $ident === '' || $ident === $currentCode) continue;
+            if ($ident === $currentCode) continue;
             return self::sector($item, $tail);
         }
         foreach ($log as $item) {
             if (!is_array($item)) continue;
             $ident = self::ident((string)($item['displayIdent'] ?? $item['ident'] ?? ''));
-            $dest = strtoupper(trim((string)(($item['destination']['iata'] ?? '') ?: '')));
-            if ($dest === $island && $ident !== '' && $ident !== $currentCode) {
+            if ($ident !== '' && $ident !== $currentCode) {
                 return self::sector($item, $tail);
             }
         }
@@ -100,18 +98,24 @@ final class FlightAwareActivityParser
      * @param array<string,mixed> $flights
      * @return array<string,mixed>
      */
-    private static function currentEntry(array $flights, string $currentCode, string $island): array
+    private static function currentEntry(array $flights, string $currentCode, string $originHint): array
     {
         foreach ($flights as $entry) {
             if (!is_array($entry)) continue;
-            $ident = self::ident((string)($entry['displayIdent'] ?? $entry['ident'] ?? ''));
-            $origin = strtoupper(trim((string)(($entry['origin']['iata'] ?? '') ?: '')));
-            if ($ident === $currentCode && ($origin === $island || $origin === '')) {
-                return $entry;
-            }
+            if (self::isCurrentItem($entry, $currentCode, $originHint)) return $entry;
         }
         $first = reset($flights);
         return is_array($first) ? $first : [];
+    }
+
+    /** @param array<string,mixed> $item */
+    private static function isCurrentItem(array $item, string $currentCode, string $originHint): bool
+    {
+        $ident = self::ident((string)($item['displayIdent'] ?? $item['ident'] ?? ''));
+        if ($ident !== $currentCode) return false;
+        if ($originHint === '') return true;
+        $origin = strtoupper(trim((string)(($item['origin']['iata'] ?? '') ?: '')));
+        return $origin === '' || $origin === $originHint;
     }
 
     /**

@@ -325,6 +325,7 @@ SQL;
             'feeder' => $row['feeder'] ?? null,
             'timing_source' => $row['timing_source'] ?? null,
             'delay_reason' => $row['delay_reason'] ?? null,
+            'aircraft_registration' => $row['aircraft_registration'] ?? null,
             'hall' => $row['hall'] ?? null,
             'belt' => $row['belt'] ?? null,
             'source' => $row['source'] ?? null,
@@ -747,6 +748,7 @@ SQL;
             $flight['deviation_minutes'] = $row['deviation_minutes'] ?? null;
             $flight['flightstats'] = $this->publicFlightStats($row['flightstats'] ?? null);
             $flight['feeder'] = $row['feeder'] ?? null;
+            $flight['aircraft_registration'] = $row['aircraft_registration'] ?? $flight['aircraft_registration'] ?? null;
             $flight['timing_source'] = $row['timing_source'] ?? $flight['timing_source'] ?? null;
             $flight['delay_reason'] = $row['delay_reason'] ?? $flight['delay_reason'] ?? null;
             $flight['belt'] = $row['belt'] ?? null;
