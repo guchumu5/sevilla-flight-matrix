@@ -235,7 +235,7 @@ final class WebPushService
     }
 
     /**
-     * Un aviso por minuto de cada vuelo vigilado de este teléfono.
+     * Itinerario de vuelos vigilados: última hora cada 10 min, últimos 30 min cada 5.
      *
      * @return array{ok:bool,sent:int,failed:int,flights:int}
      */
@@ -250,6 +250,13 @@ final class WebPushService
                     (SELECT o.actual_arrival FROM observations o
                      WHERE o.flight_id=f.id AND o.actual_arrival IS NOT NULL
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS actual_arrival,
+                    (SELECT COALESCE(o.actual_arrival,o.eta) FROM observations o
+                     WHERE o.flight_id=f.id AND o.source='aena'
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS aena_arrival,
+                    (SELECT COALESCE(o.actual_arrival,o.eta) FROM observations o
+                     WHERE o.flight_id=f.id AND o.source <> 'aena'
+                       AND (o.actual_arrival IS NOT NULL OR o.eta IS NOT NULL)
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS other_arrival,
                     f.scheduled_arrival
              FROM flight_watches w
              INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1
@@ -264,11 +271,13 @@ final class WebPushService
         foreach ($rows as $row) {
             if (!$this->isLivePushEndpoint((string)$row['endpoint'])) continue;
             if (in_array((string)$row['baggage_state'], ['finalizado', 'final'], true)) continue;
-            $arrival = (string)($row['actual_arrival'] ?: $row['scheduled_arrival']);
-            $minutes = $arrival !== '' ? (int)round((strtotime($arrival) - time()) / 60) : null;
+            $arrival = (string)($row['actual_arrival'] ?: $row['aena_arrival'] ?: $row['other_arrival'] ?: $row['scheduled_arrival']);
+            $minutes = $this->minutesUntilArrival($arrival);
             if ($row['actual_arrival'] && $minutes !== null && $minutes < -90) continue;
+            $interval = $this->watchItineraryIntervalMinutes($minutes);
+            if ($interval === null) continue;
             $flightId = (int)$row['flight_id'];
-            if (!$this->watchPulseDue((int)$row['subscription_id'], $flightId, 1)) continue;
+            if (!$this->watchPulseDue((int)$row['subscription_id'], $flightId, $interval)) continue;
             try {
                 $this->deliverToRow($row, $this->watchMinuteNotice($flightId));
                 $this->markWatchPulse((int)$row['subscription_id'], $flightId);
@@ -302,7 +311,7 @@ final class WebPushService
     }
 
     /**
-     * Arranca en Plesk un proceso CLI que sigue avisando cada minuto
+     * Arranca en Plesk un proceso CLI que sigue el itinerario
      * aunque el iPhone haya dormido la PWA.
      */
     public function armWatchPulseLoop(): bool
@@ -687,7 +696,7 @@ final class WebPushService
         $ctx = $this->flightNoticeContext($flightId);
         if ($ctx === null) throw new RuntimeException('El vuelo ya no existe.');
         return $this->watchNoticeBase($ctx, $flightId) + [
-            'body' => 'Vigilancia activa · ' . $ctx['physical_flight'] . '. En unos minutos te mando el itinerario.',
+            'body' => 'Vigilancia activa · ' . $ctx['physical_flight'] . '. Última hora cada 10 min, últimos 30 min cada 5. Si cambia cinta, hora o estado, aviso al momento.',
             'tag' => 'matrix-watch-' . $flightId . '-on',
         ];
     }
@@ -1185,7 +1194,11 @@ final class WebPushService
                      ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS hall,
                     (SELECT o.baggage_state FROM observations o
                      WHERE o.flight_id=f.id AND o.source='aena'
-                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS baggage_state
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS baggage_state,
+                    (SELECT COALESCE(o.actual_arrival,o.eta) FROM observations o
+                     WHERE o.flight_id=f.id AND o.source <> 'aena'
+                       AND (o.actual_arrival IS NOT NULL OR o.eta IS NOT NULL)
+                     ORDER BY o.observed_at DESC,o.id DESC LIMIT 1) AS other_arrival
              FROM flight_watches w
              INNER JOIN push_subscriptions s ON s.id=w.subscription_id AND s.active=1
              INNER JOIN flights f ON f.id=w.flight_id
@@ -1197,14 +1210,16 @@ final class WebPushService
         $sent = 0;
         foreach ($stmt->fetchAll() as $row) {
             $finished = in_array((string)$row['baggage_state'], ['finalizado', 'final'], true);
-            $arrival = (string)($row['actual_arrival'] ?: $row['aena_arrival'] ?: $row['scheduled_arrival']);
-            $minutes = $arrival !== '' ? (int)round((strtotime($arrival) - time()) / 60) : null;
+            $arrival = (string)($row['actual_arrival'] ?: $row['aena_arrival'] ?: $row['other_arrival'] ?: $row['scheduled_arrival']);
+            $minutes = $this->minutesUntilArrival($arrival);
             if ($finished) continue;
             if ($row['actual_arrival'] && $minutes !== null && $minutes < -90) continue;
             $subscriptionId = (int)$row['subscription_id'];
             $flightId = (int)$row['flight_id'];
             if (!$this->isLivePushEndpoint((string)$row['endpoint'])) continue;
-            if (!$this->watchPulseDue($subscriptionId, $flightId, 1)) continue;
+            $interval = $this->watchItineraryIntervalMinutes($minutes);
+            if ($interval === null) continue;
+            if (!$this->watchPulseDue($subscriptionId, $flightId, $interval)) continue;
             try {
                 $this->deliverToRow($row, $this->watchMinuteNotice($flightId));
                 $this->markWatchPulse($subscriptionId, $flightId);
@@ -1214,6 +1229,21 @@ final class WebPushService
             }
         }
         return $sent;
+    }
+
+    private function minutesUntilArrival(string $arrival): ?int
+    {
+        if ($arrival === '') return null;
+        $at = strtotime($arrival);
+        return $at === false ? null : (int)round(($at - time()) / 60);
+    }
+
+    /** Última hora: 10 min. Últimos 30 min (y tras aterrizar): 5 min. Antes, nada periódico. */
+    private function watchItineraryIntervalMinutes(?int $minutesToArrival): ?int
+    {
+        if ($minutesToArrival === null) return null;
+        if ($minutesToArrival > 60) return null;
+        return $minutesToArrival > 30 ? 10 : 5;
     }
 
     private function watchPulseDue(int $subscriptionId, int $flightId, int $intervalMinutes): bool

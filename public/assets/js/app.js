@@ -909,7 +909,7 @@
   async function notifyWatchSequenceStart(flight) {
     if (!flight) return;
     const title = `${flight.origin_name} · ${flight.physical_flight}`;
-    const body = `Vigilancia activa · ${flight.physical_flight}. Cada minuto te mando el itinerario para comprobar que llega.`;
+    const body = `Vigilancia activa · ${flight.physical_flight}. Última hora cada 10 min, últimos 30 min cada 5. Si cambia cinta, hora o estado, aviso al momento.`;
     try {
       const registration = await ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '');
       await registration.showNotification(title, {
@@ -954,6 +954,33 @@
     return `${clock} · Itinerario · Despegue ${dep} · Llegada ${arr} · Cinta ${belt}`;
   }
 
+  function watchItineraryIntervalMinutes(flight) {
+    if (['finalizado', 'final'].includes(String(flight.baggage_state || ''))) return null;
+    const arrival = parseDate(flight.actual_arrival || flight.eta || flight.effective_arrival || flight.scheduled_arrival);
+    if (!arrival) return null;
+    const minutes = Math.round((arrival.getTime() - Date.now()) / 60_000);
+    if (minutes > 60) return null;
+    return minutes > 30 ? 10 : 5;
+  }
+
+  function watchLocalPulseDue(flightId, intervalMinutes) {
+    let stamps = {};
+    try { stamps = JSON.parse(localStorage.getItem('matrix.watchTicks') || '{}') || {}; } catch (_) { stamps = {}; }
+    const last = Number(stamps[String(flightId)] || 0);
+    return last <= Date.now() - Math.max(1, Number(intervalMinutes) || 5) * 60_000;
+  }
+
+  function markWatchLocalPulse(flightId) {
+    let stamps = {};
+    try { stamps = JSON.parse(localStorage.getItem('matrix.watchTicks') || '{}') || {}; } catch (_) { stamps = {}; }
+    stamps[String(flightId)] = Date.now();
+    const keys = Object.keys(stamps);
+    if (keys.length > 80) {
+      keys.sort((a, b) => Number(stamps[a]) - Number(stamps[b])).slice(0, keys.length - 40).forEach(key => { delete stamps[key]; });
+    }
+    try { localStorage.setItem('matrix.watchTicks', JSON.stringify(stamps)); } catch (_) {}
+  }
+
   async function maybeTickWatchedFlights() {
     if (!state.watchedFlightIds.length) return;
     if (Date.now() - (state.watchTickAt || 0) < 55_000) return;
@@ -980,6 +1007,9 @@
     const list = [...fromBoard, ...extra];
     if (!document.hidden) {
       for (const flight of list) {
+        const interval = watchItineraryIntervalMinutes(flight);
+        if (interval == null || !watchLocalPulseDue(flight.id, interval)) continue;
+        markWatchLocalPulse(flight.id);
         const title = `${flight.origin_name || ''} · ${flight.physical_flight}`;
         await notifyWatchedChange(
           flight,
@@ -1003,7 +1033,7 @@
         state.pushLastError = '';
         state.pushLastAt = new Date().toISOString();
       } else if (Number(data.failed) > 0) {
-        state.pushLastError = 'El aviso cada minuto no salió por Apple';
+        state.pushLastError = 'El aviso de itinerario no salió por Apple';
       }
       if (els.pushStatusLine && list.length) {
         els.pushStatusLine.className = Number(data.failed) > 0
@@ -1012,8 +1042,8 @@
         els.pushStatusLine.textContent = Number(data.sent) > 0
           ? `Aviso de itinerario enviado (${data.sent}). Baja el centro de notificaciones o bloquea el teléfono.`
           : (data.loop
-            ? 'El servidor sigue avisando cada minuto aunque duerma la pantalla. Baja el centro de notificaciones.'
-            : 'Comprobación local cada minuto. Baja el centro de notificaciones: el globo no sale con la app abierta.');
+            ? 'El servidor avisa en la última hora cada 10 min y en los últimos 30 min cada 5, aunque duerma la pantalla. Si algo cambia, aviso al momento.'
+            : 'Itinerario en la última hora cada 10 min y en los últimos 30 min cada 5. Si cambia cinta, hora o estado, aviso al momento.');
       }
     } catch (_) {}
   }
@@ -1529,7 +1559,7 @@
           state.pushLastAt = data.sent_at || new Date().toISOString();
           if (els.pushStatusLine) {
             els.pushStatusLine.className = 'push-status-line push-status-ready';
-            els.pushStatusLine.textContent = 'Vigilancia activa. Baja el centro de notificaciones o bloquea: ahora el de vigilancia, en unos minutos el itinerario.';
+            els.pushStatusLine.textContent = 'Vigilancia activa. Última hora cada 10 min, últimos 30 min cada 5. Si algo cambia, aviso al momento.';
           }
         } else {
           await showPushConfirmation();
@@ -3492,7 +3522,7 @@
           <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
         </article>`;
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
-      const watchSupport = `<p class="watch-explanation mb-3">Avisos: itinerario en unos minutos, ~40 min antes y cualquier cambio de Aena, AirLabs, FlightStats u OpenSky. Con la app abierta iOS no enseña globo.</p>
+      const watchSupport = `<p class="watch-explanation mb-3">Avisos: itinerario en la última hora cada 10 min y en los últimos 30 min cada 5. Cualquier cambio de cinta, hora o estado (Aena, AirLabs, FlightStats u OpenSky) se avisa al momento. Con la app abierta iOS no enseña globo.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita al abrir la ficha o al buscar matrícula y telemetría.</small></div>`;
       renderDetailQuickBar(flight);
       els.detailBody.innerHTML = `<div class="tracked-focus-layout detail-focus-layout">

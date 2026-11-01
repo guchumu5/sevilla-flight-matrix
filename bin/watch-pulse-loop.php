@@ -33,7 +33,7 @@ fflush($lock);
 $started = time();
 $maxSeconds = 8 * 3600;
 $service = new WebPushService(Database::connection());
-echo date('c') . " bucle de avisos cada minuto arrancado pid=" . getmypid() . PHP_EOL;
+echo date('c') . " bucle de itinerario (10/5 min) arrancado pid=" . getmypid() . PHP_EOL;
 
 try {
     while ((time() - $started) < $maxSeconds) {
