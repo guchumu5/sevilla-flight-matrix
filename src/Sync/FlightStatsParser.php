@@ -88,6 +88,7 @@ final class FlightStatsParser
             'canceled' => $canceled,
             'origin_iata' => strtoupper(trim((string)($departure['iata'] ?? $header['departureAirportFS'] ?? ''))),
             'destination_iata' => strtoupper(trim((string)($arrival['iata'] ?? $header['arrivalAirportFS'] ?? ''))),
+            'aircraft_registration' => self::tailNumber($data),
         ];
     }
 
@@ -112,6 +113,7 @@ final class FlightStatsParser
             'canceled' => preg_match('/\bCancelled\b/i', $text) === 1,
             'origin_iata' => '',
             'destination_iata' => '',
+            'aircraft_registration' => null,
         ];
         if (preg_match('/Delayed by\s+((?:\d+\s*h(?:ours?)?\s*)?\d+\s*m(?:in(?:utes?)?)?|\d+\s*h(?:ours?)?)/i', $text, $found)) {
             $out['delay_minutes'] = self::parseDelayMinutes(null, $found[1]);
@@ -221,6 +223,13 @@ final class FlightStatsParser
             return self::nullableInt(((int)$match[1]) * 60);
         }
         return null;
+    }
+
+    public static function tailNumber(array $data): ?string
+    {
+        $track = is_array($data['positional']['flexTrack'] ?? null) ? $data['positional']['flexTrack'] : [];
+        $tail = strtoupper(trim((string)($track['tailNumber'] ?? $data['tailNumber'] ?? '')));
+        return preg_match('/^[A-Z0-9-]{3,15}$/', $tail) ? $tail : null;
     }
 
     private static function clockLabel(string $clock, string $zone, ?string $title): ?string

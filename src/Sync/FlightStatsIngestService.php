@@ -263,7 +263,7 @@ final class FlightStatsIngestService
         }
 
         try {
-            $feeder = (new FlightFeederService($this->pdo))->capture($row, $mapped);
+            $feeder = (new FlightFeederService($this->pdo))->capture($row, $mapped, is_array($parsed) ? $parsed : null);
             if (is_array($feeder)) {
                 $result['feeder'] = $feeder;
                 $result['saved'] = (int)($result['saved'] ?? 0) + (int)($feeder['saved'] ?? 0);

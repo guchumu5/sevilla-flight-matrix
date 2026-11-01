@@ -131,9 +131,10 @@
     const bits = [`${feeder.feeder_code}${route}`];
     if (delayed) bits.push(`${delay > 0 ? '+' : ''}${delay} min`);
     else bits.push('en hora');
+    const tail = feeder.aircraft_registration ? ` · ${feeder.aircraft_registration}` : '';
     const reason = flight?.delay_reason?.detail
-      || (delayed ? `retraso por el vuelo de ida ${feeder.feeder_code}` : `${feeder.feeder_code} en hora`);
-    return `<p class="canary-print-timing">${delayed ? 'Retraso por otro vuelo' : 'Vuelo de ida'} · ${esc(bits.join(' · '))} · ${esc(reason)}</p>`;
+      || (delayed ? `el avión venía de ${feeder.feeder_code}` : `${feeder.feeder_code} en hora`);
+    return `<p class="canary-print-timing">${delayed ? 'Retraso del avión' : 'Avión'} · ${esc(bits.join(' · '))}${esc(tail)} · ${esc(reason)}</p>`;
   }
   const rankAroundEntries = entries => [...(Array.isArray(entries) ? entries : [])].sort((a, b) =>
     (isCanaryEntry(b) ? 1 : 0) - (isCanaryEntry(a) ? 1 : 0)

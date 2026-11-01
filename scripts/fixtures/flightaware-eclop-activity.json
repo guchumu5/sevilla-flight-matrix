@@ -1,0 +1,28 @@
+{
+  "flights": {
+    "VLG3190-now": {
+      "displayIdent": "VLG3190",
+      "origin": {"iata": "LPA", "TZ": ":Atlantic/Canary"},
+      "destination": {"iata": "SVQ", "TZ": ":Europe/Madrid"},
+      "aircraft": {"tail": "EC-LOP", "type": "A320"},
+      "activityLog": {
+        "flights": [
+          {
+            "displayIdent": "VLG3190",
+            "origin": {"iata": "LPA"},
+            "destination": {"iata": "SVQ"},
+            "flightStatus": "airborne"
+          },
+          {
+            "displayIdent": "VLG3191",
+            "origin": {"iata": "SVQ", "TZ": ":Europe/Madrid"},
+            "destination": {"iata": "LPA", "TZ": ":Atlantic/Canary"},
+            "flightStatus": "arrived",
+            "gateDepartureTimes": {"scheduled": 1793554800, "actual": 1793559600},
+            "gateArrivalTimes": {"scheduled": 1793563200, "actual": 1793567940}
+          }
+        ]
+      }
+    }
+  }
+}

@@ -5,6 +5,7 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 
 use SevillaMatrix\IataFlightCode;
 use SevillaMatrix\OperationalDay;
+use SevillaMatrix\Sync\FlightAwareActivityParser;
 use SevillaMatrix\Sync\FlightFeederService;
 use SevillaMatrix\Sync\FlightStatsParser;
 
@@ -69,6 +70,9 @@ expectSame(true, FlightStatsParser::isPlaceholder([
     'delay_minutes' => 0,
     'eta' => '2026-11-01 23:50:00',
 ], '2026-11-01 23:50:00'), 'On time con ETA programada es cascarón.');
+expectSame('EC-LOP', FlightStatsParser::tailNumber([
+    'positional' => ['flexTrack' => ['tailNumber' => 'EC-LOP']],
+]), 'El JSON de FlightStats trae la matrícula en flexTrack.');
 expectSame(false, FlightStatsParser::isPlaceholder([
     'status_text' => 'Scheduled · Delayed by 1h 23m',
     'delay_minutes' => 83,
@@ -91,13 +95,14 @@ expectSame(false, $feeder->isNightCanary([
     'origin_iata' => 'LPA',
     'scheduled_arrival' => '2026-11-01 12:00:00',
 ]), 'Un Canarias de mediodía no entra en arrastre.');
-expectSame(true, $feeder->matchesRotation([
-    'origin_iata' => 'SVQ',
-    'destination_iata' => 'LPA',
-], 'LPA'), 'VY3189 SVQ→LPA es la ida de VY3190.');
-expectSame(false, $feeder->matchesRotation([
-    'origin_iata' => 'SVQ',
-    'destination_iata' => 'BCN',
-], 'LPA'), 'Un consecutivo a otro destino no vale.');
+
+$activity = json_decode((string)file_get_contents(dirname(__DIR__) . '/scripts/fixtures/flightaware-eclop-activity.json'), true);
+$sector = FlightAwareActivityParser::previousSector($activity, 'VLG3190', 'LPA');
+expectSame('VY3191', $sector['feeder_code'] ?? null, 'El avión de VY3190 venía de VY3191, no de la ida 3189.');
+expectSame('SVQ', $sector['origin_iata'] ?? null, 'VY3191 salió de SVQ.');
+expectSame('LPA', $sector['destination_iata'] ?? null, 'VY3191 aterrizó en LPA.');
+expectSame(79, $sector['delay_minutes'] ?? null, 'VY3191 llegó a LPA con +79.');
+expectSame('EC-LOP', $sector['aircraft_registration'] ?? null, 'La matrícula es EC-LOP.');
+expectSame('same_aircraft', $sector['match_reason'] ?? null, 'El enlace es por la misma aeronave.');
 
 fwrite(STDOUT, "Parser FlightStats PHP: OK\n");

@@ -347,6 +347,7 @@ CREATE TABLE IF NOT EXISTS flight_feeders (
   flight_id BIGINT UNSIGNED NOT NULL,
   observed_at DATETIME NOT NULL,
   feeder_code VARCHAR(12) NOT NULL,
+  aircraft_registration VARCHAR(15) NULL,
   origin_iata CHAR(3) NOT NULL DEFAULT 'SVQ',
   destination_iata CHAR(3) NOT NULL,
   delay_minutes SMALLINT NULL,

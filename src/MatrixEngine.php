@@ -168,7 +168,9 @@ final class MatrixEngine
         $source = (string)($flight['timing_source'] ?? 'programada');
         $feeder = is_array($flight['feeder'] ?? null) ? $flight['feeder'] : [];
         $code = strtoupper(trim((string)($feeder['feeder_code'] ?? '')));
-        $origin = strtoupper(trim((string)($feeder['origin_iata'] ?? 'SVQ'))) ?: 'SVQ';
+        $origin = strtoupper(trim((string)($feeder['origin_iata'] ?? '')));
+        $tail = strtoupper(trim((string)($feeder['aircraft_registration'] ?? '')));
+        $plane = $tail !== '' ? 'La aeronave ' . $tail : 'La aeronave';
         $dest = strtoupper(trim((string)($feeder['destination_iata'] ?? '')));
         $route = $dest !== '' ? $origin . '→' . $dest : $origin;
         $feederDelay = isset($feeder['delay_minutes']) && is_numeric($feeder['delay_minutes'])
@@ -189,10 +191,11 @@ final class MatrixEngine
                 'kind' => 'feeder',
                 'flight' => $code,
                 'route' => $route,
+                'aircraft' => $tail !== '' ? $tail : null,
                 'minutes' => $feederDelay,
                 'label' => 'por ' . $code,
-                'detail' => 'El retraso lo trae ' . $code . ', el vuelo de ida ' . $route
-                    . '. Aena aún no lo ha puesto en esta llegada.',
+                'detail' => $plane . ' venía de ' . $code . ' ' . $route
+                    . '. Ese retraso se arrastra a esta llegada. Aena aún no lo ha puesto.',
             ];
             return;
         }
@@ -205,8 +208,8 @@ final class MatrixEngine
                 'minutes' => (int)($flight['deviation_minutes'] ?? 0),
                 'label' => 'este vuelo · ' . $own,
                 'detail' => $feederLate && $code !== ''
-                    ? $own . ' ya marca retraso en esta llegada. La ida ' . $code
-                        . ' también iba ' . $signed($feederDelay) . ' min.'
+                    ? $own . ' ya marca retraso en esta llegada. El avión venía de ' . $code
+                        . ' con ' . $signed($feederDelay) . ' min.'
                     : $own . ' marca el retraso de este mismo vuelo.',
             ];
             return;
@@ -219,7 +222,7 @@ final class MatrixEngine
                 'route' => $route,
                 'minutes' => $feederDelay,
                 'label' => 'por ' . $code,
-                'detail' => 'La ida ' . $code . ' trae ' . $signed($feederDelay)
+                'detail' => $plane . ' venía de ' . $code . ' con ' . $signed($feederDelay)
                     . ' min. Esta llegada aún no lo refleja en Aena.',
             ];
             return;
@@ -232,7 +235,7 @@ final class MatrixEngine
                 'route' => $route,
                 'minutes' => $feederDelay,
                 'label' => $code . ' en hora',
-                'detail' => 'Localizado el vuelo de ida ' . $code . '. No arrastra retraso.',
+                'detail' => $plane . ' venía de ' . $code . '. Ese tramo no arrastra retraso.',
             ]
             : null;
     }

@@ -757,7 +757,7 @@
     if (source === 'opensky') return 'ETA / real · OpenSky';
     if (source === 'arrastre') {
       const code = flight?.delay_reason?.flight || flight?.feeder?.feeder_code;
-      return code ? `ETA · por ${code}` : 'ETA · vuelo de ida';
+      return code ? `ETA · avión venía de ${code}` : 'ETA · avión anterior';
     }
     if (source && source !== 'programada' && source !== 'eta') return `ETA / real · ${prettyWatchSource(source)}`;
     const scheduled = parseDate(flight.scheduled_arrival);
@@ -817,7 +817,8 @@
     const delay = Number(feeder?.delay_minutes);
     const source = String(flight?.timing_source || '').toLowerCase();
     if (source === 'arrastre' && code) {
-      return {kind:'feeder', flight:code, label:`por ${code}`, detail:`El retraso lo trae ${code}, el vuelo de ida.`};
+      const tail = feeder?.aircraft_registration ? ` (${feeder.aircraft_registration})` : '';
+      return {kind:'feeder', flight:code, label:`por ${code}`, detail:`El avión${tail} venía de ${code}.`};
     }
     if (code && Number.isFinite(delay) && Math.abs(delay) >= 5) {
       return {kind:'feeder', flight:code, label:`por ${code}`, minutes:delay};
@@ -836,18 +837,20 @@
       ? `${feeder.origin_iata}→${feeder.destination_iata}`
       : '';
     const reason = delayReasonOf(flight);
+    const tail = feeder.aircraft_registration || reason?.aircraft || '';
     const title = delayed
-      ? (reason?.kind === 'this' ? 'Ida también tarde' : 'Retraso por otro vuelo')
-      : 'Vuelo de ida';
+      ? (reason?.kind === 'this' ? 'El avión también venía tarde' : 'Retraso del avión')
+      : 'Avión localizado';
     const bits = [`${feeder.feeder_code}${route ? ' ' + route : ''}`];
+    if (tail) bits.push(tail);
     if (delayed) bits.push(`${delay > 0 ? '+' : ''}${delay} min`);
     else bits.push('en hora');
     if (feeder.actual_departure) bits.push(`salió ${time(feeder.actual_departure)}`);
     const note = reason?.detail || (delayed
       ? (aenaStillOnTime(flight, parseDate(flight.scheduled_arrival))
-        ? `El retraso lo trae ${feeder.feeder_code}, el vuelo de ida. Aena aún no lo ha puesto en esta llegada.`
-        : `La ida ${feeder.feeder_code} iba tarde. Aena ya marca otra hora en esta llegada.`)
-      : `${feeder.feeder_code} localizado. No arrastra retraso a esta llegada.`);
+        ? `El avión${tail ? ' ' + tail : ''} venía de ${feeder.feeder_code}. Ese retraso se arrastra a esta llegada.`
+        : `El avión venía de ${feeder.feeder_code}. Aena ya marca otra hora en esta llegada.`)
+      : `El avión${tail ? ' ' + tail : ''} venía de ${feeder.feeder_code}. Ese tramo no arrastra retraso.`);
     return `<p class="flightstats-watch-line feeder-watch-line ${delayed ? 'is-late' : ''}"><span>${esc(title)}</span><strong>${esc(bits.join(' · '))}</strong><small>${esc(note)}</small></p>`;
   }
   function secondaryWatchMarkup(flight) {
@@ -1049,7 +1052,7 @@
     if (key === 'airlabs') return 'AirLabs';
     if (key === 'opensky') return 'OpenSky';
     if (key === 'aena') return 'Aena';
-    if (key === 'arrastre') return 'vuelo de ida';
+    if (key === 'arrastre') return 'avión anterior';
     return value ? String(value) : 'API';
   }
   function aenaStillOnTime(flight, scheduled) {
