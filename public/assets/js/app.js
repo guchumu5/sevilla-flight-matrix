@@ -1551,17 +1551,68 @@
     worker?.postMessage({type:'matrix-device-token',token});
   }
 
+  function waitForWorkerState(worker, timeoutMs = 10000) {
+    if (!worker || worker.state === 'activated') return Promise.resolve();
+    return new Promise((resolve, reject) => {
+      const finish = (ok, error) => {
+        clearTimeout(timer);
+        worker.removeEventListener('statechange', onChange);
+        ok ? resolve() : reject(error);
+      };
+      const timer = setTimeout(() => {
+        finish(false, new Error('El trabajador de avisos no llegó a activarse. Recarga la página e inténtalo otra vez.'));
+      }, timeoutMs);
+      const onChange = () => {
+        if (worker.state === 'activated') finish(true);
+        else if (worker.state === 'redundant') {
+          finish(false, new Error('El trabajador de avisos se sustituyó antes de activarse. Recarga e inténtalo otra vez.'));
+        }
+      };
+      worker.addEventListener('statechange', onChange);
+      if (worker.state === 'activated') finish(true);
+    });
+  }
+
+  function waitForController(timeoutMs = 4000) {
+    if (navigator.serviceWorker.controller) return Promise.resolve();
+    return new Promise(resolve => {
+      const timer = setTimeout(resolve, timeoutMs);
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        clearTimeout(timer);
+        resolve();
+      }, {once:true});
+    });
+  }
+
+  function explainPushError(error) {
+    const message = String(error?.message || error || '');
+    if (/service worker/i.test(message)) {
+      return new Error('El teléfono aún no tenía listo el trabajador de avisos. Recarga la página y pulsa otra vez «Activar avisos».');
+    }
+    return error instanceof Error ? error : new Error(message || 'No se pudo activar Web Push.');
+  }
+
   async function ensureServiceWorker(token = '') {
+    if (!('serviceWorker' in navigator)) {
+      throw new Error('Este navegador o modo privado no permite el trabajador necesario para los avisos.');
+    }
     let registration;
     try {
       registration = await navigator.serviceWorker.register('sw.js', {scope:'./', updateViaCache:'none'});
     } catch (_) {
       registration = await navigator.serviceWorker.register('sw.js', {scope:'./'});
     }
-    try { await registration.update(); } catch (_) {}
-    const ready = await navigator.serviceWorker.ready;
-    if (token) await persistPushDeviceToken(token, ready);
-    return ready;
+    const pending = registration.installing || registration.waiting;
+    if (pending) await waitForWorkerState(pending);
+    if (!registration.active) {
+      try { registration = await navigator.serviceWorker.ready; } catch (_) {}
+    }
+    if (!registration.active) {
+      throw new Error('Aún no está listo el trabajador de avisos. Recarga la página y pulsa otra vez «Activar avisos».');
+    }
+    await waitForController();
+    if (token) await persistPushDeviceToken(token, registration);
+    return registration;
   }
 
   function pushCapabilityError() {
@@ -1597,18 +1648,36 @@
     const config = await configResponse.json();
     if (!configResponse.ok || !config.public_key) throw new Error(config.error || 'No se pudo preparar Web Push. Aplica primero la actualización MySQL pendiente.');
     const previousDeviceToken = localStorage.getItem('matrix.pushDevice') || '';
-    const registration = await ensureServiceWorker(previousDeviceToken);
-    let subscription = await registration.pushManager.getSubscription();
-    const currentApplicationKey = arrayBufferToBase64Url(subscription?.options?.applicationServerKey);
-    if (subscription && currentApplicationKey && currentApplicationKey !== config.public_key) {
-      await subscription.unsubscribe();
-      subscription = null;
-    }
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly:true,
-        applicationServerKey:urlBase64ToUint8Array(config.public_key)
-      });
+    const subscribeWith = async registration => {
+      if (!registration?.active) {
+        throw new Error('Getting push subscription requires a service worker');
+      }
+      let subscription = await registration.pushManager.getSubscription();
+      const currentApplicationKey = arrayBufferToBase64Url(subscription?.options?.applicationServerKey);
+      if (subscription && currentApplicationKey && currentApplicationKey !== config.public_key) {
+        await subscription.unsubscribe();
+        subscription = null;
+      }
+      if (!subscription) {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly:true,
+          applicationServerKey:urlBase64ToUint8Array(config.public_key)
+        });
+      }
+      return {registration, subscription};
+    };
+    let registration;
+    let subscription;
+    try {
+      ({registration, subscription} = await subscribeWith(await ensureServiceWorker(previousDeviceToken)));
+    } catch (error) {
+      if (!/service worker/i.test(String(error?.message || error))) throw explainPushError(error);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      try {
+        ({registration, subscription} = await subscribeWith(await ensureServiceWorker(previousDeviceToken)));
+      } catch (retryError) {
+        throw explainPushError(retryError);
+      }
     }
     const response = await fetch('api/push.php', {
       method:'POST', headers:{'Content-Type':'application/json','Accept':'application/json'},
@@ -3981,6 +4050,9 @@
   setInterval(loadCanaryWeek, 120_000);
   setInterval(loadNightWeek, 180_000);
   setInterval(updateDateLabels, 60_000);
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    ensureServiceWorker(localStorage.getItem('matrix.pushDevice') || '').catch(() => {});
+  }
   Promise.race([
     refreshNotificationStatus(),
     new Promise(resolve => setTimeout(resolve, 1500))

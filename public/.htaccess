@@ -11,3 +11,9 @@ Options -Indexes
   Require all denied
 </FilesMatch>
 
+<Files "sw.js">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+  </IfModule>
+</Files>
+
