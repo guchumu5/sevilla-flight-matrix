@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace SevillaMatrix;
 
 use PDO;
+use SevillaMatrix\Sync\FlightFeederService;
 use SevillaMatrix\Sync\FlightStatsParser;
 
 final class FlightRepository
@@ -23,6 +24,7 @@ final class FlightRepository
             $day->modify('+1 day')->format('Y-m-d')
         );
         $this->attachFlightStatsSnapshots($rows);
+        $this->attachFeeders($rows);
         $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
         $rows = array_values(array_filter(
             $rows,
@@ -93,6 +95,7 @@ final class FlightRepository
             $from->modify('+' . ($days + 1) . ' day')->format('Y-m-d')
         );
         $this->attachFlightStatsSnapshots($rows);
+        $this->attachFeeders($rows);
         $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
         $inRange = array_flip($dates);
         $summary = [];
@@ -319,6 +322,8 @@ SQL;
             'secondary_eta' => $row['secondary_eta'] ?? null,
             'secondary_eta_source' => $row['secondary_eta_source'] ?? null,
             'flightstats' => $this->publicFlightStats($row['flightstats'] ?? null),
+            'feeder' => $row['feeder'] ?? null,
+            'timing_source' => $row['timing_source'] ?? null,
             'hall' => $row['hall'] ?? null,
             'belt' => $row['belt'] ?? null,
             'source' => $row['source'] ?? null,
@@ -718,6 +723,7 @@ SQL;
         $to = (new \DateTimeImmutable($fromDate))->modify('+' . ($days + 1) . ' day')->format('Y-m-d');
         $rows = $this->boardRows($from, $to);
         $this->attachFlightStatsSnapshots($rows);
+        $this->attachFeeders($rows);
         $rows = (new MatrixEngine())->decorate(
             $rows,
             $this->arrivalDeviationProfile(),
@@ -739,6 +745,8 @@ SQL;
             $flight['eta'] = $row['eta'] ?? $flight['eta'] ?? null;
             $flight['deviation_minutes'] = $row['deviation_minutes'] ?? null;
             $flight['flightstats'] = $this->publicFlightStats($row['flightstats'] ?? null);
+            $flight['feeder'] = $row['feeder'] ?? null;
+            $flight['timing_source'] = $row['timing_source'] ?? $flight['timing_source'] ?? null;
             $flight['belt'] = $row['belt'] ?? null;
             $flight['hall'] = $row['hall'] ?? null;
             $flight['source'] = $row['source'] ?? null;
@@ -895,6 +903,12 @@ SQL;
             'arrival_text' => $snapshot['arrival_text'] ?? null,
             'phase' => $snapshot['phase'] ?? null,
         ];
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function attachFeeders(array &$rows): void
+    {
+        (new FlightFeederService($this->pdo))->attach($rows);
     }
 
     /** @param array<int,array<string,mixed>> $rows */

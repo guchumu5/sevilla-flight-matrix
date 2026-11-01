@@ -237,22 +237,48 @@ final class FlightStatsIngestService
         if (!is_array($row)) throw new RuntimeException('El vuelo ya no existe.');
         $mapped = $this->mapFlight($row);
         if ($mapped === null) throw new RuntimeException('No se pudo traducir el vuelo a un código IATA de FlightStats.');
-        $parsed = (new FlightStatsClient())->fetch($mapped);
-        $snapshot = $parsed + [
-            'flight_id' => $flightId,
-            'physical_flight' => (string)$row['physical_flight'],
-            'observed_at' => date('c'),
-            'raw_excerpt' => json_encode([
-                'status_text' => $parsed['status_text'] ?? null,
-                'delay_minutes' => $parsed['delay_minutes'] ?? null,
-                'eta' => $parsed['eta'] ?? null,
-                'actual_departure' => $parsed['actual_departure'] ?? null,
-                'source_kind' => $parsed['source_kind'] ?? 'json',
-            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-        ];
-        $result = $this->ingest([$snapshot], false);
-        $result['snapshot'] = $this->latest($flightId);
-        $result['source_kind'] = $parsed['source_kind'] ?? 'json';
+        $parsed = null;
+        $inboundError = null;
+        $result = ['ok' => true, 'saved' => 0, 'unchanged' => 0];
+        try {
+            $parsed = (new FlightStatsClient())->fetch($mapped);
+            $snapshot = $parsed + [
+                'flight_id' => $flightId,
+                'physical_flight' => (string)$row['physical_flight'],
+                'observed_at' => date('c'),
+                'raw_excerpt' => json_encode([
+                    'status_text' => $parsed['status_text'] ?? null,
+                    'delay_minutes' => $parsed['delay_minutes'] ?? null,
+                    'eta' => $parsed['eta'] ?? null,
+                    'actual_departure' => $parsed['actual_departure'] ?? null,
+                    'source_kind' => $parsed['source_kind'] ?? 'json',
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ];
+            $result = $this->ingest([$snapshot], false);
+            $result['snapshot'] = $this->latest($flightId);
+            $result['source_kind'] = $parsed['source_kind'] ?? 'json';
+        } catch (Throwable $error) {
+            $inboundError = $error;
+            $result['error'] = $error->getMessage();
+        }
+
+        try {
+            $feeder = (new FlightFeederService($this->pdo))->capture($row, $mapped);
+            if (is_array($feeder)) {
+                $result['feeder'] = $feeder;
+                $result['saved'] = (int)($result['saved'] ?? 0) + (int)($feeder['saved'] ?? 0);
+                if ((int)($feeder['saved'] ?? 0) === 0) {
+                    $result['unchanged'] = (int)($result['unchanged'] ?? 0) + 1;
+                }
+            }
+        } catch (Throwable $error) {
+            $result['feeder_error'] = $error->getMessage();
+        }
+
+        if ($inboundError !== null && empty($result['feeder'])) {
+            throw $inboundError;
+        }
+        $result['ok'] = true;
         return $result;
     }
 

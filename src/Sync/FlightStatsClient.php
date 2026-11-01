@@ -15,6 +15,19 @@ final class FlightStatsClient
      */
     public function fetch(array $flight): array
     {
+        return $this->fetchRoute($flight, 'SVQ', null, false);
+    }
+
+    /**
+     * @param array<string,mixed> $flight
+     * @return array<string,mixed>
+     */
+    public function fetchRoute(
+        array $flight,
+        ?string $expectedDestination = 'SVQ',
+        ?string $expectedOrigin = null,
+        bool $jsonOnly = false
+    ): array {
         $carrier = strtoupper(trim((string)($flight['iata_carrier'] ?? '')));
         $number = trim((string)($flight['iata_number'] ?? ''));
         $parts = [
@@ -36,8 +49,14 @@ final class FlightStatsClient
             if (is_array($parsed)) {
                 $parsed['public_url'] = $publicUrl;
                 $parsed['source_kind'] = 'json';
-                return $this->assertSevilleArrival($parsed);
+                $parsed['iata_carrier'] = $parsed['iata_carrier'] ?: $carrier;
+                $parsed['iata_number'] = $parsed['iata_number'] ?: $number;
+                return $this->assertRoute($parsed, $expectedDestination, $expectedOrigin);
             }
+        }
+
+        if ($jsonOnly) {
+            throw new \RuntimeException('FlightStats no devolvió JSON utilizable para la rotación.');
         }
 
         $html = $this->httpGet($publicUrl, $publicUrl, false);
@@ -50,15 +69,32 @@ final class FlightStatsClient
         }
         $parsed['public_url'] = $publicUrl;
         $parsed['source_kind'] = 'html';
-        return $this->assertSevilleArrival($parsed);
+        $parsed['iata_carrier'] = $parsed['iata_carrier'] ?: $carrier;
+        $parsed['iata_number'] = $parsed['iata_number'] ?: $number;
+        return $this->assertRoute($parsed, $expectedDestination, $expectedOrigin);
     }
 
-    /** @param array<string,mixed> $parsed @return array<string,mixed> */
-    private function assertSevilleArrival(array $parsed): array
+    /**
+     * @param array<string,mixed> $parsed
+     * @return array<string,mixed>
+     */
+    private function assertRoute(array $parsed, ?string $expectedDestination, ?string $expectedOrigin): array
     {
         $destination = strtoupper(trim((string)($parsed['destination_iata'] ?? '')));
-        if ($destination !== '' && $destination !== 'SVQ') {
-            throw new \RuntimeException('FlightStats devolvió destino ' . $destination . ' en lugar de SVQ.');
+        $origin = strtoupper(trim((string)($parsed['origin_iata'] ?? '')));
+        $wantDest = strtoupper(trim((string)($expectedDestination ?? '')));
+        $wantOrigin = strtoupper(trim((string)($expectedOrigin ?? '')));
+        if ($wantDest !== '') {
+            if ($destination === '') {
+                if ($wantDest !== 'SVQ') {
+                    throw new \RuntimeException('FlightStats no identificó el destino de la rotación.');
+                }
+            } elseif ($destination !== $wantDest) {
+                throw new \RuntimeException('FlightStats devolvió destino ' . $destination . ' en lugar de ' . $wantDest . '.');
+            }
+        }
+        if ($wantOrigin !== '' && $origin !== '' && $origin !== $wantOrigin) {
+            throw new \RuntimeException('FlightStats devolvió origen ' . $origin . ' en lugar de ' . $wantOrigin . '.');
         }
         return $parsed;
     }

@@ -9,6 +9,7 @@ use SevillaMatrix\BeltAlarm;
 use SevillaMatrix\Env;
 use SevillaMatrix\FlightRepository;
 use SevillaMatrix\OperationalStatus;
+use SevillaMatrix\Sync\FlightFeederService;
 use SevillaMatrix\Sync\FlightStatsIngestService;
 
 final class WebPushService
@@ -349,7 +350,9 @@ final class WebPushService
         );
         $watchedFlights->execute(['subscription_id' => $subscription['id']]);
         $watchedRows = $watchedFlights->fetchAll();
-        $statsByFlight = $this->latestFlightStats(array_map(static fn(array $row): int => (int)$row['id'], $watchedRows));
+        $watchedIds = array_map(static fn(array $row): int => (int)$row['id'], $watchedRows);
+        $statsByFlight = $this->latestFlightStats($watchedIds);
+        $feedersByFlight = $this->latestFeeders($watchedIds);
         $pending = $this->pdo->prepare('SELECT COUNT(*) FROM push_outbox WHERE subscription_id=:subscription_id AND pushed_at IS NULL AND attempts<4');
         $pending->execute(['subscription_id' => $subscription['id']]);
         return [
@@ -369,6 +372,7 @@ final class WebPushService
                 'scheduled_arrival' => (string)$row['scheduled_arrival'],
                 'is_canary' => (int)$row['is_canary'],
                 'flightstats' => $statsByFlight[(int)$row['id']] ?? null,
+                'feeder' => $feedersByFlight[(int)$row['id']] ?? null,
             ], $watchedRows),
             'pending_notifications' => (int)$pending->fetchColumn(),
         ];
@@ -901,6 +905,15 @@ final class WebPushService
         return $out;
     }
 
+    /**
+     * @param list<int> $flightIds
+     * @return array<int,array<string,mixed>>
+     */
+    private function latestFeeders(array $flightIds): array
+    {
+        return (new FlightFeederService($this->pdo))->latestByFlightIds($flightIds);
+    }
+
     /** @return array<string,mixed>|null */
     private function flightNoticeContext(int $flightId): ?array
     {
@@ -1009,12 +1022,16 @@ final class WebPushService
                 'aena_status' => '', 'airlabs_status' => '', 'opensky_status' => '', 'flightstats_status' => '',
                 'eta' => '', 'aena_eta' => '', 'secondary_eta' => '', 'secondary_source' => '', 'fs_delay' => '',
                 'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => '',
+                'feeder_code' => '', 'feeder_delay' => '',
             ];
         }
         $stats = $this->latestFlightStats([$flightId])[$flightId] ?? null;
         $fsEta = is_array($stats) ? (string)($stats['eta'] ?: $stats['actual_arrival'] ?: '') : '';
         $fsDelay = is_array($stats) && $stats['delay_minutes'] !== null && $stats['delay_minutes'] !== ''
             ? (string)(int)$stats['delay_minutes'] : '';
+        $feeder = $this->latestFeeders([$flightId])[$flightId] ?? null;
+        $feederDelay = is_array($feeder) && $feeder['delay_minutes'] !== null && $feeder['delay_minutes'] !== ''
+            ? (string)(int)$feeder['delay_minutes'] : '';
         $secondary = (string)($ctx['secondary_eta'] ?: $fsEta ?: '');
         $secondarySource = (string)($ctx['secondary_eta_source'] ?: ($fsEta !== '' ? 'flightstats' : ''));
         return [
@@ -1031,6 +1048,8 @@ final class WebPushService
             'actual_departure' => (string)($ctx['airlabs_departure'] ?: $ctx['secondary_departure'] ?: ''),
             'belt' => $this->beltLabel($ctx['hall'] ?? null, $ctx['belt'] ?? null),
             'baggage' => (string)($ctx['baggage_state'] ?: ''),
+            'feeder_code' => is_array($feeder) ? (string)($feeder['feeder_code'] ?? '') : '',
+            'feeder_delay' => $feederDelay,
         ];
     }
 
@@ -1046,6 +1065,7 @@ final class WebPushService
             'aena_status' => '', 'airlabs_status' => '', 'opensky_status' => '', 'flightstats_status' => '',
             'eta' => '', 'aena_eta' => '', 'secondary_eta' => '', 'secondary_source' => '', 'fs_delay' => '',
             'actual_arrival' => '', 'actual_departure' => '', 'belt' => '', 'baggage' => '',
+            'feeder_code' => '', 'feeder_delay' => '',
         ], $before);
         $title = ((int)$row['is_canary'] === 1 ? 'Canarias · ' : '')
             . $row['origin_name'] . ' · ' . $row['physical_flight'];
@@ -1112,6 +1132,18 @@ final class WebPushService
             }
             $out[] = $notice($body, '-fs');
         }
+        if (($before['feeder_delay'] ?? '') !== ($snap['feeder_delay'] ?? '')
+            && ($snap['feeder_delay'] ?? '') !== ''
+            && abs((int)$snap['feeder_delay']) >= FlightFeederService::MIN_DELAY) {
+            $delay = (int)$snap['feeder_delay'];
+            $code = (string)($snap['feeder_code'] ?: 'ida');
+            $body = '🔄 Arrastre ' . $code . ' · ' . ($delay > 0 ? '+' : '') . $delay . ' min';
+            $aenaAt = strtotime((string)($snap['aena_eta'] ?: $row['scheduled_arrival']));
+            if ($scheduled && $aenaAt && abs((int)round(($aenaAt - $scheduled) / 60)) < 5) {
+                $body .= ' · Aena aún en hora';
+            }
+            $out[] = $notice($body, '-feeder');
+        }
         $beltBefore = $before['belt'] === 'cinta pendiente' ? '' : $before['belt'];
         $beltNow = $snap['belt'] === 'cinta pendiente' ? '' : $snap['belt'];
         if ($beltBefore !== $beltNow && $beltNow !== '') {
@@ -1174,6 +1206,7 @@ final class WebPushService
             'airlabs' => 'AirLabs',
             'flightstats' => 'FlightStats',
             'opensky' => 'OpenSky',
+            'arrastre' => 'Arrastre',
             default => $source !== '' ? $source : 'API',
         };
     }
@@ -1516,7 +1549,7 @@ final class WebPushService
             return null;
         }
         if (preg_match('/-(belt|arr|dep|bag)$/', $tag) === 1) return 30;
-        if (preg_match('/-(eta|eta2|fs|st)(-|$)/', $tag) === 1) return 15 * 60;
+        if (preg_match('/-(eta|eta2|fs|st|feeder)(-|$)/', $tag) === 1) return 15 * 60;
         return 5 * 60;
     }
 

@@ -108,4 +108,23 @@ final class IataFlightCode
             (int)$parts['date']
         );
     }
+
+    /**
+     * Números de la rotación: el vuelo de ida suele ser el consecutivo
+     * (VY3190 LPA→SVQ procede de VY3189 SVQ→LPA; VY3051 de VY3050).
+     *
+     * @return list<string>
+     */
+    public static function pairedNumbers(string $number): array
+    {
+        if (!preg_match('/^(\d{1,4})([A-Z]?)$/', strtoupper(trim($number)), $match)) {
+            return [];
+        }
+        $n = (int)$match[1];
+        $suffix = $match[2];
+        $out = [];
+        if ($n > 1) $out[] = (string)($n - 1) . $suffix;
+        $out[] = (string)($n + 1) . $suffix;
+        return $out;
+    }
 }

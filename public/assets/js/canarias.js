@@ -103,6 +103,7 @@
     const weak = !snapshot || ((Number(snapshot.delay_minutes) || 0) === 0
       && (!snapshot.eta || snapshot.eta === flight.scheduled_arrival)
       && /on time|scheduled|en hora|programad/i.test(String(snapshot.status_text || 'scheduled')));
+    if (weak && source !== 'flightstats' && source !== 'aena') return '';
     if (weak && source !== 'flightstats' && Math.abs(Number(flight?.deviation_minutes)) < 5) return '';
     const eta = (!weak && snapshot?.eta) || (source === 'flightstats' ? (flight.eta || flight.effective_arrival) : '');
     const bits = [
@@ -117,6 +118,19 @@
         : 'cinta y sala las pone Aena');
     if (!bits.length) return '';
     return `<p class="canary-print-timing">FlightStats · ${esc(bits.join(' · '))} · ${esc(note)}</p>`;
+  }
+  function feederPrintMarkup(flight) {
+    const feeder = flight?.feeder;
+    if (!feeder || !feeder.feeder_code) return '';
+    const delay = Number(feeder.delay_minutes);
+    const delayed = Number.isFinite(delay) && Math.abs(delay) >= 5;
+    const route = feeder.origin_iata && feeder.destination_iata
+      ? ` ${feeder.origin_iata}→${feeder.destination_iata}`
+      : '';
+    const bits = [`${feeder.feeder_code}${route}`];
+    if (delayed) bits.push(`${delay > 0 ? '+' : ''}${delay} min`);
+    else bits.push('en hora');
+    return `<p class="canary-print-timing">Procede de · ${esc(bits.join(' · '))}${delayed ? ' · arrastre del vuelo de ida' : ''}</p>`;
   }
   const rankAroundEntries = entries => [...(Array.isArray(entries) ? entries : [])].sort((a, b) =>
     (isCanaryEntry(b) ? 1 : 0) - (isCanaryEntry(a) ? 1 : 0)
@@ -290,6 +304,7 @@
       </header>
       ${flight.scheduled_arrival ? `<p class="canary-print-timing">Previsto ${esc(time(flight.scheduled_arrival))} · Llegada ${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}${printDelayHint(flight)}</p>` : ''}
       ${flightStatsPrintMarkup(flight)}
+      ${feederPrintMarkup(flight)}
       ${occupancyMarkup(flight)}
       ${aroundMarkup(flight)}
       ${flight.belt_attention ? `<p class="canary-print-alert">${esc(flight.belt_attention_reason || 'Atención de cinta')}</p>` : ''}

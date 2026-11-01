@@ -702,7 +702,7 @@
         <span><small>Cinta confirmada</small><b>${esc(official)}</b></span>
         <span><small>Predicción</small><b>${esc(predicted)}</b></span>
       </div>
-      ${flightStatsWatchMarkup(flight)}${secondaryWatchMarkup(flight)}
+      ${flightStatsWatchMarkup(flight)}${feederWatchMarkup(flight)}${secondaryWatchMarkup(flight)}
       ${laterNightMarkup(flight)}
       ${hideActions ? '' : `<div class="focus-hero-actions">
         <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${meta.disabled?'disabled':''}>↻ ${esc(meta.label)}</button>
@@ -754,6 +754,7 @@
     if (source === 'flightstats') return 'ETA / real · FlightStats';
     if (source === 'airlabs') return 'ETA / real · AirLabs';
     if (source === 'opensky') return 'ETA / real · OpenSky';
+    if (source === 'arrastre') return 'ETA / real · Arrastre';
     if (source && source !== 'programada' && source !== 'eta') return `ETA / real · ${prettyWatchSource(source)}`;
     const scheduled = parseDate(flight.scheduled_arrival);
     if (!aenaStillOnTime(flight, scheduled) && Math.abs(Number(flight.deviation_minutes)) >= 5) {
@@ -804,6 +805,25 @@
     }
     return `<p class="flightstats-watch-line"><span>FlightStats</span><strong>${esc(bits.join(' · ') || status || 'sin retraso')}</strong><small>${esc(flightStatsNote(flight, delay, eta))}</small></p>`;
   }
+  function feederWatchMarkup(flight) {
+    const feeder = flight?.feeder;
+    if (!feeder || !feeder.feeder_code) return '';
+    const delay = Number(feeder.delay_minutes);
+    const delayed = Number.isFinite(delay) && Math.abs(delay) >= 5;
+    const route = feeder.origin_iata && feeder.destination_iata
+      ? ` ${feeder.origin_iata}→${feeder.destination_iata}`
+      : '';
+    const bits = [`${feeder.feeder_code}${route}`];
+    if (delayed) bits.push(`${delay > 0 ? '+' : ''}${delay} min`);
+    else bits.push('en hora');
+    if (feeder.actual_departure) bits.push(`salió ${time(feeder.actual_departure)}`);
+    const note = delayed
+      ? (aenaStillOnTime(flight, parseDate(flight.scheduled_arrival))
+        ? 'Retraso del vuelo de ida. Aena aún en hora: se arrastra a esta llegada.'
+        : 'Retraso del vuelo de ida. Aena ya muestra otra hora.')
+      : 'Vuelo de ida localizado. Sin retraso arrastrado.';
+    return `<p class="flightstats-watch-line feeder-watch-line ${delayed ? 'is-late' : ''}"><span>Procede de</span><strong>${esc(bits.join(' · '))}</strong><small>${esc(note)}</small></p>`;
+  }
   function secondaryWatchMarkup(flight) {
     if (!flight?.secondary_eta) return '';
     if (flight.secondary_eta === flight.eta) return '';
@@ -833,7 +853,10 @@
       aircraft_registration:flight.aircraft_registration, aircraft_type:flight.aircraft_type,
       secondary_position:flight.secondary_belt ? `${flight.secondary_hall || '?'}/${flight.secondary_belt}` : null,
       secondary_belt_state:flight.secondary_belt_state,
-      predicted_position:flight.predicted_belt ? `${flight.predicted_hall || '?'}/${flight.predicted_belt}` : null
+      predicted_position:flight.predicted_belt ? `${flight.predicted_hall || '?'}/${flight.predicted_belt}` : null,
+      feeder_code: flight.feeder?.feeder_code || '',
+      feeder_delay: flight.feeder?.delay_minutes == null || flight.feeder?.delay_minutes === ''
+        ? '' : String(flight.feeder.delay_minutes)
     };
   }
 
@@ -982,6 +1005,10 @@
         const formatter = ['scheduled_arrival','eta','actual_arrival'].includes(field) ? time : alertValue;
         changes.push(`${label}: ${formatter(before[field])} → ${formatter(snapshot[field])}`);
       });
+      if (alertValue(before.feeder_delay) !== alertValue(snapshot.feeder_delay)
+        && snapshot.feeder_delay !== '' && Math.abs(Number(snapshot.feeder_delay)) >= 5) {
+        changes.push(`Arrastre ${snapshot.feeder_code || 'ida'}: ${Number(snapshot.feeder_delay) > 0 ? '+' : ''}${snapshot.feeder_delay} min`);
+      }
       raiseBeltCrisis(f, before.position, snapshot.position);
       if (state.canaryWatchEnabled && changes.length) showCanaryAlert(snapshot, changes);
     });
@@ -995,6 +1022,7 @@
     if (key === 'airlabs') return 'AirLabs';
     if (key === 'opensky') return 'OpenSky';
     if (key === 'aena') return 'Aena';
+    if (key === 'arrastre') return 'Arrastre';
     return value ? String(value) : 'API';
   }
   function aenaStillOnTime(flight, scheduled) {
@@ -1022,7 +1050,10 @@
       secondary_arrival: flight.secondary_actual_arrival || stats.actual_arrival || '',
       secondary_departure: flight.secondary_actual_departure || stats.actual_departure || '',
       secondary_source: flight.secondary_eta_source || '',
-      fs_delay: stats.delay_minutes == null || stats.delay_minutes === '' ? '' : String(stats.delay_minutes)
+      fs_delay: stats.delay_minutes == null || stats.delay_minutes === '' ? '' : String(stats.delay_minutes),
+      feeder_code: flight.feeder?.feeder_code || '',
+      feeder_delay: flight.feeder?.delay_minutes == null || flight.feeder?.delay_minutes === ''
+        ? '' : String(flight.feeder.delay_minutes)
     };
   }
 
@@ -2047,7 +2078,7 @@
         <div><small>${esc(relativeDayLabel(current.date))} · ${esc(dayName(current.date))}</small>
         <strong>${esc(current.label)} · ${esc(current.origin)}</strong>
         <span>Programado a las ${time(current.brief.scheduled_arrival)}. Estás viendo ${esc(dayName(els.date.value))}.</span>
-        ${flightStatsWatchMarkup(current.brief)}</div>
+        ${flightStatsWatchMarkup(current.brief)}${feederWatchMarkup(current.brief)}</div>
         <button class="btn btn-info" type="button" data-goto-date="${esc(current.date)}">Ver ${esc(relativeDayLabel(current.date).toLowerCase())}</button>
       </div>`;
       return;
@@ -2265,6 +2296,7 @@
         <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${night ? '☾ ' : ''}${time(arrival)}${canaryDelayHint(f)}</span></div>
         ${coincidenceBadge(f)}
         ${flightStatsWatchMarkup(f)}
+        ${feederWatchMarkup(f)}
         <div class="canary-flight-code">${esc(f.physical_flight)}</div>
         <div class="canary-belts">
           <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>
@@ -2283,6 +2315,7 @@
       ${coincidenceBadge(f)}
       ${timingMarkup(f, 'canary-card-timing')}
       ${flightStatsWatchMarkup(f)}
+      ${feederWatchMarkup(f)}
       <div class="canary-flight-code">${esc(f.physical_flight)}</div>
       ${sharedCodes.length ? `<div class="canary-codeshare"><span>Compartido:</span> <strong>${sharedCodes.map(esc).join(' · ')}</strong></div>` : ''}
       <div class="canary-belts">
@@ -2474,6 +2507,7 @@
       </header>
       ${flight.scheduled_arrival ? `<p class="canary-print-timing">Previsto ${esc(time(flight.scheduled_arrival))} · Llegada ${esc(time(effectiveArrival(flight) || flight.expected_arrival || flight.scheduled_arrival))}${canaryDelayHint(flight)}</p>` : ''}
       ${flightStatsWatchMarkup(flight)}
+      ${feederWatchMarkup(flight)}
       ${canaryPrintOccupancyMarkup(flight)}
       ${canaryPrintAroundMarkup(flight)}
       ${flight.belt_attention ? `<p class="canary-print-alert">${esc(flight.belt_attention_reason || 'Atención de cinta')}</p>` : ''}
@@ -2602,6 +2636,7 @@
       <div class="d-flex justify-content-between align-items-start gap-2"><strong>${esc(f.origin_name)}</strong><span>${time(arrival)}${canaryDelayHint(f)}</span></div>
       ${coincidenceBadge(f)}
       ${flightStatsWatchMarkup(f)}
+      ${feederWatchMarkup(f)}
       <div class="canary-flight-code">${esc(f.physical_flight)}</div>
       <div class="canary-belts">
         <div class="canary-belt-line canary-belt-predicted"><span>Predicción</span><b>${esc(predictedBelt || 'sin predicción')}</b></div>

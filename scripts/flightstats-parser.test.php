@@ -5,6 +5,7 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 
 use SevillaMatrix\IataFlightCode;
 use SevillaMatrix\OperationalDay;
+use SevillaMatrix\Sync\FlightFeederService;
 use SevillaMatrix\Sync\FlightStatsParser;
 
 function expectSame(mixed $expected, mixed $actual, string $message): void
@@ -17,6 +18,8 @@ function expectSame(mixed $expected, mixed $actual, string $message): void
 $iata = IataFlightCode::split('VLG3190', ['IBE5662', 'IB5662']);
 expectSame('VY', $iata['carrier'] ?? null, 'VLG3190 debe traducirse a VY.');
 expectSame('3190', $iata['number'] ?? null, 'El número IATA de VLG3190 debe ser 3190.');
+expectSame(['3189', '3191'], IataFlightCode::pairedNumbers('3190'), 'VY3190 procede de VY3189.');
+expectSame(['3050', '3052'], IataFlightCode::pairedNumbers('3051'), 'VY3051 procede de VY3050.');
 expectSame('VY', IataFlightCode::split('VLG3190', ['IB5662'])['carrier'] ?? null, 'El operador físico prevalece sobre el código compartido.');
 expectSame('I2', IataFlightCode::split('IBS3910')['carrier'] ?? null, 'IBS debe traducirse a I2.');
 
@@ -71,5 +74,30 @@ expectSame(false, FlightStatsParser::isPlaceholder([
     'delay_minutes' => 83,
     'eta' => '2026-11-02 01:13:00',
 ], '2026-11-01 23:50:00'), 'Un retraso JSON no es cascarón.');
+
+$feeder = new FlightFeederService(new PDO('sqlite::memory:'));
+expectSame(true, $feeder->isNightCanary([
+    'is_canary' => 1,
+    'origin_iata' => 'LPA',
+    'scheduled_arrival' => '2026-11-01 23:50:00',
+]), 'VLG3190 noche es Canarias nocturno.');
+expectSame(true, $feeder->isNightCanary([
+    'is_canary' => 1,
+    'origin_iata' => 'TFN',
+    'scheduled_arrival' => '2026-11-02 00:40:00',
+]), 'La madrugada operativa también arrastra.');
+expectSame(false, $feeder->isNightCanary([
+    'is_canary' => 1,
+    'origin_iata' => 'LPA',
+    'scheduled_arrival' => '2026-11-01 12:00:00',
+]), 'Un Canarias de mediodía no entra en arrastre.');
+expectSame(true, $feeder->matchesRotation([
+    'origin_iata' => 'SVQ',
+    'destination_iata' => 'LPA',
+], 'LPA'), 'VY3189 SVQ→LPA es la ida de VY3190.');
+expectSame(false, $feeder->matchesRotation([
+    'origin_iata' => 'SVQ',
+    'destination_iata' => 'BCN',
+], 'LPA'), 'Un consecutivo a otro destino no vale.');
 
 fwrite(STDOUT, "Parser FlightStats PHP: OK\n");

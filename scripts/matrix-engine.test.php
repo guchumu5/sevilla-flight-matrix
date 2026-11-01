@@ -200,4 +200,39 @@ if (($aenaOwnsDelay['effective_arrival'] ?? null) !== '2026-11-02 01:13:00'
     throw new RuntimeException('Si Aena ya publica 01:13, esa hora prevalece sobre un snapshot On time de FlightStats.');
 }
 
+$feederDelay = (new MatrixEngine())->decorate([
+    sampleFlight(23, 'VLG3190', '2026-11-01 23:50:00', '3', [
+        'origin_iata' => 'LPA',
+        'is_canary' => 1,
+        'eta' => '2026-11-01 23:50:00',
+        'feeder' => [
+            'feeder_code' => 'VY3189',
+            'origin_iata' => 'SVQ',
+            'destination_iata' => 'LPA',
+            'delay_minutes' => 40,
+        ],
+    ]),
+])[0] ?? [];
+if (($feederDelay['effective_arrival'] ?? null) !== '2026-11-02 00:30:00'
+    || (int)($feederDelay['deviation_minutes'] ?? 0) !== 40
+    || ($feederDelay['timing_source'] ?? '') !== 'arrastre') {
+    throw new RuntimeException('El retraso de la ida VY3189 debe arrastrarse a VY3190 si Aena sigue en hora.');
+}
+
+$feederYieldsToAena = (new MatrixEngine())->decorate([
+    sampleFlight(24, 'VLG3190', '2026-11-01 23:50:00', '3', [
+        'origin_iata' => 'LPA',
+        'is_canary' => 1,
+        'eta' => '2026-11-01 23:50:00',
+        'aena_published_eta' => '2026-11-02 01:13:00',
+        'feeder' => [
+            'feeder_code' => 'VY3189',
+            'delay_minutes' => 40,
+        ],
+    ]),
+])[0] ?? [];
+if (($feederYieldsToAena['timing_source'] ?? '') !== 'aena') {
+    throw new RuntimeException('Aena prevalece sobre el arrastre de la rotación.');
+}
+
 fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 + belt_coincidence_v1 OK\n");

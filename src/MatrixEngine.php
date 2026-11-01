@@ -144,11 +144,21 @@ final class MatrixEngine
         }
 
         $delay = $stats['delay_minutes'] ?? null;
-        if (!is_numeric($delay) || (int)$delay === 0 || $scheduledAt === false) return;
-        $shifted = date('Y-m-d H:i:s', $scheduledAt + ((int)$delay) * 60);
+        if (is_numeric($delay) && (int)$delay !== 0 && $scheduledAt !== false) {
+            $shifted = date('Y-m-d H:i:s', $scheduledAt + ((int)$delay) * 60);
+            $flight['effective_arrival'] = $shifted;
+            $flight['eta'] = $shifted;
+            $flight['timing_source'] = 'flightstats';
+            return;
+        }
+
+        $feeder = is_array($flight['feeder'] ?? null) ? $flight['feeder'] : [];
+        $feederDelay = $feeder['delay_minutes'] ?? null;
+        if (!is_numeric($feederDelay) || abs((int)$feederDelay) < 5 || $scheduledAt === false) return;
+        $shifted = date('Y-m-d H:i:s', $scheduledAt + ((int)$feederDelay) * 60);
         $flight['effective_arrival'] = $shifted;
         $flight['eta'] = $shifted;
-        $flight['timing_source'] = 'flightstats';
+        $flight['timing_source'] = 'arrastre';
     }
 
     /**
