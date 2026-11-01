@@ -215,7 +215,10 @@ $feederDelay = (new MatrixEngine())->decorate([
 ])[0] ?? [];
 if (($feederDelay['effective_arrival'] ?? null) !== '2026-11-02 00:30:00'
     || (int)($feederDelay['deviation_minutes'] ?? 0) !== 40
-    || ($feederDelay['timing_source'] ?? '') !== 'arrastre') {
+    || ($feederDelay['timing_source'] ?? '') !== 'arrastre'
+    || ($feederDelay['delay_reason']['kind'] ?? '') !== 'feeder'
+    || ($feederDelay['delay_reason']['flight'] ?? '') !== 'VY3189'
+    || ($feederDelay['delay_reason']['label'] ?? '') !== 'por VY3189') {
     throw new RuntimeException('El retraso de la ida VY3189 debe arrastrarse a VY3190 si Aena sigue en hora.');
 }
 
@@ -231,8 +234,10 @@ $feederYieldsToAena = (new MatrixEngine())->decorate([
         ],
     ]),
 ])[0] ?? [];
-if (($feederYieldsToAena['timing_source'] ?? '') !== 'aena') {
-    throw new RuntimeException('Aena prevalece sobre el arrastre de la rotación.');
+if (($feederYieldsToAena['timing_source'] ?? '') !== 'aena'
+    || ($feederYieldsToAena['delay_reason']['kind'] ?? '') !== 'this'
+    || !str_contains((string)($feederYieldsToAena['delay_reason']['detail'] ?? ''), 'VY3189')) {
+    throw new RuntimeException('Aena prevalece sobre el arrastre, pero debe decir que la ida también iba tarde.');
 }
 
 fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 + belt_coincidence_v1 OK\n");

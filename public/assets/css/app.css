@@ -227,6 +227,7 @@ body {
 .feeder-watch-line span { color:#ffd78b; }
 .feeder-watch-line.is-late { border-color:rgba(255,110,110,.55); background:rgba(96,22,22,.32); }
 .feeder-watch-line.is-late span,.feeder-watch-line.is-late strong { color:#ffb3b3; }
+.canary-card em.late,.night-card em.late,.canary-card-timing em.late { white-space:nowrap; }
 .flightstats-snapshot { border-color:rgba(82,168,255,.42); }
 .flightstats-snapshot > header { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.65rem .75rem; border-bottom:1px solid var(--border); background:rgba(82,168,255,.08); }
 .flightstats-snapshot > header div { display:flex; align-items:center; gap:.45rem; }.flightstats-snapshot > header time { color:var(--muted); font-size:.68rem; }

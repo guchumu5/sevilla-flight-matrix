@@ -139,10 +139,11 @@
     const effective = effectiveArrival(flight);
     const actual = Boolean(flight.actual_arrival);
     const deviationClass = deviation > 0 ? 'late' : deviation < 0 ? 'early' : 'ontime';
+    const reason = delayReasonLabel(flight);
     return '<div class="' + esc(className) + '">' +
       '<span><small>Previsto</small><b>' + time(flight.scheduled_arrival) + '</b></span>' +
       '<span><small>' + (actual ? 'Llegó' : 'Llegará') + '</small><b>' + time(effective) + '</b>' +
-      '<em class="' + deviationClass + '">' + signed(deviation) + '</em></span></div>';
+      '<em class="' + deviationClass + '">' + signed(deviation) + (reason ? ' · ' + esc(reason) : '') + '</em></span></div>';
   };
   const pressureText = p => ({baja:'Sin presión',media:'Presión media',alta:'Presión alta',muy_alta:'Presión muy alta'}[p] || p);
   const hallLoadText = p => ({baja:'Baja',media:'Media',alta:'Alta'}[p] || p);
@@ -754,7 +755,10 @@
     if (source === 'flightstats') return 'ETA / real · FlightStats';
     if (source === 'airlabs') return 'ETA / real · AirLabs';
     if (source === 'opensky') return 'ETA / real · OpenSky';
-    if (source === 'arrastre') return 'ETA / real · Arrastre';
+    if (source === 'arrastre') {
+      const code = flight?.delay_reason?.flight || flight?.feeder?.feeder_code;
+      return code ? `ETA · por ${code}` : 'ETA · vuelo de ida';
+    }
     if (source && source !== 'programada' && source !== 'eta') return `ETA / real · ${prettyWatchSource(source)}`;
     const scheduled = parseDate(flight.scheduled_arrival);
     if (!aenaStillOnTime(flight, scheduled) && Math.abs(Number(flight.deviation_minutes)) >= 5) {
@@ -805,24 +809,46 @@
     }
     return `<p class="flightstats-watch-line"><span>FlightStats</span><strong>${esc(bits.join(' · ') || status || 'sin retraso')}</strong><small>${esc(flightStatsNote(flight, delay, eta))}</small></p>`;
   }
+  function delayReasonOf(flight) {
+    const reason = flight?.delay_reason;
+    if (reason && reason.kind) return reason;
+    const feeder = flight?.feeder;
+    const code = feeder?.feeder_code || '';
+    const delay = Number(feeder?.delay_minutes);
+    const source = String(flight?.timing_source || '').toLowerCase();
+    if (source === 'arrastre' && code) {
+      return {kind:'feeder', flight:code, label:`por ${code}`, detail:`El retraso lo trae ${code}, el vuelo de ida.`};
+    }
+    if (code && Number.isFinite(delay) && Math.abs(delay) >= 5) {
+      return {kind:'feeder', flight:code, label:`por ${code}`, minutes:delay};
+    }
+    return null;
+  }
+  function delayReasonLabel(flight) {
+    return delayReasonOf(flight)?.label || '';
+  }
   function feederWatchMarkup(flight) {
     const feeder = flight?.feeder;
     if (!feeder || !feeder.feeder_code) return '';
     const delay = Number(feeder.delay_minutes);
     const delayed = Number.isFinite(delay) && Math.abs(delay) >= 5;
     const route = feeder.origin_iata && feeder.destination_iata
-      ? ` ${feeder.origin_iata}→${feeder.destination_iata}`
+      ? `${feeder.origin_iata}→${feeder.destination_iata}`
       : '';
-    const bits = [`${feeder.feeder_code}${route}`];
+    const reason = delayReasonOf(flight);
+    const title = delayed
+      ? (reason?.kind === 'this' ? 'Ida también tarde' : 'Retraso por otro vuelo')
+      : 'Vuelo de ida';
+    const bits = [`${feeder.feeder_code}${route ? ' ' + route : ''}`];
     if (delayed) bits.push(`${delay > 0 ? '+' : ''}${delay} min`);
     else bits.push('en hora');
     if (feeder.actual_departure) bits.push(`salió ${time(feeder.actual_departure)}`);
-    const note = delayed
+    const note = reason?.detail || (delayed
       ? (aenaStillOnTime(flight, parseDate(flight.scheduled_arrival))
-        ? 'Retraso del vuelo de ida. Aena aún en hora: se arrastra a esta llegada.'
-        : 'Retraso del vuelo de ida. Aena ya muestra otra hora.')
-      : 'Vuelo de ida localizado. Sin retraso arrastrado.';
-    return `<p class="flightstats-watch-line feeder-watch-line ${delayed ? 'is-late' : ''}"><span>Procede de</span><strong>${esc(bits.join(' · '))}</strong><small>${esc(note)}</small></p>`;
+        ? `El retraso lo trae ${feeder.feeder_code}, el vuelo de ida. Aena aún no lo ha puesto en esta llegada.`
+        : `La ida ${feeder.feeder_code} iba tarde. Aena ya marca otra hora en esta llegada.`)
+      : `${feeder.feeder_code} localizado. No arrastra retraso a esta llegada.`);
+    return `<p class="flightstats-watch-line feeder-watch-line ${delayed ? 'is-late' : ''}"><span>${esc(title)}</span><strong>${esc(bits.join(' · '))}</strong><small>${esc(note)}</small></p>`;
   }
   function secondaryWatchMarkup(flight) {
     if (!flight?.secondary_eta) return '';
@@ -839,7 +865,8 @@
   function canaryDelayHint(flight) {
     const delay = Number(flight?.deviation_minutes ?? flight?.flightstats?.delay_minutes);
     if (!Number.isFinite(delay) || Math.abs(delay) < 5) return '';
-    return ` <em class="${delay > 0 ? 'late' : 'early'}">${delay > 0 ? '+' : ''}${delay} min</em>`;
+    const reason = delayReasonLabel(flight);
+    return ` <em class="${delay > 0 ? 'late' : 'early'}">${delay > 0 ? '+' : ''}${delay} min${reason ? ' · ' + esc(reason) : ''}</em>`;
   }
   const canarySnapshotKey = flight => `${flight.flight_date || els.date.value}|${flight.physical_flight}|${flight.origin_iata}`;
   const alertValue = value => value === null || value === undefined || value === '' ? 'pendiente' : String(value);
@@ -1022,7 +1049,7 @@
     if (key === 'airlabs') return 'AirLabs';
     if (key === 'opensky') return 'OpenSky';
     if (key === 'aena') return 'Aena';
-    if (key === 'arrastre') return 'Arrastre';
+    if (key === 'arrastre') return 'vuelo de ida';
     return value ? String(value) : 'API';
   }
   function aenaStillOnTime(flight, scheduled) {

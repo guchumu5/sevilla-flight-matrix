@@ -50,6 +50,7 @@ final class MatrixEngine
                 $flight['scheduled_arrival'],
                 $flight['effective_arrival']
             );
+            $this->attachDelayReason($flight);
             $flight['previous_same_belt_minutes'] = null;
             $flight['next_same_belt_minutes'] = null;
             $flight['secondary_belt_state'] = $this->secondaryBeltState($flight);
@@ -159,6 +160,81 @@ final class MatrixEngine
         $flight['effective_arrival'] = $shifted;
         $flight['eta'] = $shifted;
         $flight['timing_source'] = 'arrastre';
+    }
+
+    /** @param array<string,mixed> $flight */
+    private function attachDelayReason(array &$flight): void
+    {
+        $source = (string)($flight['timing_source'] ?? 'programada');
+        $feeder = is_array($flight['feeder'] ?? null) ? $flight['feeder'] : [];
+        $code = strtoupper(trim((string)($feeder['feeder_code'] ?? '')));
+        $origin = strtoupper(trim((string)($feeder['origin_iata'] ?? 'SVQ'))) ?: 'SVQ';
+        $dest = strtoupper(trim((string)($feeder['destination_iata'] ?? '')));
+        $route = $dest !== '' ? $origin . '→' . $dest : $origin;
+        $feederDelay = isset($feeder['delay_minutes']) && is_numeric($feeder['delay_minutes'])
+            ? (int)$feeder['delay_minutes'] : null;
+        $feederLate = $feederDelay !== null && abs($feederDelay) >= 5;
+        $signed = static fn(int $minutes): string => ($minutes > 0 ? '+' : '') . $minutes;
+        $own = match ($source) {
+            'aena', 'real' => 'Aena',
+            'flightstats' => 'FlightStats',
+            'airlabs' => 'AirLabs',
+            'opensky' => 'OpenSky',
+            default => '',
+        };
+        $ownLate = abs((int)($flight['deviation_minutes'] ?? 0)) >= 5;
+
+        if ($source === 'arrastre' && $code !== '') {
+            $flight['delay_reason'] = [
+                'kind' => 'feeder',
+                'flight' => $code,
+                'route' => $route,
+                'minutes' => $feederDelay,
+                'label' => 'por ' . $code,
+                'detail' => 'El retraso lo trae ' . $code . ', el vuelo de ida ' . $route
+                    . '. Aena aún no lo ha puesto en esta llegada.',
+            ];
+            return;
+        }
+
+        if ($own !== '' && $ownLate) {
+            $flight['delay_reason'] = [
+                'kind' => 'this',
+                'source' => $source,
+                'flight' => (string)($flight['physical_flight'] ?? ''),
+                'minutes' => (int)($flight['deviation_minutes'] ?? 0),
+                'label' => 'este vuelo · ' . $own,
+                'detail' => $feederLate && $code !== ''
+                    ? $own . ' ya marca retraso en esta llegada. La ida ' . $code
+                        . ' también iba ' . $signed($feederDelay) . ' min.'
+                    : $own . ' marca el retraso de este mismo vuelo.',
+            ];
+            return;
+        }
+
+        if ($feederLate && $code !== '') {
+            $flight['delay_reason'] = [
+                'kind' => 'feeder',
+                'flight' => $code,
+                'route' => $route,
+                'minutes' => $feederDelay,
+                'label' => 'por ' . $code,
+                'detail' => 'La ida ' . $code . ' trae ' . $signed($feederDelay)
+                    . ' min. Esta llegada aún no lo refleja en Aena.',
+            ];
+            return;
+        }
+
+        $flight['delay_reason'] = $code !== ''
+            ? [
+                'kind' => 'feeder_ok',
+                'flight' => $code,
+                'route' => $route,
+                'minutes' => $feederDelay,
+                'label' => $code . ' en hora',
+                'detail' => 'Localizado el vuelo de ida ' . $code . '. No arrastra retraso.',
+            ]
+            : null;
     }
 
     /**

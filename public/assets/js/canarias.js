@@ -94,7 +94,8 @@
   function printDelayHint(flight) {
     const delay = Number(flight?.deviation_minutes ?? flight?.flightstats?.delay_minutes);
     if (!Number.isFinite(delay) || Math.abs(delay) < 5) return '';
-    return ` · ${delay > 0 ? '+' : ''}${delay} min`;
+    const reason = flight?.delay_reason?.label || '';
+    return ` · ${delay > 0 ? '+' : ''}${delay} min${reason ? ' · ' + reason : ''}`;
   }
   function flightStatsPrintMarkup(flight) {
     const snapshot = flight?.flightstats;
@@ -130,7 +131,9 @@
     const bits = [`${feeder.feeder_code}${route}`];
     if (delayed) bits.push(`${delay > 0 ? '+' : ''}${delay} min`);
     else bits.push('en hora');
-    return `<p class="canary-print-timing">Procede de · ${esc(bits.join(' · '))}${delayed ? ' · arrastre del vuelo de ida' : ''}</p>`;
+    const reason = flight?.delay_reason?.detail
+      || (delayed ? `retraso por el vuelo de ida ${feeder.feeder_code}` : `${feeder.feeder_code} en hora`);
+    return `<p class="canary-print-timing">${delayed ? 'Retraso por otro vuelo' : 'Vuelo de ida'} · ${esc(bits.join(' · '))} · ${esc(reason)}</p>`;
   }
   const rankAroundEntries = entries => [...(Array.isArray(entries) ? entries : [])].sort((a, b) =>
     (isCanaryEntry(b) ? 1 : 0) - (isCanaryEntry(a) ? 1 : 0)

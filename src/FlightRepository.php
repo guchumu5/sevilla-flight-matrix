@@ -324,6 +324,7 @@ SQL;
             'flightstats' => $this->publicFlightStats($row['flightstats'] ?? null),
             'feeder' => $row['feeder'] ?? null,
             'timing_source' => $row['timing_source'] ?? null,
+            'delay_reason' => $row['delay_reason'] ?? null,
             'hall' => $row['hall'] ?? null,
             'belt' => $row['belt'] ?? null,
             'source' => $row['source'] ?? null,
@@ -747,6 +748,7 @@ SQL;
             $flight['flightstats'] = $this->publicFlightStats($row['flightstats'] ?? null);
             $flight['feeder'] = $row['feeder'] ?? null;
             $flight['timing_source'] = $row['timing_source'] ?? $flight['timing_source'] ?? null;
+            $flight['delay_reason'] = $row['delay_reason'] ?? $flight['delay_reason'] ?? null;
             $flight['belt'] = $row['belt'] ?? null;
             $flight['hall'] = $row['hall'] ?? null;
             $flight['source'] = $row['source'] ?? null;
