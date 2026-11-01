@@ -69,8 +69,12 @@ export function parseFlightStatsJson(payload, publicUrl = '') {
     status.delay?.arrival?.minutes ?? status.delayStatus?.minutes,
     delayText || status.delayStatus?.wording || ''
   );
-  const statusText = [statusLabel, delayText && !statusLabel.toLowerCase().includes(delayText.toLowerCase()) ? delayText : '']
-    .filter(Boolean).join(' · ') || delayText;
+  const resolvedDelayText = (delayMinutes ?? 0) >= 5 && /on time/i.test(delayText)
+    ? `Delayed by ${delayMinutes}m` : delayText;
+  const resolvedStatusLabel = (delayMinutes ?? 0) >= 5 && /on time/i.test(statusLabel)
+    ? 'Scheduled' : statusLabel;
+  const statusText = [resolvedStatusLabel, resolvedDelayText && !resolvedStatusLabel.toLowerCase().includes(resolvedDelayText.toLowerCase()) ? resolvedDelayText : '']
+    .filter(Boolean).join(' · ') || resolvedDelayText;
   const depTitle = String(schedule.estimatedActualDepartureTitle || departure.times?.estimatedActual?.title || '').toLowerCase();
   const arrTitle = String(schedule.estimatedActualArrivalTitle || arrival.times?.estimatedActual?.title || '').toLowerCase();
   const landed = Boolean(data.isLanded || note.landed);
@@ -140,6 +144,27 @@ export function parseFlightStatsHtml(html, scheduledArrival = '', publicUrl = ''
     if (kind === 'actual') out.actual_arrival = clockOnDay(scheduledArrival, last[4]);
     else out.eta = clockOnDay(scheduledArrival, last[4]);
   }
-  return (out.delay_minutes != null || out.eta || out.actual_departure || out.actual_arrival || out.status_text || out.canceled)
-    ? out : null;
+  if (out.canceled) return out;
+  if (out.delay_minutes != null && Number(out.delay_minutes) !== 0) return out;
+  if (out.actual_departure || out.actual_arrival) return out;
+  if (out.eta && scheduledArrival) {
+    const etaAt = Date.parse(String(out.eta).replace(' ', 'T'));
+    const scheduledAt = Date.parse(String(scheduledArrival).replace(' ', 'T'));
+    if (Number.isFinite(etaAt) && Number.isFinite(scheduledAt) && Math.abs(etaAt - scheduledAt) >= 60_000) return out;
+  }
+  return null;
+}
+
+export function isFlightStatsPlaceholder(parsed, scheduledArrival = '') {
+  const delay = parsed?.delay_minutes;
+  if (Number.isFinite(Number(delay)) && Number(delay) !== 0) return false;
+  if (parsed?.actual_departure || parsed?.actual_arrival || parsed?.canceled) return false;
+  const eta = String(parsed?.eta || '');
+  if (eta && scheduledArrival) {
+    const etaAt = Date.parse(eta.replace(' ', 'T'));
+    const scheduledAt = Date.parse(String(scheduledArrival).replace(' ', 'T'));
+    if (Number.isFinite(etaAt) && Number.isFinite(scheduledAt) && Math.abs(etaAt - scheduledAt) >= 60_000) return false;
+  }
+  const status = String(parsed?.status_text || '').toLowerCase();
+  return !status || /on time|scheduled|en hora|programad/.test(status);
 }

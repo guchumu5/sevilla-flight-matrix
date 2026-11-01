@@ -113,22 +113,33 @@ final class MatrixEngine
             return $at !== false && $scheduledAt !== false && abs($at - $scheduledAt) >= 60;
         };
 
+        $flight['timing_source'] = 'programada';
         $actual = (string)($flight['actual_arrival'] ?? '');
         if ($differs($actual)) {
             $flight['effective_arrival'] = $actual;
+            $flight['timing_source'] = ((string)($flight['source'] ?? '') === 'aena') ? 'aena' : 'real';
             return;
         }
 
         $stats = is_array($flight['flightstats'] ?? null) ? $flight['flightstats'] : [];
+        $aenaEta = (string)($flight['aena_published_eta'] ?? '');
+        if ($differs($aenaEta)) {
+            $flight['effective_arrival'] = $aenaEta;
+            $flight['eta'] = $aenaEta;
+            $flight['timing_source'] = 'aena';
+            return;
+        }
+
         foreach ([
-            (string)($flight['eta'] ?? ''),
-            (string)($flight['secondary_eta'] ?? ''),
-            (string)($stats['eta'] ?? ''),
-            (string)($stats['actual_arrival'] ?? ''),
-        ] as $candidate) {
+            [(string)($stats['eta'] ?? ''), 'flightstats'],
+            [(string)($stats['actual_arrival'] ?? ''), 'flightstats'],
+            [(string)($flight['secondary_eta'] ?? ''), strtolower((string)($flight['secondary_eta_source'] ?? 'airlabs'))],
+            [(string)($flight['eta'] ?? ''), strtolower((string)($flight['secondary_eta_source'] ?? 'eta'))],
+        ] as [$candidate, $source]) {
             if (!$differs($candidate)) continue;
             $flight['effective_arrival'] = $candidate;
             $flight['eta'] = $candidate;
+            $flight['timing_source'] = $source !== '' ? $source : 'eta';
             return;
         }
 
@@ -137,6 +148,7 @@ final class MatrixEngine
         $shifted = date('Y-m-d H:i:s', $scheduledAt + ((int)$delay) * 60);
         $flight['effective_arrival'] = $shifted;
         $flight['eta'] = $shifted;
+        $flight['timing_source'] = 'flightstats';
     }
 
     /**

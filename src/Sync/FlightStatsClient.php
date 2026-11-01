@@ -45,7 +45,7 @@ final class FlightStatsClient
             throw new \RuntimeException('FlightStats no devolvió JSON ni HTML utilizable.');
         }
         $parsed = FlightStatsParser::fromHtml($html, $scheduled, $publicUrl);
-        if (!is_array($parsed)) {
+        if (!is_array($parsed) || FlightStatsParser::isPlaceholder($parsed, $scheduled)) {
             throw new \RuntimeException('La ficha pública de FlightStats no presentó retraso ni ETA.');
         }
         $parsed['public_url'] = $publicUrl;

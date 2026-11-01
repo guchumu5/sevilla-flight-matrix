@@ -160,6 +160,16 @@ final class FlightStatsIngestService
             $normalized = $this->normalizeSnapshot($record, $flight);
             $latest->execute(['flight_id' => $flightId]);
             $previous = $latest->fetch();
+            $kind = (string)($record['source_kind'] ?? '');
+            $placeholder = FlightStatsParser::isPlaceholder(
+                $normalized,
+                (string)$flight['scheduled_arrival']
+            );
+            if ($placeholder && $kind !== 'json') {
+                $unchanged++;
+                $completed->execute(['id' => $flightId]);
+                continue;
+            }
             $same = is_array($previous);
             foreach (['status_text','delay_minutes','eta','actual_departure','actual_arrival','departure_text','arrival_text','phase'] as $key) {
                 if ((string)($previous[$key] ?? '') !== (string)($normalized[$key] ?? '')) {

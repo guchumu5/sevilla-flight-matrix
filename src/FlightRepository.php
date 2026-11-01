@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace SevillaMatrix;
 
 use PDO;
+use SevillaMatrix\Sync\FlightStatsParser;
 
 final class FlightRepository
 {
@@ -910,12 +911,20 @@ SQL;
                     s.delay_minutes,s.eta,s.actual_departure,s.actual_arrival,s.departure_text,s.arrival_text,s.phase
              FROM flightstats_snapshots s
              WHERE s.flight_id IN ($placeholders)
-               AND s.id=(SELECT s2.id FROM flightstats_snapshots s2
-                         WHERE s2.flight_id=s.flight_id ORDER BY s2.observed_at DESC,s2.id DESC LIMIT 1)"
+             ORDER BY s.flight_id, s.observed_at DESC, s.id DESC"
         );
         $stmt->execute($ids);
+        $scheduledById = [];
+        foreach ($rows as $row) {
+            $scheduledById[(int)$row['id']] = (string)($row['scheduled_arrival'] ?? '');
+        }
         $indexed = [];
-        foreach ($stmt->fetchAll() as $snapshot) $indexed[(int)$snapshot['flight_id']] = $snapshot;
+        foreach ($stmt->fetchAll() as $snapshot) {
+            $id = (int)$snapshot['flight_id'];
+            if (isset($indexed[$id])) continue;
+            if (FlightStatsParser::isPlaceholder($snapshot, $scheduledById[$id] ?? '')) continue;
+            $indexed[$id] = $snapshot;
+        }
         foreach ($rows as &$row) {
             $row['flightstats'] = $indexed[(int)$row['id']] ?? null;
         }
@@ -926,13 +935,24 @@ SQL;
     {
         if (!$this->tableExists('flightstats_snapshots')) return null;
         $stmt = $this->pdo->prepare(
-            'SELECT id,flight_id,observed_at,public_url,iata_carrier,iata_number,status_text,delay_minutes,
-                    eta,actual_departure,actual_arrival,departure_text,arrival_text,phase
-             FROM flightstats_snapshots WHERE flight_id=? ORDER BY observed_at DESC,id DESC LIMIT 1'
+            'SELECT s.id,s.flight_id,s.observed_at,s.public_url,s.iata_carrier,s.iata_number,s.status_text,s.delay_minutes,
+                    s.eta,s.actual_departure,s.actual_arrival,s.departure_text,s.arrival_text,s.phase,
+                    f.scheduled_arrival
+             FROM flightstats_snapshots s
+             INNER JOIN flights f ON f.id=s.flight_id
+             WHERE s.flight_id=?
+             ORDER BY s.observed_at DESC,s.id DESC
+             LIMIT 8'
         );
         $stmt->execute([$flightId]);
-        $row = $stmt->fetch();
-        return is_array($row) ? $row : null;
+        $chosen = null;
+        foreach ($stmt->fetchAll() as $row) {
+            $scheduled = (string)($row['scheduled_arrival'] ?? '');
+            unset($row['scheduled_arrival']);
+            if ($chosen === null) $chosen = $row;
+            if (!FlightStatsParser::isPlaceholder($row, $scheduled)) return $row;
+        }
+        return is_array($chosen) ? $chosen : null;
     }
 
     public function history(int $flightId): array

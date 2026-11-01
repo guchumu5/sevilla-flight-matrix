@@ -56,4 +56,20 @@ $hours = FlightStatsParser::fromHtml(
 expectSame(83, $hours['delay_minutes'] ?? null, 'El HTML debe leer Delayed by 1h 23m.');
 expectSame('2026-11-02 01:13:00', $hours['eta'] ?? null, 'ETA HTML 01:13 al día siguiente.');
 
+$shell = FlightStatsParser::fromHtml(
+    'On time Scheduled Track flight VY 3190 Estimated 23:50 CET',
+    '2026-11-01 23:50:00'
+);
+expectSame(null, $shell, 'El HTML cascarón On time no debe valer como lectura.');
+expectSame(true, FlightStatsParser::isPlaceholder([
+    'status_text' => 'Scheduled · On time',
+    'delay_minutes' => 0,
+    'eta' => '2026-11-01 23:50:00',
+], '2026-11-01 23:50:00'), 'On time con ETA programada es cascarón.');
+expectSame(false, FlightStatsParser::isPlaceholder([
+    'status_text' => 'Scheduled · Delayed by 1h 23m',
+    'delay_minutes' => 83,
+    'eta' => '2026-11-02 01:13:00',
+], '2026-11-01 23:50:00'), 'Un retraso JSON no es cascarón.');
+
 fwrite(STDOUT, "Parser FlightStats PHP: OK\n");

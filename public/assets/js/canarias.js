@@ -98,14 +98,25 @@
   }
   function flightStatsPrintMarkup(flight) {
     const snapshot = flight?.flightstats;
-    if (!snapshot) return '';
-    const delay = Number(snapshot.delay_minutes);
+    const delay = Number(snapshot?.delay_minutes ?? flight?.deviation_minutes);
+    const source = String(flight?.timing_source || '').toLowerCase();
+    const weak = !snapshot || ((Number(snapshot.delay_minutes) || 0) === 0
+      && (!snapshot.eta || snapshot.eta === flight.scheduled_arrival)
+      && /on time|scheduled|en hora|programad/i.test(String(snapshot.status_text || 'scheduled')));
+    if (weak && source !== 'flightstats' && Math.abs(Number(flight?.deviation_minutes)) < 5) return '';
+    const eta = (!weak && snapshot?.eta) || (source === 'flightstats' ? (flight.eta || flight.effective_arrival) : '');
     const bits = [
-      snapshot.status_text || 'FlightStats',
       Number.isFinite(delay) && delay !== 0 ? `${delay > 0 ? '+' : ''}${delay} min` : '',
-      snapshot.eta ? `ETA ${time(snapshot.eta)}` : '',
+      eta ? `ETA ${time(eta)}` : '',
     ].filter(Boolean);
-    return `<p class="canary-print-timing">FlightStats · ${esc(bits.join(' · '))} · secundario, no sustituye a Aena</p>`;
+    const aenaHasDelay = Math.abs(Number(flight?.deviation_minutes)) >= 5 && source === 'aena';
+    const note = aenaHasDelay
+      ? 'Aena ya muestra el mismo retraso'
+      : (Number.isFinite(delay) && Math.abs(delay) >= 5
+        ? 'FlightStats avisó · Aena aún en hora · cinta y sala las pone Aena'
+        : 'cinta y sala las pone Aena');
+    if (!bits.length) return '';
+    return `<p class="canary-print-timing">FlightStats · ${esc(bits.join(' · '))} · ${esc(note)}</p>`;
   }
   const rankAroundEntries = entries => [...(Array.isArray(entries) ? entries : [])].sort((a, b) =>
     (isCanaryEntry(b) ? 1 : 0) - (isCanaryEntry(a) ? 1 : 0)

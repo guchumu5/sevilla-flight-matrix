@@ -1,4 +1,4 @@
-import { parseFlightStatsHtml, parseFlightStatsJson } from './flightstats-parser.mjs';
+import { isFlightStatsPlaceholder, parseFlightStatsHtml, parseFlightStatsJson } from './flightstats-parser.mjs';
 
 const ENDPOINT = process.env.MATRIX_FLIGHTSTATS_URL
   || 'https://www.ojito.top/public/api/flightstats.php';
@@ -68,7 +68,9 @@ const readSnapshot = async (flight) => {
   }
   const html = await fetchText(publicUrl, publicUrl, false);
   const parsed = parseFlightStatsHtml(html.text, flight.scheduled_arrival || '', publicUrl);
-  if (!parsed) throw new Error('La ficha pública no presentó retraso ni ETA.');
+  if (!parsed || isFlightStatsPlaceholder(parsed, flight.scheduled_arrival || '')) {
+    throw new Error('La ficha pública no presentó retraso ni ETA.');
+  }
   return {...parsed, source_kind:'html'};
 };
 

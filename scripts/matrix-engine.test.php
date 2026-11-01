@@ -177,8 +177,27 @@ $fsDelay = (new MatrixEngine())->decorate([
 ])[0] ?? [];
 if (($fsDelay['effective_arrival'] ?? null) !== '2026-11-02 01:13:00'
     || (int)($fsDelay['deviation_minutes'] ?? 0) !== 83
-    || ($fsDelay['expected_arrival'] ?? null) !== '2026-11-02 01:13:00') {
+    || ($fsDelay['expected_arrival'] ?? null) !== '2026-11-02 01:13:00'
+    || ($fsDelay['timing_source'] ?? '') !== 'flightstats') {
     throw new RuntimeException('FlightStats +83 min debe mover la hora publicada aunque Aena siga en hora.');
+}
+
+$aenaOwnsDelay = (new MatrixEngine())->decorate([
+    sampleFlight(22, 'VLG3190', '2026-11-01 23:50:00', '3', [
+        'origin_iata' => 'LPA',
+        'is_canary' => 1,
+        'eta' => '2026-11-01 23:50:00',
+        'aena_published_eta' => '2026-11-02 01:13:00',
+        'flightstats' => [
+            'delay_minutes' => 0,
+            'eta' => '2026-11-01 23:50:00',
+            'status_text' => 'Scheduled · On time',
+        ],
+    ]),
+])[0] ?? [];
+if (($aenaOwnsDelay['effective_arrival'] ?? null) !== '2026-11-02 01:13:00'
+    || ($aenaOwnsDelay['timing_source'] ?? '') !== 'aena') {
+    throw new RuntimeException('Si Aena ya publica 01:13, esa hora prevalece sobre un snapshot On time de FlightStats.');
 }
 
 fwrite(STDOUT, "MatrixEngine belt_occupancy_v2 + belt_coincidence_v1 OK\n");

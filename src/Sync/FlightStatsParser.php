@@ -37,6 +37,12 @@ final class FlightStatsParser
             $arrivalDelay['minutes'] ?? $delayStatus['minutes'] ?? null,
             $delayText !== '' ? $delayText : (string)($delayStatus['wording'] ?? '')
         );
+        if (($delayMinutes ?? 0) >= 5 && preg_match('/on time/i', $delayText) === 1) {
+            $delayText = 'Delayed by ' . $delayMinutes . 'm';
+        }
+        if (($delayMinutes ?? 0) >= 5 && preg_match('/on time/i', $statusLabel) === 1) {
+            $statusLabel = 'Scheduled';
+        }
         $statusText = trim($statusLabel . ($delayText !== '' && !str_contains(strtolower($statusLabel), strtolower($delayText))
             ? ' · ' . $delayText : ($delayText !== '' && $statusLabel === '' ? $delayText : '')), ' ·');
 
@@ -139,9 +145,37 @@ final class FlightStatsParser
                 else $out['eta'] = self::clockOnDay($scheduledArrival, $last[4]);
             }
         }
-        $useful = $out['delay_minutes'] !== null || $out['eta'] || $out['actual_departure']
-            || $out['actual_arrival'] || $out['status_text'] || $out['canceled'];
-        return $useful ? $out : null;
+        if ($out['canceled']) return $out;
+        if ($out['delay_minutes'] !== null && (int)$out['delay_minutes'] !== 0) return $out;
+        if ($out['actual_departure'] || $out['actual_arrival']) return $out;
+        if ($out['eta'] && $scheduledArrival !== '') {
+            $etaAt = strtotime((string)$out['eta']);
+            $scheduledAt = strtotime($scheduledArrival);
+            if ($etaAt !== false && $scheduledAt !== false && abs($etaAt - $scheduledAt) >= 60) return $out;
+        }
+        return null;
+    }
+
+    /**
+     * Lectura cascarón (SPA sin datos): «On time» / programada, sin retraso.
+     *
+     * @param array<string,mixed> $parsed
+     */
+    public static function isPlaceholder(array $parsed, string $scheduledArrival = ''): bool
+    {
+        $delay = $parsed['delay_minutes'] ?? null;
+        if (is_numeric($delay) && (int)$delay !== 0) return false;
+        if (!empty($parsed['actual_departure']) || !empty($parsed['actual_arrival']) || !empty($parsed['canceled'])) {
+            return false;
+        }
+        $eta = (string)($parsed['eta'] ?? '');
+        if ($eta !== '' && $scheduledArrival !== '') {
+            $etaAt = strtotime($eta);
+            $scheduledAt = strtotime($scheduledArrival);
+            if ($etaAt !== false && $scheduledAt !== false && abs($etaAt - $scheduledAt) >= 60) return false;
+        }
+        $status = strtolower((string)($parsed['status_text'] ?? ''));
+        return $status === '' || preg_match('/on time|scheduled|en hora|programad/i', $status) === 1;
     }
 
     public static function clockOnDay(string $baseDateTime, string $hhmm): ?string

@@ -698,11 +698,11 @@
       <div class="focus-flight-title"><span>${Number(flight.is_canary)===1?'🌴':'✈️'}</span><div><small>Vuelo bajo foco</small><h3>${esc(flight.physical_flight)} · ${esc(flight.origin_name)}</h3><p>${esc(flight.status || 'Estado pendiente')} · ${trend.label}</p></div></div>
       <div class="focus-primary-values">
         <span><small>Programada</small><b>${time(flight.scheduled_arrival)}</b></span>
-        <span><small>ETA / real</small><b>${time(effectiveArrival(flight))}</b><em>${signed(flight.deviation_minutes)}</em></span>
+        <span><small>${esc(publishedTimingCaption(flight))}</small><b>${time(effectiveArrival(flight))}</b><em>${signed(flight.deviation_minutes)}</em></span>
         <span><small>Cinta confirmada</small><b>${esc(official)}</b></span>
         <span><small>Predicción</small><b>${esc(predicted)}</b></span>
       </div>
-      ${flightStatsWatchMarkup(flight)}${flight.secondary_eta && flight.secondary_eta !== flight.eta && flight.secondary_eta !== (flight.flightstats && flight.flightstats.eta) ? `<p class="flightstats-watch-line"><span>${esc((flight.secondary_eta_source || 'API').toUpperCase())}</span><strong>ETA ${time(flight.secondary_eta)}${flight.secondary_actual_departure ? ' · salió ' + time(flight.secondary_actual_departure) : ''}${flight.secondary_actual_arrival ? ' · aterrizó ' + time(flight.secondary_actual_arrival) : ''}</strong><small>secundario · no sustituye a Aena</small></p>` : ''}
+      ${flightStatsWatchMarkup(flight)}${secondaryWatchMarkup(flight)}
       ${laterNightMarkup(flight)}
       ${hideActions ? '' : `<div class="focus-hero-actions">
         <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${meta.disabled?'disabled':''}>↻ ${esc(meta.label)}</button>
@@ -731,19 +731,90 @@
   const flightAwareLink = (flight, compact = false) => `<a class="flightaware-link ${compact?'flightaware-link-compact':''}"
     data-flightaware-link href="${flightAwareUrl(flight)}" target="_blank" rel="noopener noreferrer"
     title="Abrir mapa y ficha pública de ${esc(flight.physical_flight || 'este vuelo')} en FlightAware">🛰️ ${compact?'Mapa':'Mapa y ficha en FlightAware'} ↗</a>`;
+  function minutesApart(left, right) {
+    const a = parseDate(left);
+    const b = parseDate(right);
+    if (!a || !b) return null;
+    return Math.abs(Math.round((a.getTime() - b.getTime()) / 60000));
+  }
+  function isWeakFlightStats(flight) {
+    const snapshot = flight?.flightstats;
+    if (!snapshot) return true;
+    const delay = Number(snapshot.delay_minutes);
+    if (Number.isFinite(delay) && delay !== 0) return false;
+    if (snapshot.actual_departure || snapshot.actual_arrival || snapshot.canceled) return false;
+    const gap = minutesApart(snapshot.eta, flight.scheduled_arrival);
+    if (gap !== null && gap >= 1) return false;
+    const status = String(snapshot.status_text || '').toLowerCase();
+    return !status || /on time|scheduled|en hora|programad/.test(status);
+  }
+  function publishedTimingCaption(flight) {
+    const source = String(flight?.timing_source || '').toLowerCase();
+    if (source === 'aena' || source === 'real') return 'ETA / real · Aena';
+    if (source === 'flightstats') return 'ETA / real · FlightStats';
+    if (source === 'airlabs') return 'ETA / real · AirLabs';
+    if (source === 'opensky') return 'ETA / real · OpenSky';
+    if (source && source !== 'programada' && source !== 'eta') return `ETA / real · ${prettyWatchSource(source)}`;
+    const scheduled = parseDate(flight.scheduled_arrival);
+    if (!aenaStillOnTime(flight, scheduled) && Math.abs(Number(flight.deviation_minutes)) >= 5) {
+      return 'ETA / real · Aena';
+    }
+    return 'ETA / real';
+  }
+  function flightStatsNote(flight, delay, eta) {
+    const scheduled = parseDate(flight.scheduled_arrival);
+    const aenaOnTime = aenaStillOnTime(flight, scheduled);
+    const delayed = Number.isFinite(delay) && Math.abs(delay) >= 5;
+    if (!aenaOnTime) {
+      const aenaEta = flight.actual_arrival || flight.aena_published_eta;
+      const same = eta && aenaEta && minutesApart(eta, aenaEta) !== null && minutesApart(eta, aenaEta) < 3;
+      return same
+        ? 'Aena ya muestra el mismo retraso. Cinta y sala las pone Aena.'
+        : 'Aena confirma otra hora. Cinta y sala las pone Aena.';
+    }
+    if (delayed) return 'FlightStats avisó el retraso. Aena aún en hora. Cinta y sala las pone Aena.';
+    return 'Cinta y sala las pone Aena.';
+  }
   function flightStatsWatchMarkup(flight) {
     const snapshot = flight?.flightstats;
-    if (!snapshot) return '';
-    const delay = Number(snapshot.delay_minutes);
-    const delayText = Number.isFinite(delay) && delay !== 0 ? `${delay > 0 ? '+' : ''}${delay} min` : '';
-    const eta = snapshot.eta || snapshot.actual_arrival;
-    const bits = [
-      snapshot.status_text || 'FlightStats',
-      delayText,
-      eta ? `ETA ${time(eta)}` : '',
-      snapshot.actual_departure ? `salió ${time(snapshot.actual_departure)}` : '',
-    ].filter(Boolean);
-    return `<p class="flightstats-watch-line"><span>FlightStats</span><strong>${esc(bits.join(' · '))}</strong><small>secundario · no sustituye a Aena</small></p>`;
+    const timing = String(flight?.timing_source || '').toLowerCase();
+    const publishedDelay = Number(flight?.deviation_minutes);
+    const weak = isWeakFlightStats(flight);
+    if (!snapshot && timing !== 'flightstats') return '';
+    if (weak && timing !== 'flightstats') {
+      if (!aenaStillOnTime(flight, parseDate(flight.scheduled_arrival)) && Number.isFinite(publishedDelay) && Math.abs(publishedDelay) >= 5) {
+        return `<p class="flightstats-watch-line"><span>FlightStats</span><strong>Aena ya muestra el retraso (${esc(signed(publishedDelay))} · ETA ${time(effectiveArrival(flight))})</strong><small>La última ficha pública no aportó datos nuevos. Cinta y sala las pone Aena.</small></p>`;
+      }
+      return '';
+    }
+    let delay = Number(snapshot?.delay_minutes);
+    let eta = snapshot?.eta || snapshot?.actual_arrival;
+    let status = snapshot?.status_text || '';
+    if (weak && timing === 'flightstats' && Number.isFinite(publishedDelay) && Math.abs(publishedDelay) >= 5) {
+      delay = publishedDelay;
+      eta = effectiveArrival(flight);
+      status = publishedDelay > 0 ? `Retraso +${publishedDelay} min` : `Adelanto ${publishedDelay} min`;
+    }
+    const bits = [];
+    if (Number.isFinite(delay) && delay !== 0) bits.push(`${delay > 0 ? '+' : ''}${delay} min`);
+    if (eta) bits.push(`ETA ${time(eta)}`);
+    if (snapshot?.actual_departure) bits.push(`salió ${time(snapshot.actual_departure)}`);
+    if (status && !/on time|scheduled/i.test(status) && !bits.some(bit => status.toLowerCase().includes(bit.toLowerCase()))) {
+      bits.unshift(status);
+    }
+    return `<p class="flightstats-watch-line"><span>FlightStats</span><strong>${esc(bits.join(' · ') || status || 'sin retraso')}</strong><small>${esc(flightStatsNote(flight, delay, eta))}</small></p>`;
+  }
+  function secondaryWatchMarkup(flight) {
+    if (!flight?.secondary_eta) return '';
+    if (flight.secondary_eta === flight.eta) return '';
+    if (flight.secondary_eta === (flight.flightstats && flight.flightstats.eta)) return '';
+    const source = prettyWatchSource(flight.secondary_eta_source);
+    const scheduled = parseDate(flight.scheduled_arrival);
+    const aenaOnTime = aenaStillOnTime(flight, scheduled);
+    const note = aenaOnTime
+      ? `${source} avisó esta hora. Aena aún en hora. Cinta y sala las pone Aena.`
+      : 'Aena ya muestra otra hora. Cinta y sala las pone Aena.';
+    return `<p class="flightstats-watch-line"><span>${esc(source)}</span><strong>ETA ${time(flight.secondary_eta)}${flight.secondary_actual_departure ? ' · salió ' + time(flight.secondary_actual_departure) : ''}${flight.secondary_actual_arrival ? ' · aterrizó ' + time(flight.secondary_actual_arrival) : ''}</strong><small>${esc(note)}</small></p>`;
   }
   function canaryDelayHint(flight) {
     const delay = Number(flight?.deviation_minutes ?? flight?.flightstats?.delay_minutes);
@@ -3224,7 +3295,7 @@
         <div><small>Fase</small><strong>${esc(snapshot.phase || '—')}</strong></div>
         <div><small>Hitos</small><strong>${esc(snapshot.arrival_text || snapshot.departure_text || '—')}</strong></div>
       </div>
-      <small class="telemetry-note">Lectura pública de retraso y ETA. Aena sigue siendo la autoridad de cinta, sala y equipaje.</small>
+      <small class="telemetry-note">Lectura pública de retraso y ETA. La hora sí se usa si Aena sigue en hora. Cinta, sala y equipaje las pone Aena.</small>
     </section>`;
   }
 

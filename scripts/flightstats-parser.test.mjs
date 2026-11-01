@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseFlightStatsHtml, parseFlightStatsJson } from './flightstats-parser.mjs';
+import { isFlightStatsPlaceholder, parseFlightStatsHtml, parseFlightStatsJson } from './flightstats-parser.mjs';
 
 const fixture = JSON.parse(readFileSync(new URL('./fixtures/flightstats-vy3190.json', import.meta.url), 'utf8'));
 const parsed = parseFlightStatsJson(fixture, 'https://www.flightstats.com/v2/flight-tracker/VY/3190?year=2026&month=10&date=26');
@@ -37,5 +37,16 @@ const hours = parseFlightStatsHtml(
 );
 assert.equal(hours.delay_minutes, 83);
 assert.equal(hours.eta, '2026-11-02 01:13:00');
+
+const shell = parseFlightStatsHtml(
+  'On time Scheduled Track flight VY 3190 Estimated 23:50 CET',
+  '2026-11-01 23:50:00'
+);
+assert.equal(shell, null);
+assert.equal(isFlightStatsPlaceholder({
+  status_text: 'Scheduled · On time',
+  delay_minutes: 0,
+  eta: '2026-11-01 23:50:00',
+}, '2026-11-01 23:50:00'), true);
 
 console.log('Parser FlightStats público: OK');
