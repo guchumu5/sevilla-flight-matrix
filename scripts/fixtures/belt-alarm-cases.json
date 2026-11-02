@@ -1,0 +1,8 @@
+[
+  ["A/3","B/7",true], ["3","7",true], ["8","1",true], ["6","7",true],
+  ["A/3","A/4",false], ["7","8",false], ["3","3",false], ["1","6",false],
+  ["A","B",false], ["A/3","B",false], [null,"7",false], ["","8",false],
+  ["0","7",false], ["9","3",false], ["37","7",false], ["3/4","7",false],
+  ["cinta 3","7",false], ["A/9","B/7",false], ["3<script>","7",false],
+  [" B / 3 "," A / 7 ",true]
+]

@@ -66,9 +66,13 @@ jobs:
           npm run test:flightaware
           npm run test:flightstats
           node scripts/web-push-encryption.test.mjs
+          node scripts/belt-alarm.test.mjs
 
       - name: Crear esquema MySQL
         run: mysql -h127.0.0.1 -uroot -proot sevilla_matrix < database/schema.sql
+
+      - name: Comprobar alarmas criticas con transporte simulado
+        run: php scripts/critical-belt-alarm.test.php
 
       - name: Comprobar copias y claves push
         run: |

@@ -150,6 +150,21 @@ Antes de usar el botón en una instalación existente hay que aplicar desde
 coordenadas y tendencia vertical (ascenso, descenso o nivelado), distinguiendo
 si no existe una señal ADS-B verificable.
 
+## Alarmas críticas de cinta
+
+Solo un evento `belt_changed` de Aena con dos números válidos y un cruce **1–6 ↔ 7–8** activa la alarma crítica. Un cambio de sala sin números, una primera asignación o una fuente secundaria no basta. La difusión alcanza a todas las suscripciones Push activas, aunque no vigilen el vuelo.
+
+Push, la vista principal y Cintas usan la misma identidad de evento y la misma caducidad de 20 minutos. Las repeticiones consecutivas conservan el primer identificador; cada alternancia real conserva el suyo. La cola prioriza alarmas vigentes, descarta destinos sustituidos y mantiene hasta cuatro intentos de entrega. Si se acumulan varias alternancias antes de despacharlas, solo se envía la asignación vigente. El navegador muestra una alarma visual por evento y el Service Worker evita repetir su notificación, incluso después de reiniciarse.
+
+Regresiones sin envío a pasajeros:
+
+```bash
+npm run test:belt-alarm
+APP_ENV=testing php scripts/critical-belt-alarm.test.php
+```
+
+La prueba PHP usa `DB_HOST`, `DB_PORT`, `DB_USER` y `DB_PASS` para crear y borrar una base temporal `svq_belt_test_*`; requiere permisos para ello. Inyecta un transporte simulado y una caché temporal. Comprueba conciliación, destinatarios, reintentos, caducidad, duplicados, alternancias, reserva concurrente, HTTP 410 y coherencia del tablero con Push. CI ejecuta ambas pruebas.
+
 ## Requisitos
 
 - PHP 8.1 o superior con extensiones `pdo_mysql`, `curl` y `json`.
