@@ -1,4 +1,5 @@
 'use strict';
+importScripts('assets/js/belt-alarm.js');
 const CONFIG_CACHE = 'matrix-push-config-v1';
 self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
@@ -13,17 +14,37 @@ self.addEventListener('message', event => {
   }
 });
 
+let noticeQueue = Promise.resolve();
 function show(notice) {
-  const urgent = Boolean(notice.urgent || /belt-critical|ALARMA CINTA/.test(String(notice.tag || '') + String(notice.title || '') + String(notice.body || '')));
-  return self.registration.showNotification(notice.title || 'Matriz Sevilla', {
-    body: notice.body || 'Actualización operativa',
+  // Serialize cache claims when push and page messages arrive together.
+  const next = noticeQueue.catch(() => {}).then(() => showNotice(notice));
+  noticeQueue = next;
+  return next;
+}
+async function showNotice(notice) {
+  const event = notice.critical_belt;
+  const urgent = MatrixBeltAlarm.validEvent(event);
+  // Reject malformed/expired critical notices instead of downgrading a siren.
+  if ((notice.urgent || event) && !urgent) return;
+  let cache, key;
+  if (urgent) {
+    cache = await caches.open(CONFIG_CACHE);
+    const stored = await cache.match('/matrix-device-token');
+    const device = stored ? await stored.text() : 'local';
+    key = `/matrix-belt-event/${device}/${event.flight_id}`;
+    const last = await cache.match(key);
+    if (last && BigInt(await last.text()) >= BigInt(event.id)) return;
+  }
+  await self.registration.showNotification(notice.title || 'Matriz Sevilla', {
+    body: urgent ? MatrixBeltAlarm.body(event) : (notice.body || 'Actualización operativa'),
     tag: notice.tag || 'matrix-' + (notice.target_url || 'flight'),
     renotify: true,
     requireInteraction: urgent,
     silent: false,
     vibrate: urgent ? [500, 120, 500, 120, 900, 160, 500] : [180, 80, 180],
-    data: {url: notice.target_url || 'index.php', urgent}
+    data: {url: notice.target_url || 'index.php', urgent, critical_belt:event || null}
   });
+  if (urgent) await cache.put(key, new Response(String(event.id)));
 }
 
 const payloadNotice = event => {

@@ -15,10 +15,14 @@ use SevillaMatrix\Sync\FlightStatsIngestService;
 final class WebPushService
 {
     private string $keyFile;
+    private readonly ?\Closure $transport;
+    private readonly string $stateDirectory;
 
-    public function __construct(private readonly PDO $pdo, ?string $keyFile = null)
+    public function __construct(private readonly PDO $pdo, ?string $keyFile = null, ?callable $transport = null, ?string $stateDirectory = null)
     {
         $this->keyFile = $keyFile ?? PROJECT_ROOT . '/storage/keys/vapid.json';
+        $this->transport = $transport !== null ? \Closure::fromCallable($transport) : null;
+        $this->stateDirectory = $stateDirectory ?? PROJECT_ROOT . '/storage/cache';
     }
 
     public function publicKey(): string
@@ -300,7 +304,7 @@ final class WebPushService
      */
     public function armWatchPulseLoop(): bool
     {
-        if (!$this->hasActiveWatchTargets()) return false;
+        if ($this->transport !== null || !$this->hasActiveWatchTargets()) return false;
         if ($this->watchPulseLoopRunning()) return true;
         $php = $this->cliPhpBinary();
         $script = PROJECT_ROOT . '/bin/watch-pulse-loop.php';
@@ -384,18 +388,21 @@ final class WebPushService
         $subscriptionId = $this->subscriptionId($deviceToken);
         $test = $this->takeTestNotice($deviceToken);
         if ($test !== null) return $test;
+        $this->discardSupersededBeltAlarms((new CriticalBeltEvents($this->pdo))->current());
         $stmt = $this->pdo->prepare(
-            'SELECT id,title,body,target_url FROM push_outbox
-             WHERE subscription_id=:subscription_id AND pushed_at IS NOT NULL AND displayed_at IS NULL
-             ORDER BY id DESC LIMIT 1'
+            'SELECT o.*,e.id AS flight_event_id,e.flight_id,e.source,e.event_type,e.before_value,e.after_value,
+                    UNIX_TIMESTAMP(e.detected_at)+1200 AS expires_at,f.is_canary
+             FROM push_outbox o JOIN flight_events e ON e.id=o.flight_event_id
+             JOIN flights f ON f.id=e.flight_id
+             WHERE o.subscription_id=:subscription_id AND o.pushed_at IS NOT NULL AND o.displayed_at IS NULL
+             ORDER BY o.id LIMIT 1'
         );
         $stmt->execute(['subscription_id' => $subscriptionId]);
         $row = $stmt->fetch();
         if (!$row) return null;
-        $this->pdo->prepare('UPDATE push_outbox SET displayed_at=NOW() WHERE id=:id')->execute(['id' => $row['id']]);
-        $row['tag'] = 'matrix-outbox-' . (int)$row['id'];
-        unset($row['id']);
-        return $row;
+        $claim = $this->pdo->prepare('UPDATE push_outbox SET displayed_at=NOW() WHERE id=:id AND displayed_at IS NULL');
+        $claim->execute(['id' => $row['id']]);
+        return $claim->rowCount() === 1 ? $this->outboxNotice($row) : null;
     }
 
     /** @return array<string,mixed> */
@@ -456,7 +463,7 @@ final class WebPushService
 
     private function testNoticePath(string $deviceToken): string
     {
-        return PROJECT_ROOT . '/storage/cache/push-tests/' . hash('sha256', $deviceToken) . '.json';
+        return $this->stateDirectory . '/push-tests/' . hash('sha256', $deviceToken) . '.json';
     }
 
     /** @return array<string,int> */
@@ -474,19 +481,6 @@ final class WebPushService
              JOIN flight_events e ON e.id=o.flight_event_id
              SET o.attempts=4,o.last_error='Descartado por la política de avisos operativos'
              WHERE o.pushed_at IS NULL AND o.attempts<4 AND e.event_type NOT IN ({$watched})"
-        );
-        $this->pdo->exec(
-            "UPDATE push_outbox o
-             JOIN flight_events e ON e.id=o.flight_event_id
-             JOIN flights f ON f.id=e.flight_id
-             JOIN push_subscriptions s ON s.id=o.subscription_id
-             LEFT JOIN flight_watches w ON w.subscription_id=o.subscription_id AND w.flight_id=e.flight_id AND w.enabled=1
-             SET o.attempts=4,o.last_error='Descartado: sin vigilancia individual ni Canarias global'
-             WHERE o.pushed_at IS NULL AND o.attempts<4
-               AND NOT (
-                 (w.id IS NOT NULL AND e.detected_at>=w.updated_at)
-                 OR (s.watch_canary_all=1 AND f.is_canary=1 AND e.detected_at>=s.updated_at)
-               )"
         );
         $sourceName = "CASE e.source
             WHEN 'aena' THEN 'Aena'
@@ -579,31 +573,58 @@ final class WebPushService
                  AND e.source IN ('flightstats','airlabs','opensky')
                )"
         );
-        $criticalBelt = $this->queueCriticalBeltAlarms();
+        $criticalEvents = (new CriticalBeltEvents($this->pdo))->current();
+        $criticalIds = implode(',', array_map(static fn(array $event): int => (int)$event['id'], $criticalEvents)) ?: '0';
+        $criticalBelt = $this->queueCriticalBeltAlarms($criticalEvents);
+        $this->discardSupersededBeltAlarms($criticalEvents);
+        $this->pdo->exec(
+            "UPDATE push_outbox o
+             JOIN flight_events e ON e.id=o.flight_event_id
+             JOIN flights f ON f.id=e.flight_id
+             JOIN push_subscriptions s ON s.id=o.subscription_id
+             LEFT JOIN flight_watches w ON w.subscription_id=o.subscription_id AND w.flight_id=e.flight_id AND w.enabled=1
+             SET o.attempts=4,o.last_error='Descartado: sin vigilancia individual ni Canarias global'
+             WHERE o.pushed_at IS NULL AND o.attempts<4
+               AND e.id NOT IN ({$criticalIds})
+               AND NOT (
+                 (w.id IS NOT NULL AND e.detected_at>=w.updated_at)
+                 OR (s.watch_canary_all=1 AND f.is_canary=1 AND e.detected_at>=s.updated_at)
+               )"
+        );
 
         $stmt = $this->pdo->prepare(
-            'SELECT o.id,o.subscription_id,o.title,o.body,o.target_url,s.endpoint,s.p256dh,s.auth_secret,
-                    e.flight_id,e.event_type,e.before_value,e.after_value,
+            "SELECT o.id,o.subscription_id,o.title,o.body,o.target_url,s.endpoint,s.p256dh,s.auth_secret,
+                    e.id AS flight_event_id,e.flight_id,e.source,e.event_type,e.before_value,e.after_value,
+                    UNIX_TIMESTAMP(e.detected_at)+1200 AS expires_at,
                     f.physical_flight,f.origin_name,f.is_canary
              FROM push_outbox o
              JOIN push_subscriptions s ON s.id=o.subscription_id
              JOIN flight_events e ON e.id=o.flight_event_id
              JOIN flights f ON f.id=e.flight_id
              WHERE o.pushed_at IS NULL AND o.attempts<4 AND s.active=1
-             ORDER BY o.id LIMIT :limit'
+             ORDER BY (e.id IN ({$criticalIds})) DESC,o.id LIMIT :limit"
         );
         $stmt->bindValue(':limit', max(1, min(200, $limit)), PDO::PARAM_INT);
         $stmt->execute();
         $sent = $failed = 0;
         foreach ($stmt->fetchAll() as $row) {
+            if (BeltAlarm::isCriticalEvent($row)) {
+                // A sync may supersede the assignment while a slow delivery is in progress.
+                $current = (new CriticalBeltEvents($this->pdo))->current()[(int)$row['flight_id']] ?? null;
+                if ($current === null || (int)$current['id'] !== (int)$row['flight_event_id']) {
+                    $this->pdo->prepare("UPDATE push_outbox SET attempts=4,displayed_at=NOW(),last_error='Descartado: cambio de cinta sustituido' WHERE id=:id AND pushed_at IS NULL")
+                        ->execute(['id' => $row['id']]);
+                    continue;
+                }
+            }
             // Reserve the outbox row before waking the service worker. Safari can
             // receive an empty Web Push immediately and request /pending while
             // sendEmpty() is still waiting for Apple's HTTP response. Marking it
             // afterwards left that request with an empty queue and lost the alert.
             $reserve = $this->pdo->prepare(
-                'UPDATE push_outbox
-                 SET pushed_at=NOW(),attempts=attempts+1,last_error=NULL
-                 WHERE id=:id AND pushed_at IS NULL AND attempts<4'
+                'UPDATE push_outbox o JOIN push_subscriptions s ON s.id=o.subscription_id
+                 SET o.pushed_at=NOW(),o.attempts=o.attempts+1,o.last_error=NULL
+                 WHERE o.id=:id AND o.pushed_at IS NULL AND o.attempts<4 AND s.active=1'
             );
             $reserve->execute(['id' => $row['id']]);
             if ($reserve->rowCount() !== 1) continue;
@@ -615,7 +636,10 @@ final class WebPushService
                     'p256dh' => $row['p256dh'],
                     'auth_secret' => $row['auth_secret'],
                 ], $notice);
-                if (!empty($delivery['skipped'])) continue;
+                if (!empty($delivery['skipped'])) {
+                    $this->pdo->prepare('UPDATE push_outbox SET displayed_at=NOW() WHERE id=:id')->execute(['id' => $row['id']]);
+                    continue;
+                }
                 if (!empty($delivery['encrypted'])) {
                     $this->pdo->prepare('UPDATE push_outbox SET displayed_at=NOW() WHERE id=:id AND displayed_at IS NULL')
                         ->execute(['id' => $row['id']]);
@@ -624,7 +648,8 @@ final class WebPushService
             } catch (\Throwable $error) {
                 // Return the row to the retry queue. The attempt was already
                 // counted by the atomic reservation above.
-                $this->pdo->prepare('UPDATE push_outbox SET pushed_at=NULL,last_error=:error WHERE id=:id')
+                $this->pdo->prepare('UPDATE push_outbox o JOIN push_subscriptions s ON s.id=o.subscription_id
+                    SET o.pushed_at=NULL,o.last_error=:error,o.attempts=IF(s.active=0,4,o.attempts) WHERE o.id=:id')
                     ->execute(['error' => substr($error->getMessage(), 0, 500), 'id' => $row['id']]);
                 $this->pdo->prepare('UPDATE push_subscriptions SET last_error=:error,updated_at=updated_at WHERE id=:id')
                     ->execute(['error' => substr($error->getMessage(), 0, 500), 'id' => $row['subscription_id']]);
@@ -634,7 +659,7 @@ final class WebPushService
         $pulses = $this->sendWatchPulses();
         $loop = $this->armWatchPulseLoop();
         return [
-            'queued' => (int)$this->pdo->query('SELECT COUNT(*) FROM push_outbox WHERE pushed_at IS NULL')->fetchColumn(),
+            'queued' => (int)$this->pdo->query('SELECT COUNT(*) FROM push_outbox o JOIN push_subscriptions s ON s.id=o.subscription_id WHERE o.pushed_at IS NULL AND o.attempts<4 AND s.active=1')->fetchColumn(),
             'sent' => $sent,
             'failed' => $failed,
             'pulses' => $pulses,
@@ -648,26 +673,16 @@ final class WebPushService
      * Un A/3 → B/7 no puede depender de que alguien vigile el vuelo:
      * avisa a todos los teléfonos con push activo.
      */
-    private function queueCriticalBeltAlarms(): int
+    private function queueCriticalBeltAlarms(array $events): int
     {
-        $events = $this->pdo->query(
-            "SELECT e.id,e.flight_id,e.event_type,e.before_value,e.after_value,e.detected_at,
-                    f.physical_flight,f.origin_name,f.flight_date,f.is_canary
-             FROM flight_events e
-             INNER JOIN flights f ON f.id=e.flight_id
-             WHERE e.source='aena'
-               AND e.event_type IN ('belt_changed','hall_changed')
-               AND e.detected_at>=DATE_SUB(NOW(),INTERVAL 20 MINUTE)
-             ORDER BY e.id DESC
-             LIMIT 30"
-        );
         $subscriptions = $this->pdo->query(
             'SELECT id FROM push_subscriptions WHERE active=1'
         )->fetchAll();
         if ($subscriptions === []) return 0;
         $insert = $this->pdo->prepare(
             'INSERT IGNORE INTO push_outbox (subscription_id,flight_event_id,title,body,target_url)
-             VALUES (:subscription_id,:flight_event_id,:title,:body,:target_url)'
+             VALUES (:subscription_id,:flight_event_id,:title,:body,:target_url)
+             ON DUPLICATE KEY UPDATE title=VALUES(title),body=VALUES(body),target_url=VALUES(target_url)'
         );
         $queued = 0;
         foreach ($events as $event) {
@@ -688,10 +703,41 @@ final class WebPushService
                     'body' => substr($body, 0, 500),
                     'target_url' => $url,
                 ]);
-                if ($insert->rowCount() > 0) $queued++;
+                if ($insert->rowCount() === 1) $queued++;
             }
         }
         return $queued;
+    }
+
+    private function discardSupersededBeltAlarms(array $events): void
+    {
+        $ids = array_map(static fn(array $event): int => (int)$event['id'], $events);
+        $rows = $this->pdo->query(
+            "SELECT o.title,e.*,o.id AS outbox_id
+             FROM push_outbox o JOIN flight_events e ON e.id=o.flight_event_id
+             WHERE o.displayed_at IS NULL AND (o.pushed_at IS NOT NULL OR o.attempts<4)
+               AND e.event_type IN ('belt_changed','hall_changed')"
+        )->fetchAll();
+        $paired = [];
+        foreach ($this->pdo->query(
+            "SELECT b.* FROM flight_events b WHERE b.source='aena' AND b.event_type='belt_changed'
+             AND b.sync_run_id IN (SELECT e.sync_run_id FROM push_outbox o JOIN flight_events e ON e.id=o.flight_event_id
+               WHERE o.displayed_at IS NULL AND e.event_type='hall_changed')"
+        )->fetchAll() as $event) {
+            if (BeltAlarm::isCriticalEvent($event)) $paired[$event['flight_id'] . ':' . $event['sync_run_id']] = true;
+        }
+        $discard = $this->pdo->prepare(
+            "UPDATE push_outbox SET attempts=4,displayed_at=NOW(),last_error='Descartado: alarma sustituida, duplicada o sin cambio oficial de bloque'
+             WHERE id=:id AND displayed_at IS NULL"
+        );
+        foreach ($rows as $row) {
+            $critical = BeltAlarm::isCriticalEvent($row);
+            if (($critical && !in_array((int)$row['id'], $ids, true))
+                || ($row['source'] === 'aena' && $row['event_type'] === 'hall_changed' && isset($paired[$row['flight_id'] . ':' . $row['sync_run_id']]))
+                || (!$critical && str_contains($row['title'], 'ALARMA CINTA'))) {
+                $discard->execute(['id' => $row['outbox_id']]);
+            }
+        }
     }
 
     /** @param array<string,mixed> $row @return array<string,mixed> */
@@ -699,8 +745,7 @@ final class WebPushService
     {
         $flightId = (int)$row['flight_id'];
         $eventType = (string)$row['event_type'];
-        $critical = in_array($eventType, ['belt_changed', 'hall_changed'], true)
-            && BeltAlarm::isBlockChange((string)($row['before_value'] ?? ''), (string)($row['after_value'] ?? ''));
+        $critical = BeltAlarm::isCriticalEvent($row);
         $title = (string)$row['title'];
         $body = (string)$row['body'];
         $tag = 'matrix-watch-' . $flightId . '-' . ($critical ? 'belt-critical' : $this->eventTag($eventType));
@@ -718,6 +763,7 @@ final class WebPushService
             'target_url' => (string)$row['target_url'],
             'tag' => $tag,
             'urgent' => $critical,
+            'critical_belt' => $critical ? BeltAlarm::payload(array_replace($row, ['id' => $row['flight_event_id']])) : null,
         ];
     }
 
@@ -1144,18 +1190,9 @@ final class WebPushService
             }
             $out[] = $notice($body, '-feeder');
         }
-        $beltBefore = $before['belt'] === 'cinta pendiente' ? '' : $before['belt'];
         $beltNow = $snap['belt'] === 'cinta pendiente' ? '' : $snap['belt'];
-        if ($beltBefore !== $beltNow && $beltNow !== '') {
-            if ($beltBefore !== '' && BeltAlarm::isBlockChange($beltBefore, $beltNow)) {
-                $out[] = $notice(BeltAlarm::pushBody($beltBefore, $beltNow), '-belt-critical');
-            } else {
-                $out[] = $notice(
-                    ($beltBefore !== '' ? '⚠️ Cambio de cinta · ' . $beltBefore . ' → ' : '🧳 Asignación de cinta · ') . $beltNow,
-                    '-belt'
-                );
-            }
-        }
+        // Belt notifications are delivered only through the event outbox.
+        // Snapshot diffs have no event identity and duplicate/replay transitions.
         if ($before['baggage'] !== $snap['baggage'] && $snap['baggage'] !== '' && $snap['baggage'] !== 'pendiente') {
             $out[] = $notice(
                 $snap['baggage'] === 'finalizado' || $snap['baggage'] === 'final'
@@ -1288,7 +1325,7 @@ final class WebPushService
 
     private function watchStatePath(): string
     {
-        return PROJECT_ROOT . '/storage/cache/watch-states.json';
+        return $this->stateDirectory . '/watch-states.json';
     }
 
     /** @param array<string,mixed> $data */
@@ -1389,7 +1426,7 @@ final class WebPushService
 
     private function watchSummaryPath(): string
     {
-        return PROJECT_ROOT . '/storage/cache/watch-summaries.json';
+        return $this->stateDirectory . '/watch-summaries.json';
     }
 
     private function sendWatchPulses(?int $onlySubscriptionId = null): int
@@ -1620,7 +1657,7 @@ final class WebPushService
 
     private function noticeCooldownPath(): string
     {
-        return PROJECT_ROOT . '/storage/cache/watch-notice-cooldown.json';
+        return $this->stateDirectory . '/watch-notice-cooldown.json';
     }
 
     private function watchPulseKey(int $subscriptionId, int $flightId): string
@@ -1630,12 +1667,12 @@ final class WebPushService
 
     private function watchPulsePath(): string
     {
-        return PROJECT_ROOT . '/storage/cache/watch-pulses.json';
+        return $this->stateDirectory . '/watch-pulses.json';
     }
 
     private function watchPulseLoopRunning(): bool
     {
-        $path = PROJECT_ROOT . '/storage/cache/watch-pulse-loop.lock';
+        $path = $this->stateDirectory . '/watch-pulse-loop.lock';
         if (!is_file($path)) return false;
         $fp = fopen($path, 'c+');
         if ($fp === false) return false;
@@ -1709,7 +1746,9 @@ final class WebPushService
                 'sent_at' => date('Y-m-d H:i:s'),
             ];
         }
-        $delivery = $this->send($endpoint, (string)$subscription['p256dh'], (string)$subscription['auth_secret'], $notice);
+        $delivery = $this->transport !== null
+            ? ($this->transport)($subscription, $notice)
+            : $this->send($endpoint, (string)$subscription['p256dh'], (string)$subscription['auth_secret'], $notice);
         $status = $delivery['status'];
         if (in_array($status, [404, 410], true)) {
             $this->pdo->prepare('UPDATE push_subscriptions SET active=0,last_error=:error,updated_at=updated_at WHERE id=:id')

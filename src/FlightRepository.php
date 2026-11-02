@@ -689,15 +689,19 @@ SQL;
             : '';
         $stmt = $this->pdo->prepare(
             "SELECT e.id,e.flight_id,e.source,e.event_type,e.before_value,e.after_value,e.reason_code,
-             e.reason_detail,e.confidence,e.evidence,e.detected_at{$analysisSelect}
+             e.reason_detail,e.confidence,e.evidence,e.detected_at,
+             (e.detected_at BETWEEN DATE_SUB(NOW(),INTERVAL 20 MINUTE) AND NOW()) AS recent,
+             UNIX_TIMESTAMP(e.detected_at)+1200 AS expires_at{$analysisSelect}
              FROM flight_events e{$analysisJoin}
              WHERE e.flight_id IN ($placeholders)
              AND e.event_type IN ('belt_assigned','belt_changed','belt_removed')
+             AND e.detected_at<=NOW()
              ORDER BY e.detected_at,e.id"
         );
         $stmt->execute($ids);
         $eventsByFlight = [];
-        foreach ($stmt->fetchAll() as $event) {
+        $events = $stmt->fetchAll();
+        foreach ($events as $event) {
             if (is_string($event['evidence'] ?? null)) {
                 $decoded = json_decode($event['evidence'], true);
                 $event['evidence'] = is_array($decoded) ? $decoded : null;
@@ -711,8 +715,11 @@ SQL;
             }
             $eventsByFlight[(int)$event['flight_id']][] = $event;
         }
+        $critical = BeltAlarm::currentEvents($events);
         foreach ($rows as &$row) {
             $row['belt_events'] = $eventsByFlight[(int)$row['id']] ?? [];
+            $event = $critical[(int)$row['id']] ?? null;
+            $row['critical_belt_event'] = $event !== null ? BeltAlarm::payload($event) : null;
         }
         unset($row);
     }

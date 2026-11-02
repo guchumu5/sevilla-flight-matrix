@@ -1022,26 +1022,6 @@
     }
   }
 
-  function raiseBeltCrisis(flight, from, to) {
-    const alarm = window.MatrixBeltAlarm;
-    if (!alarm || !alarm.isBlockChange(from, to)) return false;
-    alarm.show({
-      flight: flight.physical_flight,
-      origin: flight.origin_name,
-      from,
-      to,
-      onOpen: () => openDetail(flight.id)
-    });
-    notifyWatchedChange(
-      flight,
-      `🚨 ALARMA CINTA · ${flight.origin_name || ''} · ${flight.physical_flight}`,
-      `${alarm.format(from)} → ${alarm.format(to)} · cambio de bloque. Hay que moverse YA.`,
-      'matrix-watch-' + flight.id + '-belt-critical',
-      true
-    );
-    return true;
-  }
-
   function processCanaryAlerts(incoming, date) {
     const storageKey = `svq-canary-snapshot:${date}`;
     let previous = {};
@@ -1078,7 +1058,6 @@
         && snapshot.feeder_delay !== '' && Math.abs(Number(snapshot.feeder_delay)) >= 5) {
         changes.push(`Arrastre ${snapshot.feeder_code || 'ida'}: ${Number(snapshot.feeder_delay) > 0 ? '+' : ''}${snapshot.feeder_delay} min`);
       }
-      raiseBeltCrisis(f, before.position, snapshot.position);
       if (state.canaryWatchEnabled && changes.length) showCanaryAlert(snapshot, changes);
     });
     try { localStorage.setItem(storageKey, JSON.stringify(current)); } catch (_) {}
@@ -1268,11 +1247,7 @@
         const lag = aenaStillOnTime(flight, scheduled) ? ' · Aena aún en hora' : '';
         notifyWatchedChange(flight, title, `⏱️ FlightStats ${Number(snap.fs_delay) > 0 ? '+' : ''}${snap.fs_delay} min${lag}`, 'matrix-watch-' + flight.id + '-fs');
       }
-      if (before.belt !== snap.belt && snap.belt) {
-        if (!raiseBeltCrisis(flight, before.belt, snap.belt)) {
-          notifyWatchedChange(flight, title, (before.belt ? '⚠️ Cambio de cinta · ' + before.belt + ' → ' : '🧳 Asignación de cinta · ') + snap.belt, 'matrix-watch-' + flight.id + '-belt');
-        }
-      }
+      // Belt notices come from the server event outbox; no second local push.
       if (before.baggage !== snap.baggage && snap.baggage && snap.baggage !== 'pendiente') {
         const bag = snap.baggage === 'finalizado' || snap.baggage === 'final'
           ? '✅ Entrega de equipaje finalizada'
@@ -1941,6 +1916,7 @@
         return;
       }
       const incoming = payload.flights || [];
+      window.MatrixBeltAlarm?.process(incoming, flight => openDetail(flight.id));
       processCanaryAlerts(incoming, els.date.value);
       processWatchAlerts(incoming);
       state.flights = incoming;

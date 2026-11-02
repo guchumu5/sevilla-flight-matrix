@@ -2,7 +2,7 @@
   'use strict';
 
   const digit = value => {
-    const match = String(value || '').match(/(\d+)/);
+    const match = String(value || '').match(/^\s*(?:[AB]\s*\/\s*)?([1-8])\s*$/i);
     const number = match ? Number(match[1]) : NaN;
     return Number.isInteger(number) && number >= 1 && number <= 8 ? number : null;
   };
@@ -10,25 +10,54 @@
     const number = typeof value === 'number' ? value : digit(value);
     return number === 7 || number === 8;
   };
-  const hall = value => {
-    const match = String(value || '').match(/\b([AB])\b/i);
-    if (match) return match[1].toUpperCase();
-    const number = digit(value);
-    if (number == null) return null;
-    return number >= 7 ? 'B' : 'A';
-  };
   const format = value => {
     const number = digit(value);
     if (number == null) return String(value || '').trim() || '—';
-    return `${hall(value) || (number >= 7 ? 'B' : 'A')}/${number}`;
+    return `${number >= 7 ? 'B' : 'A'}/${number}`;
   };
   const isBlockChange = (from, to) => {
     const left = digit(from);
     const right = digit(to);
-    if (left != null && right != null) return isRed(left) !== isRed(right);
-    const hallFrom = hall(from);
-    const hallTo = hall(to);
-    return Boolean(hallFrom && hallTo && hallFrom !== hallTo);
+    return left != null && right != null && isRed(left) !== isRed(right);
+  };
+
+  const validEvent = event => Boolean(event && /^[1-9]\d*$/.test(String(event.id))
+    && /^[1-9]\d*$/.test(String(event.flight_id)) && event.source === 'aena'
+    && event.event_type === 'belt_changed' && isBlockChange(event.from, event.to)
+    && Number(event.expires_at) > Date.now() / 1000);
+  const body = event => `${format(event.from)} → ${format(event.to)} · cambio de bloque ${isRed(event.to) ? '1–6 a 7–8' : '7–8 a 1–6'}. Hay que moverse YA.`;
+  const seen = new Map();
+  const queue = new Map();
+  let activeEvent = null;
+  const displayNext = () => {
+    if (activeEvent) return;
+    for (const [id, item] of queue) {
+      queue.delete(id);
+      const {event, flight, onOpen} = item;
+      if (!validEvent(event)) continue;
+      const key = `matrix.beltAlarm:${id}`;
+      let last = seen.get(key) || '0';
+      try { if (BigInt(localStorage.getItem(key) || '0') > BigInt(last)) last = localStorage.getItem(key); } catch (_) {}
+      if (BigInt(event.id) <= BigInt(last)) continue;
+      activeEvent = event;
+      seen.set(key, String(event.id));
+      try { localStorage.setItem(key, String(event.id)); } catch (_) {}
+      show({flight:flight.physical_flight, origin:flight.origin_name, from:event.from, to:event.to,
+        onOpen:() => { if (onOpen) onOpen(flight); displayNext(); }});
+      return;
+    }
+  };
+  const process = (flights, onOpen) => {
+    for (const flight of flights || []) {
+      const id = String(flight.id);
+      const event = flight.critical_belt_event;
+      const valid = validEvent(event) && String(event.flight_id) === id;
+      if (activeEvent?.flight_id === id && (!valid || activeEvent.id !== event.id)) hide();
+      if (!valid) { queue.delete(id); continue; }
+      queue.set(id, {flight, event, onOpen});
+    }
+    if (activeEvent && !validEvent(activeEvent)) hide();
+    displayNext();
   };
 
   let overlay = null;
@@ -92,12 +121,14 @@
   };
 
   const hide = () => {
+    activeEvent = null;
     stopSiren();
     overlay?.remove();
     overlay = null;
   };
 
   const show = ({flight = '', origin = '', from = '', to = '', onOpen = null} = {}) => {
+    if (!isBlockChange(from, to)) return;
     ensureStyle();
     const fromLabel = format(from);
     const toLabel = format(to);
@@ -109,10 +140,18 @@
       overlay.setAttribute('aria-modal', 'true');
       document.body.appendChild(overlay);
     }
-    overlay.innerHTML = `<strong>Alarma de cinta</strong>
-      <b>${fromLabel} → ${toLabel}</b>
-      <p>${origin ? `${origin} · ` : ''}${flight || 'Vuelo'} · cambio de bloque. Hay que moverse YA.</p>
-      <button type="button" data-belt-alarm-ack>Entendido · ir al vuelo</button>`;
+    overlay.replaceChildren();
+    for (const [tag, text] of [['strong', 'Alarma de cinta'], ['b', `${fromLabel} → ${toLabel}`],
+      ['p', `${origin ? `${origin} · ` : ''}${flight || 'Vuelo'} · ${body({from, to}).split(' · ')[1]}`]]) {
+      const element = document.createElement(tag);
+      element.textContent = text;
+      overlay.appendChild(element);
+    }
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.setAttribute('data-belt-alarm-ack', '');
+    button.textContent = 'Entendido · ir al vuelo';
+    overlay.appendChild(button);
     overlay.querySelector('[data-belt-alarm-ack]')?.addEventListener('click', () => {
       const open = onOpen;
       hide();
@@ -121,5 +160,5 @@
     startSiren();
   };
 
-  window.MatrixBeltAlarm = {digit, format, isBlockChange, isRed, show, hide};
+  globalThis.MatrixBeltAlarm = {digit, format, isBlockChange, isRed, validEvent, body, process, show, hide};
 })();

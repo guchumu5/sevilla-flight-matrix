@@ -55,8 +55,7 @@
     playing: false,
     loading: false,
     error: '',
-    lastOkAt: 0,
-    beltSeen: new Map()
+    lastOkAt: 0
   };
 
   const esc = value => String(value ?? '').replace(/[&<>'"]/g, c => ({
@@ -344,28 +343,6 @@
     els.error.textContent = message;
   }
 
-  function checkBeltCrisis(flights) {
-    const alarm = window.MatrixBeltAlarm;
-    if (!alarm) return;
-    (Array.isArray(flights) ? flights : []).forEach(flight => {
-      if (flight.source !== 'aena' || !flight.belt) return;
-      const key = String(flight.id);
-      const now = `${flight.hall || (Number(flight.belt) >= 7 ? 'B' : 'A')}/${flight.belt}`;
-      const before = state.beltSeen.get(key);
-      state.beltSeen.set(key, now);
-      if (!before || !alarm.isBlockChange(before, now)) return;
-      alarm.show({
-        flight: flight.physical_flight,
-        origin: flight.origin_name,
-        from: before,
-        to: now,
-        onOpen: () => {
-          window.location.href = `index.php?date=${encodeURIComponent(flight.flight_date || '')}&flight=${flight.id}`;
-        }
-      });
-    });
-  }
-
   async function fetchBoard(date) {
     const response = await fetch(`api/board.php?date=${encodeURIComponent(date)}`, {
       headers: {Accept: 'application/json'},
@@ -375,7 +352,9 @@
     if (!response.ok) throw new Error(payload.error || `No se pudo leer el tablero ${date}.`);
     state.flightsByDate.set(date, payload.flights || []);
     state.fetchedAt.set(date, Date.now());
-    checkBeltCrisis(payload.flights || []);
+    window.MatrixBeltAlarm?.process(payload.flights || [], flight => {
+      window.location.href = `index.php?date=${encodeURIComponent(flight.flight_date || '')}&flight=${flight.id}`;
+    });
     return payload;
   }
 

@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test:belt-alarm": "node scripts/belt-alarm.test.mjs",
     "check:aena": "node --check scripts/aena-collector.mjs",
     "check:flightaware": "node --check scripts/flightaware-collector.mjs",
     "check:flightstats": "node --check scripts/flightstats-collector.mjs",
