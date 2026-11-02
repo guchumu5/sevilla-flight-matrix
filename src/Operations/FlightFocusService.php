@@ -100,6 +100,12 @@ final class FlightFocusService
                request_count=request_count+1,status='active',last_result='Solicitud recibida'"
         )->execute(['flight_id' => $flightId]);
 
+        $aena = [];
+        try {
+            $aena = (new WebOperationsService($this->pdo))->requestAenaSweep('flight_focus');
+        } catch (\Throwable $error) {
+            $aena = ['ok' => false, 'error' => $error->getMessage()];
+        }
         $aircraft = $this->resolveAircraft($flight);
         if (!empty($aircraft['updated'])) {
             $flight['aircraft_registration'] = $aircraft['aircraft_registration'] ?? $flight['aircraft_registration'];
@@ -108,7 +114,11 @@ final class FlightFocusService
         }
         $flightAware = $this->queueFlightAwareLookup($flight);
         $openSky = $this->refreshOpenSky($flight);
+        $aenaMessage = !empty($aena['ok'])
+            ? (string)($aena['message'] ?? 'Captura Aena pedida.')
+            : ('No se pudo pedir Aena ahora: ' . (string)($aena['error'] ?? 'error'));
         $message = trim(
+            $aenaMessage . ' ' .
             (string)($aircraft['message'] ?? '') . ' ' .
             (string)($flightAware['message'] ?? '') . ' ' .
             (string)($openSky['message'] ?? 'Seguimiento focalizado activado.')
@@ -126,7 +136,10 @@ final class FlightFocusService
             'flight' => (string)$flight['physical_flight'],
             'flight_date' => (string)$flight['flight_date'],
             'aena_priority_minutes' => self::AENA_PRIORITY_MINUTES,
-            'aena_message' => 'Aena queda marcado para seguimiento: cada 5 min hasta finalizar el equipaje.',
+            'aena' => $aena,
+            'aena_requested_at' => $aena['requested_at'] ?? null,
+            'baseline_aena_unix' => $aena['baseline_aena_unix'] ?? null,
+            'aena_message' => $aenaMessage . ' Mientras llega Infovuelos, este vuelo sigue en prioridad 5 min.',
             'aircraft' => $aircraft,
             'flightaware' => $flightAware,
             'opensky' => $openSky,

@@ -730,7 +730,7 @@
     const label = migrationMissing ? 'Aplica la actualización MySQL 010'
       : !authorized ? 'Activa avisos o inicia sesión'
         : cooldown > 0 ? `Nueva consulta en ${Math.ceil(cooldown / 60)} min`
-          : needsAircraft ? 'Buscar matrícula y telemetría' : 'Actualizar telemetría y estado';
+          : needsAircraft ? 'Aena + matrícula' : 'Actualizar Aena y estado';
     return {disabled, label};
   }
   function focusHeroMarkup(flight, focus = null, allowExpand = false, hideActions = false) {
@@ -1514,6 +1514,52 @@
     }
   }
 
+  async function waitForAenaCapture(options = {}) {
+    const baseline = Number(options.baseline || 0);
+    const flightId = Number(options.flightId || 0);
+    const timeoutMs = Number(options.timeoutMs || 120_000);
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+    const started = Date.now();
+    let last = null;
+    while (Date.now() - started < timeoutMs) {
+      const elapsed = Math.round((Date.now() - started) / 1000);
+      onProgress(`Esperando Infovuelos… ${elapsed}s`);
+      const query = flightId ? `?flight_id=${encodeURIComponent(flightId)}` : '';
+      try {
+        const response = await fetch(`api/aena-refresh.php${query}`, {headers:{Accept:'application/json'}, cache:'no-store'});
+        last = await response.json().catch(() => ({}));
+        if (response.ok) {
+          const stamp = Number(last.last_aena_unix || 0);
+          if (stamp > 0 && stamp > baseline) {
+            return {ok:true, status:last, waited:elapsed};
+          }
+        }
+      } catch (_) {}
+      await new Promise(resolve => setTimeout(resolve, 4000));
+    }
+    return {ok:false, status:last, waited:Math.round((Date.now() - started) / 1000)};
+  }
+
+  async function requestAndWaitAena(flightId = 0, onProgress = () => {}) {
+    onProgress('Pidiendo Aena…');
+    const token = localStorage.getItem('matrix.pushDevice') || '';
+    const response = await fetch('api/aena-refresh.php', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Accept':'application/json'},
+      body:JSON.stringify({device_token:token, flight_id:Number(flightId) || undefined}),
+      cache:'no-store'
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || 'No se pudo pedir Aena.');
+    const baseline = Number(data.baseline_aena_unix || data.status?.last_aena_unix || 0);
+    const wait = await waitForAenaCapture({
+      baseline,
+      flightId,
+      onProgress: label => onProgress(data.dispatched ? label : `${label} (próximo ciclo GitHub)`)
+    });
+    return {request:data, wait};
+  }
+
   async function sendForceCheck(flightId, button) {
     const token = await enablePushNotifications();
     if (!token) throw new Error('No existe una suscripción Web Push válida en este dispositivo.');
@@ -1536,13 +1582,22 @@
         state.watchedFlightsBrief = state.watchedFlightsBrief.map(item => Number(item.id) === id ? {...item, flightstats: data.flightstats} : item);
         renderTrackedFocus();
       }
+      const baseline = Number(data.baseline_aena_unix || 0);
+      const wait = await waitForAenaCapture({
+        baseline,
+        flightId,
+        onProgress: label => { if (button) button.textContent = label; }
+      });
       await loadBoard(true);
-      state.pushCheckNote = (data.body || 'Comprobación enviada.') + ' Con la app abierta no hay globo: baja el centro de notificaciones o bloquea el teléfono.';
+      const belt = wait.status?.aena_belt ? ` · cinta Aena ${wait.status.aena_belt}` : '';
+      state.pushCheckNote = wait.ok
+        ? `Aena actualizado${belt}. ${data.body || ''}`.trim()
+        : `Aena pedida; Infovuelos aún no ha respondido (${wait.waited}s). ${data.body || ''}`.trim();
       if (els.pushStatusLine) {
         els.pushStatusLine.className = 'push-status-line push-status-ready';
         els.pushStatusLine.textContent = state.pushCheckNote;
       }
-      if (button) button.textContent = 'Aviso enviado ✓';
+      if (button) button.textContent = wait.ok ? `Aena ✓${belt}` : 'Aena pedida…';
       window.setTimeout(() => {
         if (button) {
           button.disabled = false;
@@ -3697,7 +3752,7 @@
       return;
     }
     button.disabled = true;
-    if (status) status.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Consultando telemetría y activando prioridad Aena…';
+    if (status) status.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>Pidiendo Aena e Infovuelos…';
     try {
       const response = await fetch('api/flight-focus.php', {
         method:'POST',
@@ -3714,15 +3769,35 @@
         state.focusStatus.retry_after_seconds = Number(data.opensky.retry_after_seconds);
       }
       if (state.focusStatus) state.focusStatus.cooldown_started_at = Date.now();
+      const baseline = Number(data.baseline_aena_unix || data.aena?.baseline_aena_unix || 0);
+      const wait = await waitForAenaCapture({
+        baseline,
+        flightId: id,
+        onProgress: label => {
+          if (status) status.innerHTML = `<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>${esc(label)}`;
+          button.textContent = label;
+        }
+      });
+      await loadBoard(true);
       const aircraftMessage = data.aircraft?.message || '';
       const flightAwareMessage = data.flightaware?.message || '';
       const openSkyMessage = data.opensky?.message || 'Telemetría sin cambios.';
-      state.focusNotice = `${aircraftMessage} ${flightAwareMessage} ${openSkyMessage} ${data.aena_message || ''}`.trim();
+      const belt = wait.status?.aena_belt ? ` Cinta Aena ${wait.status.aena_belt}.` : '';
+      const aenaBit = wait.ok
+        ? `Aena actualizado.${belt}`
+        : (data.aena_message || 'Aena pedida; Infovuelos aún no ha respondido.');
+      state.focusNotice = `${aenaBit} ${aircraftMessage} ${flightAwareMessage} ${openSkyMessage}`.trim();
       if (openedFromDetail) {
         await openDetail(id);
       } else {
         renderTrackedFocus();
       }
+      if (status) {
+        status.className = 'focus-refresh-status';
+        status.textContent = state.focusNotice;
+      }
+      button.disabled = false;
+      button.textContent = wait.ok ? `Aena ✓${belt ? ' ' + wait.status.aena_belt : ''}` : '↻ Actualizar';
     } catch (error) {
       state.focusNotice = error.message || 'No se pudo actualizar el vuelo.';
       if (status) {
@@ -3962,18 +4037,39 @@
       }
       if (els.syncNowStatus) els.syncNowStatus.textContent = label;
     };
-    setBusy('Actualizando…');
+    setBusy('Pidiendo Aena…');
     try {
       const response = await fetch('api/sync.php', {method:'POST', headers:{Accept:'application/json'}, cache:'no-store'});
       const data = await response.json().catch(() => ({}));
       if (!response.ok && !data.skipped) throw new Error(data.error || 'No se pudo forzar la actualización.');
+      let baseline = Number(data.baseline_aena_unix || data.results?.aena?.baseline_aena_unix || 0);
+      const focusId = Number(state.detailFlightId || state.pinnedFlightId || 0);
+      let wait = {ok:false};
+      if (!baseline || data.skipped || data.running) {
+        try {
+          const forced = await requestAndWaitAena(focusId, setBusy);
+          baseline = Number(forced.request?.baseline_aena_unix || baseline || 0);
+          wait = forced.wait || wait;
+        } catch (_) {}
+      }
+      if (!wait.ok) {
+        wait = await waitForAenaCapture({
+          baseline: baseline > 0 ? baseline : Math.floor(Date.now() / 1000) - 2,
+          flightId: focusId,
+          onProgress: setBusy
+        });
+      }
       setBusy('Recargando…');
       for (let i = 0; i < 80 && state.loading; i += 1) {
         await new Promise(resolve => setTimeout(resolve, 80));
       }
       await Promise.all([loadBoard(true), loadCanaryWeek(), loadNightWeek()]);
-      const note = data.message || 'Tablero recargado.';
+      const belt = wait.status?.aena_belt ? ` · cinta ${wait.status.aena_belt}` : '';
+      const note = wait.ok
+        ? `Aena actualizado${belt}`
+        : (data.message || 'Aena pedida; Infovuelos aún no ha respondido.');
       if (els.syncNowStatus) els.syncNowStatus.textContent = `${note} · ${stamp()}`;
+      if (focusId && wait.ok) openDetail(focusId);
     } catch (error) {
       if (els.syncNowStatus) els.syncNowStatus.textContent = error.message || 'Falló la actualización.';
       window.alert(error.message || 'No se pudo actualizar.');
@@ -3981,12 +4077,12 @@
       state.syncing = false;
       if (els.syncNow) {
         els.syncNow.disabled = false;
-        els.syncNow.textContent = 'Actualizar';
+        els.syncNow.textContent = 'Actualizar Aena';
       }
       if (els.mobileSyncNow) {
         els.mobileSyncNow.disabled = false;
         const strong = els.mobileSyncNow.querySelector('strong');
-        if (strong) strong.textContent = 'Actualizar ahora';
+        if (strong) strong.textContent = 'Actualizar Aena';
       }
     }
   }

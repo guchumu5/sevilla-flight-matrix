@@ -333,20 +333,78 @@ final class WebOperationsService
         if (is_file($path)) @unlink($path);
     }
 
+    /**
+     * Estado de la última captura Aena y si hay una petición urgente pendiente.
+     *
+     * @return array<string,mixed>
+     */
+    public function aenaStatus(?int $flightId = null): array
+    {
+        $last = $this->pdo->query(
+            "SELECT id,started_at,finished_at,ok,records_count,error_message
+             FROM fetch_runs
+             WHERE provider='aena' AND finished_at IS NOT NULL
+             ORDER BY finished_at DESC,id DESC LIMIT 1"
+        )->fetch();
+        $lastOk = $this->pdo->query(
+            "SELECT id,started_at,finished_at,records_count
+             FROM fetch_runs
+             WHERE provider='aena' AND ok=1 AND finished_at IS NOT NULL
+             ORDER BY finished_at DESC,id DESC LIMIT 1"
+        )->fetch();
+        $forced = self::aenaForcePending();
+        $finishedAt = is_array($lastOk) ? (string)($lastOk['finished_at'] ?? '') : '';
+        $finishedTs = $finishedAt !== '' ? strtotime($finishedAt) : false;
+        $ageSeconds = $finishedTs === false ? null : max(0, time() - $finishedTs);
+        $out = [
+            'ok' => true,
+            'forced' => $forced,
+            'last_aena_at' => $finishedAt !== '' ? $finishedAt : null,
+            'last_aena_unix' => $finishedTs === false ? null : $finishedTs,
+            'last_aena_age_seconds' => $ageSeconds,
+            'last_aena_records' => is_array($lastOk) ? (int)($lastOk['records_count'] ?? 0) : 0,
+            'last_run_ok' => is_array($last) ? ((int)($last['ok'] ?? 0) === 1) : null,
+            'last_run_at' => is_array($last) ? ($last['finished_at'] ?? null) : null,
+            'last_run_error' => is_array($last) && (int)($last['ok'] ?? 0) !== 1
+                ? ($last['error_message'] ?? null) : null,
+        ];
+        if ($flightId !== null && $flightId > 0) {
+            $belt = $this->pdo->prepare(
+                "SELECT hall,belt,status,eta,actual_arrival,baggage_state,observed_at
+                 FROM observations
+                 WHERE flight_id=:id AND source='aena'
+                 ORDER BY observed_at DESC,id DESC LIMIT 1"
+            );
+            $belt->execute(['id' => $flightId]);
+            $row = $belt->fetch();
+            $out['flight_id'] = $flightId;
+            $out['aena_belt'] = is_array($row) && ($row['belt'] ?? '') !== ''
+                ? trim((string)(($row['hall'] ?? '') !== '' ? $row['hall'] . '/' : '') . $row['belt'])
+                : null;
+            $out['aena_status'] = is_array($row) ? ($row['status'] ?? null) : null;
+            $out['aena_observed_at'] = is_array($row) ? ($row['observed_at'] ?? null) : null;
+            $out['aena_eta'] = is_array($row) ? ($row['actual_arrival'] ?: $row['eta'] ?: null) : null;
+            $out['aena_baggage'] = is_array($row) ? ($row['baggage_state'] ?? null) : null;
+        }
+        return $out;
+    }
+
     /** @return array<string,mixed> */
-    private function requestAenaSweep(): array
+    public function requestAenaSweep(string $by = 'admin'): array
     {
         $path = self::aenaForcePath();
         $directory = dirname($path);
         if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
             throw new RuntimeException('No se pudo marcar la captura Aena.');
         }
+        $requestedAt = time();
         file_put_contents($path, json_encode([
-            'requested_at' => time(),
-            'requested_at_iso' => date('c'),
-            'by' => 'admin',
+            'requested_at' => $requestedAt,
+            'requested_at_iso' => date('c', $requestedAt),
+            'by' => $by,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
 
+        $before = $this->aenaStatus();
         $dispatch = $this->dispatchGithubWorkflow('aena-live.yml');
         if ($dispatch['ok']) {
             return [
@@ -354,7 +412,10 @@ final class WebOperationsService
                 'useful' => true,
                 'action' => 'aena',
                 'dispatched' => true,
-                'message' => 'Captura Aena pedida a GitHub Actions. Infovuelos se leerá en uno o dos minutos; no corre dentro de Plesk.',
+                'requested_at' => $requestedAt,
+                'requested_at_iso' => date('c', $requestedAt),
+                'baseline_aena_unix' => $before['last_aena_unix'] ?? null,
+                'message' => 'Captura Aena pedida a GitHub Actions. Esperando Infovuelos…',
             ];
         }
         return [
@@ -362,7 +423,10 @@ final class WebOperationsService
             'useful' => true,
             'action' => 'aena',
             'dispatched' => false,
-            'message' => 'Captura Aena marcada como urgente. El siguiente ciclo de GitHub (como máximo 5 min) la ejecutará aunque la última lectura sea reciente.'
+            'requested_at' => $requestedAt,
+            'requested_at_iso' => date('c', $requestedAt),
+            'baseline_aena_unix' => $before['last_aena_unix'] ?? null,
+            'message' => 'Captura Aena marcada como urgente. El siguiente ciclo de GitHub (máx. 5 min) leerá Infovuelos.'
                 . ($dispatch['error'] !== '' ? ' Disparo inmediato no configurado: ' . $dispatch['error'] : ''),
         ];
     }

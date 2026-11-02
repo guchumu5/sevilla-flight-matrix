@@ -78,7 +78,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="8" width="12.5" height="12.5" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 4h10v10M10 14L20 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </a>
       </div>
-      <button type="button" class="btn btn-sm btn-outline-light sync-now-btn" id="syncNowButton" title="Forzar ahora Aena, AirLabs y recarga del tablero">Actualizar</button>
+      <button type="button" class="btn btn-sm btn-outline-light sync-now-btn" id="syncNowButton" title="Pide Infovuelos Aena ahora y espera la cinta real">Actualizar Aena</button>
       <small id="syncNowStatus" class="sync-now-status" aria-live="polite"></small>
     </div>
   </div>
@@ -88,7 +88,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       data-focus-admin="<?= $focusAdmin ? '1' : '0' ?>" data-focus-csrf="<?= e($focusCsrf) ?>">
   <div class="mobile-command-grid d-md-none mb-2" aria-label="Accesos rápidos">
     <button class="mobile-command mobile-sync-command" type="button" id="mobileSyncNow">
-      <span aria-hidden="true">↻</span><span><small>Fuentes</small><strong>Actualizar ahora</strong></span>
+      <span aria-hidden="true">↻</span><span><small>Infovuelos</small><strong>Actualizar Aena</strong></span>
     </button>
     <button class="mobile-command mobile-date-command" type="button" data-bs-toggle="collapse" data-bs-target="#filtersCollapse" aria-controls="filtersCollapse">
       <span aria-hidden="true">⌕</span><span><small>Filtros</small><strong>Sala y búsqueda</strong></span>

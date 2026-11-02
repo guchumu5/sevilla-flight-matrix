@@ -180,6 +180,13 @@ final class WebPushService
 
         $queued = $this->requeueFlightAware($flightId);
         $statsQueued = $this->requeueFlightStats($flightId);
+        $aena = [];
+        try {
+            $aena = (new \SevillaMatrix\Operations\WebOperationsService($this->pdo))
+                ->requestAenaSweep('force_check');
+        } catch (\Throwable $error) {
+            $aena = ['ok' => false, 'error' => $error->getMessage()];
+        }
         $snapshot = null;
         try {
             $snapshot = (new FlightStatsIngestService($this->pdo))->captureOne($flightId)['snapshot'] ?? null;
@@ -188,6 +195,9 @@ final class WebPushService
         }
         FlightRepository::forgetSnapshotCaches();
         $notice = $this->forceCheckNotice($flightId);
+        if (!empty($aena['ok'])) {
+            $notice['body'] = 'Aena pedida · ' . $notice['body'];
+        }
         $path = $this->testNoticePath($deviceToken);
         $directory = dirname($path);
         if (!is_dir($directory) && !mkdir($directory, 0770, true) && !is_dir($directory)) {
@@ -227,6 +237,9 @@ final class WebPushService
             'flightstats_queued' => $statsQueued,
             'flightstats_captured' => is_array($snapshot),
             'flightstats' => $snapshot,
+            'aena' => $aena,
+            'aena_requested_at' => $aena['requested_at'] ?? null,
+            'baseline_aena_unix' => $aena['baseline_aena_unix'] ?? null,
             'body' => $notice['body'],
             'title' => $notice['title'],
             'http_status' => $mine['http_status'] ?? null,

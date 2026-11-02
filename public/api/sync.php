@@ -39,17 +39,6 @@ try {
     $previous = is_array($previous) ? $previous : [];
     $finishedAt = (int)($previous['finished_at'] ?? 0);
     $age = $finishedAt > 0 ? time() - $finishedAt : 9999;
-    if ($age < $minInterval) {
-        $release = $pdo->prepare('SELECT RELEASE_LOCK(:name)');
-        $release->execute(['name' => $lockName]);
-        Response::json([
-            'ok' => true,
-            'skipped' => true,
-            'age_seconds' => $age,
-            'message' => 'La última consulta fue hace ' . $age . ' s. Recargo el tablero con lo último.',
-        ]);
-    }
-
     @set_time_limit(120);
     file_put_contents($stampFile, json_encode([
         'started_at' => time(),
@@ -58,11 +47,23 @@ try {
 
     $service = new WebOperationsService($pdo);
     $results = [];
-    foreach (['aena' => 1, 'airlabs' => 40] as $action => $limit) {
+    // Aena siempre: la cinta no puede esperar al cooldown de AirLabs.
+    try {
+        $results['aena'] = $service->run('aena', 1);
+    } catch (Throwable $error) {
+        $results['aena'] = ['ok' => false, 'error' => $error->getMessage()];
+    }
+    if ($age < $minInterval) {
+        $results['airlabs'] = [
+            'ok' => true,
+            'skipped' => true,
+            'message' => 'AirLabs en espera (' . $age . ' s desde la última sync).',
+        ];
+    } else {
         try {
-            $results[$action] = $service->run($action, $limit);
+            $results['airlabs'] = $service->run('airlabs', 40);
         } catch (Throwable $error) {
-            $results[$action] = ['ok' => false, 'error' => $error->getMessage()];
+            $results['airlabs'] = ['ok' => false, 'error' => $error->getMessage()];
         }
     }
 
@@ -96,10 +97,15 @@ try {
     Response::json([
         'ok' => $ok,
         'message' => $message,
+        'aena_requested_at' => $results['aena']['requested_at'] ?? null,
+        'baseline_aena_unix' => $results['aena']['baseline_aena_unix'] ?? null,
         'results' => [
             'aena' => [
                 'ok' => (bool)($results['aena']['ok'] ?? false),
                 'dispatched' => (bool)($results['aena']['dispatched'] ?? false),
+                'requested_at' => $results['aena']['requested_at'] ?? null,
+                'baseline_aena_unix' => $results['aena']['baseline_aena_unix'] ?? null,
+                'message' => $results['aena']['message'] ?? null,
             ],
             'airlabs' => [
                 'ok' => (bool)($results['airlabs']['ok'] ?? false),
