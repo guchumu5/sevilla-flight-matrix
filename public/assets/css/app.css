@@ -117,12 +117,38 @@ body {
 .belt-daily-modal { border:1px solid rgba(255,95,109,.55); background:var(--app-bg); }.belt-daily-summary { color:#ffd1d5; font-weight:800; }.belt-daily-flight-list { display:grid; gap:.65rem; }.belt-daily-flight { display:grid; grid-template-columns:1fr auto; gap:.35rem .65rem; padding:.7rem; border:1px solid var(--border); border-radius:10px; background:var(--panel); }.belt-daily-flight strong,.belt-daily-flight span { display:block; }.belt-daily-flight span { color:var(--muted); font-size:.68rem; }.belt-daily-flight p { grid-column:1/-1; margin:0; color:#ffc1c7; font-size:.72rem; }.belt-daily-flight button { grid-column:2; }
 .panel-header { padding:1rem 1.1rem; border-bottom:1px solid var(--border); }
 .legend { color:var(--muted); font-size:.82rem; }
-.tracked-focus-panel { border-color:rgba(82,168,255,.62); box-shadow:0 18px 48px rgba(9,84,143,.17); }
+.tracked-focus-panel,.watch-dock { border-color:rgba(82,168,255,.62); box-shadow:0 18px 48px rgba(9,84,143,.17); }
 .tracked-focus-kicker { display:block; margin-bottom:.12rem; color:#8fd3ff; font-size:.62rem; font-weight:950; letter-spacing:.12em; }
-.tracked-focus-tabs { display:flex; gap:.45rem; overflow-x:auto; padding:.55rem .75rem; border-bottom:1px solid var(--border); background:rgba(5,15,27,.48); scrollbar-width:thin; }
-.tracked-focus-tab { flex:0 0 auto; min-width:145px; padding:.45rem .58rem; border:1px solid #2b425c; border-radius:9px; background:#0a1726; color:var(--muted); text-align:left; }
-.tracked-focus-tab strong,.tracked-focus-tab span { display:block; }.tracked-focus-tab strong { color:#d9e8f6; font-size:.72rem; }.tracked-focus-tab span { margin-top:.08rem; max-width:180px; overflow:hidden; font-size:.6rem; text-overflow:ellipsis; white-space:nowrap; }
-.tracked-focus-tab.active { border-color:var(--blue); background:rgba(32,91,139,.3); box-shadow:inset 0 0 0 1px rgba(82,168,255,.22); }.tracked-focus-tab.active strong { color:#9ed8ff; }
+.watch-dock-header { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:.35rem .8rem; }
+.watch-dock-hint { color:#8aa3b8; font-size:.72rem; font-weight:700; }
+.watch-dock-list { display:flex; flex-wrap:wrap; gap:.45rem; padding:.55rem .75rem .75rem; }
+.watch-chip {
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  grid-template-areas:"time code extra" "time origin extra";
+  column-gap:.55rem;
+  align-items:center;
+  min-height:52px;
+  min-width:min(100%, 210px);
+  padding:.4rem .65rem;
+  border:1px solid #2b425c;
+  border-radius:12px;
+  background:#0a1726;
+  color:var(--text);
+  text-align:left;
+}
+.watch-chip b { grid-area:time; color:#fff; font-size:1.05rem; font-variant-numeric:tabular-nums; }
+.watch-chip strong { grid-area:code; color:#e7f3ff; font-size:.82rem; }
+.watch-chip span { grid-area:origin; overflow:hidden; color:#8aa3b8; font-size:.68rem; text-overflow:ellipsis; white-space:nowrap; }
+.watch-chip-extra { grid-area:extra; display:grid; justify-items:end; gap:.05rem; font-style:normal; }
+.watch-chip em { color:#ffb3b3; font-size:.78rem; font-weight:900; font-style:normal; }
+.watch-chip i { color:#9ed8ff; font-size:.68rem; font-weight:800; font-style:normal; }
+.watch-chip small { color:#ffd47d; font-size:.62rem; font-weight:800; }
+.watch-chip.is-late { border-color:rgba(255,110,110,.55); }
+.watch-chip.is-red { border-color:rgba(255,95,109,.7); background:rgba(82,17,29,.35); }
+.watch-chip.other-day { border-style:dashed; }
+.watch-chip.is-open { border-color:var(--blue); box-shadow:inset 0 0 0 1px rgba(82,168,255,.35); }
+.canary-card,.night-card,.upcoming-flight,.flight-row,.watch-chip,.flow-flight,.belt-change-card,.canary-alert-toast { cursor:pointer; }
 .tracked-focus-body { padding:1rem; }
 .tracked-focus-layout { display:grid; grid-template-columns:minmax(250px,1fr) minmax(0,2fr); gap:1rem; align-items:start; margin-bottom:1rem; }
 .tracked-focus-summary,.tracked-focus-belts { min-width:0; }.tracked-focus-summary > *:last-child { margin-bottom:0!important; }
@@ -579,8 +605,9 @@ body {
   .airport-flow-wide{grid-template-columns:repeat(5,minmax(165px,1fr));max-height:none}.scene-belts{padding-left:.4rem;padding-right:.4rem}
   .canary-watch-header{align-items:stretch}.canary-watch-tools{display:flex;width:100%}.canary-watch-tools .btn{flex:1 1 auto;min-height:40px}.canary-watch-mark{display:none}
   .push-actions{grid-template-columns:1fr;padding:.6rem .7rem}
-  .tracked-focus-panel .panel-header{padding:.6rem .7rem}.tracked-focus-header h2{font-size:1rem}.tracked-focus-actions .btn{min-height:40px}
-  .tracked-focus-tabs{padding:.45rem .5rem}.tracked-focus-tab{min-width:150px;padding:.45rem .6rem}.tracked-focus-tab strong{font-size:.86rem}.tracked-focus-tab span{font-size:.72rem}
+  .tracked-focus-panel .panel-header,.watch-dock .panel-header{padding:.6rem .7rem}.tracked-focus-header h2,.watch-dock-header h2{font-size:1rem}
+  .watch-dock-list{padding:.45rem .55rem .65rem;gap:.4rem}
+  .watch-chip{min-width:100%;min-height:56px}
   .tracked-focus-body{padding:.6rem}.tracked-focus-layout{grid-template-columns:1fr;gap:.6rem;margin-bottom:.4rem}.tracked-focus-summary .flight-focus-hero,.tracked-focus-summary .focus-red-day,.tracked-focus-belts .focus-window{margin-bottom:.6rem}
   .tracked-other-day{flex-direction:column;align-items:stretch;text-align:left}.tracked-other-day .btn{min-height:44px}
   .flight-focus-hero{padding:.75rem;border-radius:13px}.focus-flight-title{align-items:flex-start;gap:.5rem}.focus-flight-title>span{display:none}.focus-flight-title h3{font-size:1.08rem;line-height:1.2;overflow-wrap:anywhere}.focus-flight-title p{font-size:.8rem}

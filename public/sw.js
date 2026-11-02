@@ -72,9 +72,19 @@ self.addEventListener('push', event => {
 
 self.addEventListener('notificationclick', event => {
   event.notification.close();
-  event.waitUntil(clients.matchAll({type:'window',includeUncontrolled:true}).then(list => {
-    const target = new URL(event.notification.data?.url || 'index.php', self.location.href).href;
-    for (const client of list) { if ('focus' in client) { client.navigate(target); return client.focus(); } }
-    return clients.openWindow ? clients.openWindow(target) : undefined;
-  }));
+  const target = new URL(event.notification.data?.url || 'index.php', self.location.href).href;
+  event.waitUntil((async () => {
+    const list = await clients.matchAll({type: 'window', includeUncontrolled: true});
+    for (const client of list) {
+      try { client.postMessage({type: 'matrix-open', url: target}); } catch (_) {}
+      if ('focus' in client) {
+        try { await client.focus(); } catch (_) {}
+      }
+      if (typeof client.navigate === 'function') {
+        try { await client.navigate(target); } catch (_) {}
+      }
+      return;
+    }
+    if (clients.openWindow) return clients.openWindow(target);
+  })());
 });

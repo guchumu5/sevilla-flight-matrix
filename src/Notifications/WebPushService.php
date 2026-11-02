@@ -1470,9 +1470,7 @@ final class WebPushService
             ? (((int)$first['is_canary'] === 1 ? 'Canarias · ' : '') . $first['origin_name'] . ' · ' . $first['physical_flight'])
             : ('Vuelos vigilados · ' . count($flights));
         $date = substr((string)$first['flight_date'], 0, 10);
-        $target = count($flights) === 1
-            ? 'index.php?date=' . rawurlencode($date) . '&flight=' . (int)$first['flight_id']
-            : 'index.php?date=' . rawurlencode($date);
+        $target = 'index.php?date=' . rawurlencode($date) . '&flight=' . (int)$first['flight_id'];
         return [
             'title' => $title,
             'body' => date('H:i') . ' · Itinerario · ' . implode(' · ', $lines),

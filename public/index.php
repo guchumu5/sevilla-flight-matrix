@@ -136,25 +136,22 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <div class="col-6 col-xl-3"><article class="metric-card metric-blue"><span>Afluencia máxima</span><strong id="metricHall">—</strong><small>plazas teóricas ±30 min</small></article></div>
   </section>
 
-  <section class="panel tracked-focus-panel mb-3 d-none" id="trackedFocusPanel" aria-labelledby="trackedFocusTitle">
-    <header class="panel-header tracked-focus-header">
-      <div><small class="tracked-focus-kicker">PRIORIDAD 1</small><h2 class="h5 mb-0" id="trackedFocusTitle">Vuelo en seguimiento</h2></div>
-      <div class="tracked-focus-nav" id="trackedFocusNav">
-        <button type="button" class="tracked-focus-step" id="focusPrev" aria-label="Vuelo anterior">‹</button>
-        <span id="focusCounter" aria-live="polite">1/1</span>
-        <button type="button" class="tracked-focus-step" id="focusNext" aria-label="Vuelo siguiente">›</button>
+  <section class="panel watch-dock mb-3 d-none" id="trackedFocusPanel" aria-labelledby="trackedFocusTitle">
+    <header class="panel-header watch-dock-header">
+      <div>
+        <small class="tracked-focus-kicker">Vigilados</small>
+        <h2 class="h6 mb-0" id="trackedFocusTitle">Vuelos en seguimiento</h2>
       </div>
-      <div class="tracked-focus-actions" id="trackedFocusActions"></div>
+      <p class="watch-dock-hint mb-0">Toca uno para abrir el historial</p>
     </header>
-    <nav class="tracked-focus-tabs d-none" id="trackedFocusTabs" aria-label="Vuelos en seguimiento"></nav>
-    <div class="tracked-focus-body" id="trackedFocusBody"></div>
+    <div class="watch-dock-list" id="trackedFocusBody"></div>
   </section>
 
   <section class="panel canary-watch-panel mb-3" aria-labelledby="canaryWatchTitle">
     <header class="panel-header canary-watch-header">
       <div class="canary-watch-copy">
         <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias · semana</h2>
-        <p class="mb-0 text-secondary small">Filtra por origen, solo noche (hora en Ajustes, 22:00 de serie) o mira toda la semana. Los Canarias leen FlightStats cada 5 min: si hay retraso se ve y se avisa aunque Aena siga en hora.</p>
+        <p class="mb-0 text-secondary small">Toca un vuelo para abrir su historial. Filtra por origen o noche. FlightStats avisa el retraso aunque Aena siga en hora.</p>
       </div>
       <div class="canary-watch-tools">
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>

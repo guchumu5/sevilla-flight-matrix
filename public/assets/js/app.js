@@ -125,13 +125,57 @@
     if (els.date.value !== value) els.date.value = value;
     const url = new URL(window.location.href);
     url.searchParams.set('date', value);
-    url.searchParams.delete('flight');
+    if (state.pendingFlightId) url.searchParams.set('flight', String(state.pendingFlightId));
+    else url.searchParams.delete('flight');
     window.history.replaceState(null, '', url);
+    if (!state.pendingFlightId) {
+      const drawer = document.querySelector('#flightDetail');
+      const instance = drawer ? bootstrap.Offcanvas.getInstance(drawer) : null;
+      instance?.hide();
+    }
     updateDateLabels();
     state.autoScrolledDate = null;
     state.mapHasFitted = false;
     renderCanaryWeek();
     loadBoard(true);
+  }
+  function setFlightLink(id) {
+    const url = new URL(window.location.href);
+    if (id) url.searchParams.set('flight', String(id));
+    else url.searchParams.delete('flight');
+    if (els.date?.value) url.searchParams.set('date', els.date.value);
+    if (url.href !== window.location.href) history.replaceState({}, '', url);
+  }
+  function consumeFlightLink() {
+    const params = new URLSearchParams(window.location.search);
+    const flight = Number(params.get('flight') || 0);
+    if (!flight) return;
+    if (Number(state.detailFlightId) === flight) return;
+    const date = params.get('date') || '';
+    if (date && date !== els.date.value) {
+      if (Number(state.pendingFlightId) === flight) return;
+      state.pendingFlightId = flight;
+      state.pendingFlightDate = date;
+      setBoardDate(date);
+      return;
+    }
+    if (state.flights.some(item => Number(item.id) === flight)) openDetail(flight);
+  }
+  function applyOpenUrl(raw) {
+    try {
+      const parsed = new URL(raw, window.location.href);
+      if (parsed.origin === window.location.origin) {
+        history.replaceState({}, '', parsed.href);
+        const date = parsed.searchParams.get('date') || '';
+        if (date && date !== els.date.value) {
+          state.pendingFlightId = Number(parsed.searchParams.get('flight') || 0);
+          state.pendingFlightDate = date;
+          setBoardDate(date);
+          return;
+        }
+      }
+      consumeFlightLink();
+    } catch (_) {}
   }
   const signed = value => Number(value) > 0 ? `+${value} min` : `${value} min`;
   const timingMarkup = (flight, className = 'flight-timing') => {
@@ -974,7 +1018,10 @@
       <button type="button" class="btn btn-sm btn-warning mt-2" data-flight-id="${Number(flight.id)}">Abrir vuelo</button>
     </div>`;
     els.canaryAlertStack.replaceChildren(toast);
-    toast.querySelector('[data-flight-id]')?.addEventListener('click', event => openDetail(event.currentTarget.dataset.flightId));
+    toast.addEventListener('click', event => {
+      if (event.target.closest('.btn-close')) return;
+      openNightFlight(flight.id);
+    });
     const instance = bootstrap.Toast.getOrCreateInstance(toast, {autohide:false});
     state.activeCanaryAlert = {...alert, toast, instance, startedAt:Date.now()};
     toast.addEventListener('hidden.bs.toast', () => {
@@ -1979,16 +2026,13 @@
       if (state.detailFlightId) {
         refreshFocusLiveSections(state.flights.find(f => Number(f.id) === Number(state.detailFlightId)));
       }
-      const linkedFlight = Number(deepLink.get('flight') || 0);
-      if (linkedFlight && !state.deepLinkOpened && state.flights.some(f => Number(f.id) === linkedFlight)) {
-        state.deepLinkOpened = true;
-        openDetail(linkedFlight);
-      }
       if (state.pendingFlightId && state.flights.some(f => Number(f.id) === Number(state.pendingFlightId))) {
         const pending = state.pendingFlightId;
         state.pendingFlightId = 0;
         state.pendingFlightDate = '';
         openDetail(pending);
+      } else {
+        consumeFlightLink();
       }
     } catch (error) {
       const cached = state.flights.length > 0;
@@ -2106,22 +2150,17 @@
       link.addEventListener('click', event => event.stopPropagation());
       link.addEventListener('keydown', event => event.stopPropagation());
     });
-    document.querySelectorAll('.flight-row, .canary-card, .night-card, .upcoming-flight, .flow-flight, .scene-plane, .scene-belt.has-flight, .belt-change-card').forEach(item => {
-      if (item.dataset.flightOpenerBound === '1') return;
-      item.dataset.flightOpenerBound = '1';
-      const open = () => {
-        const date = item.dataset.gotoDate;
-        if (date && date !== els.date.value) openNightFlight(item.dataset.flightId, date);
-        else openDetail(item.dataset.flightId);
-      };
-      item.addEventListener('click', open);
-      item.addEventListener('keydown', event => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          open();
-        }
-      });
-    });
+  }
+  function openFlightFromEvent(event) {
+    if (event.target.closest('[data-watch-flight], [data-flightaware-link], [data-canary-date], [data-canary-filter], [data-canary-origin], [data-night-date], [data-night-origin], [data-night-sort], [data-red-list-toggle], [data-focus-refresh], .btn-close, .detail-close, .detail-close-bar')) {
+      return false;
+    }
+    const opener = event.target.closest('[data-open-flight], [data-flight-id]');
+    if (!opener) return false;
+    const id = opener.dataset.openFlight || opener.dataset.flightId;
+    if (!id) return false;
+    openNightFlight(id, opener.dataset.gotoDate || '');
+    return true;
   }
 
   function pinFlight(flightId) {
@@ -2164,72 +2203,46 @@
     renderTrackedFocus();
   }
 
+  function watchChipMarkup(entry) {
+    const source = entry.flight || entry.brief || {};
+    const arrival = entry.arrival ? new Date(entry.arrival) : parseDate(source.scheduled_arrival);
+    const delay = Number(source.deviation_minutes ?? source.flightstats?.delay_minutes);
+    const late = Number.isFinite(delay) && Math.abs(delay) >= 5;
+    const official = entry.flight && entry.flight.source === 'aena' && entry.flight.belt;
+    const belt = official
+      ? beltPosition(entry.flight)
+      : (entry.flight?.predicted_belt ? `${entry.flight.predicted_hall || ''}/${entry.flight.predicted_belt}` : '');
+    const red = ['7', '8'].includes(String(entry.flight?.belt || entry.flight?.official_belt || entry.flight?.predicted_belt));
+    const otherDay = entry.date && entry.date !== els.date.value;
+    const open = Number(state.detailFlightId) === Number(entry.id);
+    const extra = [
+      late ? `<em>${delay > 0 ? '+' : ''}${delay}</em>` : '',
+      belt ? `<i>${esc(belt)}</i>` : '',
+      otherDay ? `<small>${esc(relativeDayLabel(entry.date))}</small>` : ''
+    ].filter(Boolean).join('');
+    return `<button type="button" class="watch-chip ${red?'is-red':''} ${late?'is-late':''} ${otherDay?'other-day':''} ${open?'is-open':''}"
+      data-flight-id="${entry.id}" data-goto-date="${esc(entry.date || '')}">
+      <b>${time(arrival)}</b>
+      <strong>${esc(entry.label)}</strong>
+      <span>${esc(entry.origin)}</span>
+      ${extra ? `<div class="watch-chip-extra">${extra}</div>` : ''}
+    </button>`;
+  }
   function renderTrackedFocus() {
     if (!els.trackedFocusPanel || !els.trackedFocusBody) return;
     const entries = trackedEntries();
     if (!entries.length) {
       els.trackedFocusPanel.classList.add('d-none');
       els.trackedFocusBody.innerHTML = '';
-      if (els.trackedFocusTabs) {
-        els.trackedFocusTabs.classList.add('d-none');
-        els.trackedFocusTabs.innerHTML = '';
-      }
       return;
     }
-    let current = entries.find(entry => entry.id === Number(state.pinnedFlightId));
-    if (!current) {
-      current = defaultTrackedEntry(entries);
-      state.pinnedFlightId = current.id;
-    }
-    const index = entries.indexOf(current);
-    const multiple = entries.length > 1;
     if (els.trackedFocusTitle) {
-      els.trackedFocusTitle.textContent = multiple ? `Vuelos en seguimiento · ${entries.length}` : 'Vuelo en seguimiento';
-    }
-    els.trackedFocusNav?.classList.toggle('d-none', !multiple);
-    if (els.focusCounter) els.focusCounter.textContent = `${index + 1} de ${entries.length}`;
-    if (els.trackedFocusActions) {
-      els.trackedFocusActions.innerHTML = current.watched
-        ? `<button class="btn btn-sm btn-outline-info" type="button" data-force-check="${current.id}">Comprobar ahora</button>
-           <button class="btn btn-sm btn-warning" type="button" data-watch-flight="${current.id}" data-watching="1" data-watch-compact="1">🔔 Vigilando</button>`
-        : `<button class="btn btn-sm btn-outline-light" type="button" data-focus-unpin="${current.id}">Quitar</button>`;
-      bindWatchButtons(els.trackedFocusActions);
-    }
-    if (els.trackedFocusTabs) {
-      els.trackedFocusTabs.classList.toggle('d-none', !multiple);
-      els.trackedFocusTabs.innerHTML = entries.map(entry => {
-        const active = entry.id === current.id;
-        const otherDay = entry.date !== els.date.value;
-        const day = otherDay ? `${relativeDayLabel(entry.date)} · ` : '';
-        return `<button type="button" class="tracked-focus-tab ${active?'active':''} ${otherDay?'other-day':''}" data-focus-tab="${entry.id}" aria-pressed="${active?'true':'false'}">
-          <strong>${entry.watched?'🔔 ':''}${esc(entry.label)}</strong><span>${esc(day)}${time(entry.arrival ? new Date(entry.arrival) : null)} · ${esc(entry.origin)}</span>
-        </button>`;
-      }).join('');
-      const activeTab = els.trackedFocusTabs.querySelector('.tracked-focus-tab.active');
-      if (activeTab) {
-        els.trackedFocusTabs.scrollLeft = activeTab.offsetLeft - (els.trackedFocusTabs.clientWidth - activeTab.offsetWidth) / 2;
-      }
+      els.trackedFocusTitle.textContent = entries.length === 1
+        ? '1 vuelo en seguimiento'
+        : `${entries.length} vuelos en seguimiento`;
     }
     els.trackedFocusPanel.classList.remove('d-none');
-    if (!current.flight) {
-      els.trackedFocusBody.innerHTML = `<div class="tracked-other-day">
-        <div><small>${esc(relativeDayLabel(current.date))} · ${esc(dayName(current.date))}</small>
-        <strong>${esc(current.label)} · ${esc(current.origin)}</strong>
-        <span>Programado a las ${time(current.brief.scheduled_arrival)}. Estás viendo ${esc(dayName(els.date.value))}.</span>
-        ${delayOriginMarkup(current.brief)}${flightStatsWatchMarkup(current.brief)}</div>
-        <button class="btn btn-info" type="button" data-goto-date="${esc(current.date)}">Ver ${esc(relativeDayLabel(current.date).toLowerCase())}</button>
-      </div>`;
-      return;
-    }
-    const flight = current.flight;
-    els.trackedFocusBody.innerHTML = `<div class="tracked-focus-layout">
-      <aside class="tracked-focus-summary">
-        ${focusHeroMarkup(flight, Number(state.detailFlightId) === Number(flight.id) ? state.focusStatus : null, true)}
-        ${dailyRedUsageMarkup(flight)}
-      </aside>
-      <div class="tracked-focus-belts">${focusWindowMarkup(flight)}</div>
-      </div>`;
-    bindFocusRefreshButtons(els.trackedFocusBody);
+    els.trackedFocusBody.innerHTML = entries.map(watchChipMarkup).join('');
   }
 
   async function loadCanaryWeek() {
@@ -3219,7 +3232,6 @@
         const entry = position.flow ? {left:50,top:66} : position;
         node.style.left = `${entry.left}%`;
         node.style.top = `${entry.top}%`;
-        node.addEventListener('click', () => openDetail(id));
         els.sceneAircraft.appendChild(node);
       }
       const removalTimer = state.sceneRemovalTimers.get(id);
@@ -3739,6 +3751,7 @@
     if (!flight) return;
     state.pinnedFlightId = Number(id);
     localStorage.setItem('matrix.focusFlightId', String(id));
+    setFlightLink(id);
     renderTrackedFocus();
     if (Number(state.detailFlightId) !== Number(id)) {
       state.focusNotice = '';
@@ -3875,8 +3888,7 @@
       return;
     }
     const gotoDate = event.target.closest('[data-goto-date]');
-    if (gotoDate) {
-      if (gotoDate.closest('.night-card, .canary-card')) return;
+    if (gotoDate && !gotoDate.closest('[data-flight-id], [data-open-flight]')) {
       setBoardDate(gotoDate.dataset.gotoDate);
       return;
     }
@@ -3911,26 +3923,8 @@
       renderCanaryWatch();
       return;
     }
-    const button = event.target.closest('[data-open-flight]');
-    if (button) openDetail(button.dataset.openFlight);
+    if (openFlightFromEvent(event)) return;
   });
-  els.focusPrev?.addEventListener('click', () => stepTrackedFocus(-1));
-  els.focusNext?.addEventListener('click', () => stepTrackedFocus(1));
-  if (els.trackedFocusBody) {
-    let touchStart = null;
-    els.trackedFocusBody.addEventListener('touchstart', event => {
-      const touch = event.touches[0];
-      touchStart = touch ? {x:touch.clientX, y:touch.clientY} : null;
-    }, {passive:true});
-    els.trackedFocusBody.addEventListener('touchend', event => {
-      const touch = event.changedTouches[0];
-      if (!touchStart || !touch) return;
-      const dx = touch.clientX - touchStart.x;
-      const dy = touch.clientY - touchStart.y;
-      touchStart = null;
-      if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) stepTrackedFocus(dx < 0 ? 1 : -1);
-    }, {passive:true});
-  }
   els.datePrev?.addEventListener('click', () => setBoardDate(shiftDate(els.date.value, -1)));
   els.dateNext?.addEventListener('click', () => setBoardDate(shiftDate(els.date.value, 1)));
   els.dateToday?.addEventListener('click', () => setBoardDate(madridNow().operationalDate));
@@ -3938,6 +3932,8 @@
     state.detailFlightId = null;
     state.focusStatus = null;
     state.focusNotice = '';
+    setFlightLink(null);
+    renderTrackedFocus();
     if (els.detailQuickBar) {
       els.detailQuickBar.hidden = true;
       els.detailQuickBar.innerHTML = '';
@@ -4105,10 +4101,16 @@
   window.addEventListener('offline', refreshConnectionHealth);
   document.addEventListener('keydown', event => {
     if (event.key === 'Escape') closeConnectionPop();
+    if ((event.key === 'Enter' || event.key === ' ') && openFlightFromEvent(event)) event.preventDefault();
   });
+  navigator.serviceWorker?.addEventListener('message', event => {
+    if (event.data?.type === 'matrix-open') applyOpenUrl(event.data.url);
+  });
+  window.addEventListener('pageshow', () => consumeFlightLink());
   setInterval(() => { maybeTickWatchedFlights(); }, 60_000);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
+    consumeFlightLink();
     state.watchTickAt = 0;
     holdWatchWakeLock();
     maybeTickWatchedFlights();
