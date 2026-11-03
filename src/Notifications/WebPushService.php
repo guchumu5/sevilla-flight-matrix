@@ -505,14 +505,17 @@ final class WebPushService
              SET o.attempts=4,o.last_error='Descartado por la política de avisos operativos'
              WHERE o.pushed_at IS NULL AND o.attempts<4 AND e.event_type NOT IN ({$watched})"
         );
-        // Cinta/sala: solo Aena. Descarta ruido histórico de AirLabs u otros secundarios.
+        // Sala: solo Aena. Cinta: Aena + AeroAPI (doble fuente). Descarta AirLabs/otros.
         $this->pdo->exec(
             "UPDATE push_outbox o
              JOIN flight_events e ON e.id=o.flight_event_id
-             SET o.attempts=4,o.last_error='Descartado: cinta/sala solo oficiales de Aena'
+             SET o.attempts=4,o.last_error='Descartado: sala solo Aena; cinta solo Aena/AeroAPI'
              WHERE o.pushed_at IS NULL AND o.attempts<4
-               AND e.event_type IN ('belt_assigned','belt_changed','belt_removed','hall_changed','hall_assigned')
-               AND e.source<>'aena'"
+               AND (
+                 (e.event_type IN ('hall_changed','hall_assigned') AND e.source<>'aena')
+                 OR (e.event_type IN ('belt_assigned','belt_changed','belt_removed')
+                     AND e.source NOT IN ('aena','aeroapi'))
+               )"
         );
         $this->pdo->exec(
             "UPDATE push_outbox o
@@ -529,6 +532,7 @@ final class WebPushService
         );
         $sourceName = "CASE e.source
             WHEN 'aena' THEN 'Aena'
+            WHEN 'aeroapi' THEN 'FlightAware'
             WHEN 'airlabs' THEN 'AirLabs'
             WHEN 'flightstats' THEN 'FlightStats'
             WHEN 'opensky' THEN 'OpenSky'
@@ -546,9 +550,9 @@ final class WebPushService
                     CONCAT(IF(f.is_canary=1,'Canarias · ',''),CONVERT(f.origin_name USING utf8mb4),' · ',CONVERT(f.physical_flight USING utf8mb4)),
                     LEFT(CASE e.event_type
                       WHEN 'departure_recorded' THEN CONCAT('✈️ Despega',IF({$sourceName}='','',CONCAT(' · ',{$sourceName})),IF(NULLIF(e.after_value,'') IS NULL,'',CONCAT(' · ',DATE_FORMAT(e.after_value,'%H:%i'))))
-                      WHEN 'belt_assigned' THEN CONCAT('🧳 Asignación de cinta · ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'pendiente de número'))
-                      WHEN 'belt_changed' THEN CONCAT('⚠️ Cambio de cinta · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'))
-                      WHEN 'belt_removed' THEN CONCAT('⚠️ Aena retiró la cinta ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' · nueva asignación pendiente')
+                      WHEN 'belt_assigned' THEN CONCAT('🧳 Asignación de cinta · ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'pendiente de número'),IF({$sourceName}='','',CONCAT(' · ',{$sourceName})),' · revisar manual')
+                      WHEN 'belt_changed' THEN CONCAT('⚠️ Cambio de cinta · ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),' → ',COALESCE(NULLIF(CONVERT(e.after_value USING utf8mb4),''),'—'),IF({$sourceName}='','',CONCAT(' · ',{$sourceName})),' · análisis manual')
+                      WHEN 'belt_removed' THEN CONCAT('⚠️ Cinta retirada ',COALESCE(NULLIF(CONVERT(e.before_value USING utf8mb4),''),'—'),IF({$sourceName}='','',CONCAT(' · ',{$sourceName})),' · nueva asignación pendiente')
                       WHEN 'eta_published' THEN CONCAT(
                         '⏱️ ',IF({$sourceName}='','',CONCAT({$sourceName},' ')),
                         'ETA ',DATE_FORMAT(e.after_value,'%H:%i'),' · ',
@@ -598,6 +602,9 @@ final class WebPushService
                    AND (
                      e.event_type IN ('departure_recorded','arrival_recorded','arrival_reminder')
                      OR e.source='aena'
+                     OR (e.source='aeroapi' AND e.event_type IN (
+                       'belt_assigned','belt_changed','belt_removed'
+                     ))
                      OR (e.source IN ('flightstats','airlabs','opensky') AND e.event_type IN (
                        'eta_changed','eta_published','departure_recorded','arrival_recorded',
                        'flight_cancelled'
@@ -618,8 +625,11 @@ final class WebPushService
                  AND e.source IN ('flightstats','airlabs','opensky')
                )
                AND NOT (
-                 e.event_type IN ('belt_assigned','belt_changed','belt_removed','hall_changed','hall_assigned')
-                 AND e.source<>'aena'
+                 e.event_type IN ('hall_changed','hall_assigned') AND e.source<>'aena'
+               )
+               AND NOT (
+                 e.event_type IN ('belt_assigned','belt_changed','belt_removed')
+                 AND e.source NOT IN ('aena','aeroapi')
                )"
         );
         $criticalBelt = $this->queueCriticalBeltAlarms();

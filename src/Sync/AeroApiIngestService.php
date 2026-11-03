@@ -494,16 +494,25 @@ final class AeroApiIngestService
                     break;
                 }
             }
+            $prevBelt = strtoupper(trim((string)($previous['belt'] ?? '')));
+            $newBelt = strtoupper(trim((string)($normalized['belt'] ?? '')));
+            $aenaBelt = strtoupper(trim((string)($flight['aena_belt'] ?? '')));
+            $beltChangedVsPrev = $newBelt !== '' && $prevBelt !== '' && $prevBelt !== $newBelt;
+            $beltFirstSeen = $newBelt !== '' && $prevBelt === '';
             $diverges = $this->beltDivergesFromAena($flight, $normalized['belt'] ?? null);
-            if ($diverges) {
-                $forceAena = true;
-                $prevBelt = strtoupper(trim((string)($previous['belt'] ?? '')));
-                $newBelt = strtoupper(trim((string)($normalized['belt'] ?? '')));
-                if (!$same || $prevBelt !== $newBelt || empty($previous['belt'])) {
+            // Cualquier cambio FA o divergencia vs Aena → forzar Infovuelos + avisar YA.
+            if ($diverges || $beltChangedVsPrev || $beltFirstSeen) {
+                if ($diverges || $beltChangedVsPrev) {
+                    $forceAena = true;
+                }
+                if ($newBelt !== '' && (!$same || $beltChangedVsPrev || $beltFirstSeen || $diverges)) {
                     $divergences[] = [
                         'flight' => $flight,
-                        'aena_belt' => strtoupper(trim((string)($flight['aena_belt'] ?? ''))),
+                        'aena_belt' => $aenaBelt,
                         'aero_belt' => $newBelt,
+                        'kind' => $beltChangedVsPrev
+                            ? 'aeroapi_changed'
+                            : ($diverges ? 'diverge' : 'aeroapi_assigned'),
                     ];
                 }
             }
@@ -547,7 +556,8 @@ final class AeroApiIngestService
             $criticalQueued += $this->queueCriticalBeltDivergencePush(
                 $item['flight'],
                 $item['aena_belt'],
-                $item['aero_belt']
+                $item['aero_belt'],
+                (string)($item['kind'] ?? 'diverge')
             );
         }
         if ($dispatch && ($records !== [] || $criticalQueued > 0)) {
@@ -567,6 +577,7 @@ final class AeroApiIngestService
             'aena_forced' => $forceAena,
             'aena' => $aena,
             'critical_belt_push' => $criticalQueued,
+            'quota' => $this->quota()->status(),
         ];
     }
 
@@ -997,26 +1008,48 @@ final class AeroApiIngestService
      *
      * @param array<string,mixed> $flight
      */
-    private function queueCriticalBeltDivergencePush(array $flight, string $aenaBelt, string $aeroBelt): int
-    {
+    private function queueCriticalBeltDivergencePush(
+        array $flight,
+        string $aenaBelt,
+        string $aeroBelt,
+        string $kind = 'diverge'
+    ): int {
         $flightId = (int)($flight['id'] ?? 0);
         if ($flightId < 1 || $aeroBelt === '') return 0;
         try {
             $subs = $this->pdo->prepare(
                 'SELECT s.id FROM push_subscriptions s
                  INNER JOIN flight_watches w ON w.subscription_id=s.id
-                 WHERE w.flight_id=:flight_id AND w.enabled=1 AND s.active=1'
+                 WHERE w.flight_id=:flight_id AND w.enabled=1 AND s.active=1
+                 UNION
+                 SELECT s.id FROM push_subscriptions s
+                 INNER JOIN flights f ON f.id=:flight_id_canary AND f.is_canary=1
+                 WHERE s.active=1 AND s.watch_canary_all=1'
             );
-            $subs->execute(['flight_id' => $flightId]);
+            $subs->execute(['flight_id' => $flightId, 'flight_id_canary' => $flightId]);
             $rows = $subs->fetchAll();
             if ($rows === []) return 0;
 
-            $title = '🚨 CINTA FlightAware ≠ Aena · '
-                . ((int)($flight['is_canary'] ?? 0) === 1 ? 'Canarias · ' : '')
-                . ($flight['origin_name'] ?? '') . ' · ' . ($flight['physical_flight'] ?? '');
             $aenaLabel = $aenaBelt !== '' ? $aenaBelt : 'sin cinta';
-            $body = 'FlightAware propone cinta ' . $aeroBelt . ' · Aena tiene ' . $aenaLabel
-                . '. Se fuerza Infovuelos. Oficial sigue siendo Aena.';
+            if ($kind === 'aeroapi_changed') {
+                $title = '⚠️ CAMBIO cinta FlightAware · '
+                    . ((int)($flight['is_canary'] ?? 0) === 1 ? 'Canarias · ' : '')
+                    . ($flight['origin_name'] ?? '') . ' · ' . ($flight['physical_flight'] ?? '');
+                $body = 'FlightAware cambió a cinta ' . $aeroBelt . ' (Aena: ' . $aenaLabel
+                    . '). Aviso inmediato · análisis manual. Se fuerza Infovuelos.';
+            } elseif ($kind === 'aeroapi_assigned') {
+                $title = '🧳 Cinta FlightAware · '
+                    . ((int)($flight['is_canary'] ?? 0) === 1 ? 'Canarias · ' : '')
+                    . ($flight['origin_name'] ?? '') . ' · ' . ($flight['physical_flight'] ?? '');
+                $body = 'FlightAware publica cinta ' . $aeroBelt . ' · Aena: ' . $aenaLabel
+                    . '. Validar al cruzar fuentes.';
+            } else {
+                $title = '🚨 CINTA FlightAware ≠ Aena · '
+                    . ((int)($flight['is_canary'] ?? 0) === 1 ? 'Canarias · ' : '')
+                    . ($flight['origin_name'] ?? '') . ' · ' . ($flight['physical_flight'] ?? '');
+                $body = 'FlightAware ' . $aeroBelt . ' ≠ Aena ' . $aenaLabel
+                    . '. Reconsultar ambas YA · análisis manual.';
+            }
             $url = 'index.php?date=' . rawurlencode(substr((string)($flight['flight_date'] ?? ''), 0, 10))
                 . '&flight=' . $flightId;
             // flight_event_id NULL: fingerprint en body+title evita duplicar el mismo aviso.

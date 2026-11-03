@@ -12,6 +12,7 @@
     map: null, mapLayer: null, aircraftLayer: null, mapHasFitted: false,
     canaryAlertQueue: [], activeCanaryAlert: null, canaryAlertTimer: null,
     canaryWatchEnabled: false, pushLastError: '', pushLastAt: null, pushCheckNote: '', pushPending: 0, pushWatches: 0, wakeLock: null,
+    aeroapiQuota: null,
     watchedFlightIds: [], watchedFlightsBrief: [], watchTickAt: 0, queuedReload: false,
     canaryWeek: null, canaryOrigin: localStorage.getItem('matrix.canaryOrigin') || '',
     canaryNight: localStorage.getItem('matrix.canaryNight') === '1',
@@ -3554,31 +3555,39 @@
 
   function aeroApiSnapshotMarkup(snapshot, quota, flight = null) {
     if (!snapshot && !quota) return '';
+    const dual = flight?.belt_dual;
+    const paceLine = quota?.pace_warning && quota?.pace_message
+      ? `<p class="aero-pace-banner ${quota.pace?.level==='critical'?'is-critical':''}">${esc(quota.pace_message)} Tú decides cómo bajarlo; hard stop a ${esc(String(quota.limit||2300))}.</p>`
+      : '';
     if (!snapshot) {
       const msg = quota?.exhausted
         ? (quota.message || 'Cuota AeroAPI agotada este mes.')
         : (quota?.message || 'AeroAPI sin lectura todavía. Usa «Forzar FA + nube» para gastar cuota a conciencia (no vigila).');
       return `<section class="telemetry-card aeroapi-snapshot aeroapi-snapshot-empty mb-4">
-        <header><div><strong>FlightAware AeroAPI · cinta propuesta</strong><span class="badge text-bg-secondary">prioridad cuota</span></div></header>
+        <header><div><strong>FlightAware AeroAPI · cinta (doble fuente)</strong><span class="badge text-bg-secondary">prioridad cuota</span></div></header>
         <p class="mb-0 text-secondary">${esc(msg)}</p>
+        ${paceLine}
+        ${aeroQuotaChip(quota)}
       </section>`;
     }
     const delay = Number(snapshot.delay_minutes);
     const delayLabel = Number.isFinite(delay) ? `${delay > 0 ? '+' : ''}${delay} min` : '—';
-    const aenaBelt = flight?.source === 'aena' && flight?.belt ? String(flight.belt) : '';
-    const aeroBelt = snapshot.belt ? String(snapshot.belt) : '';
-    const diverges = Boolean(aeroBelt && (!aenaBelt || aenaBelt !== aeroBelt));
+    const aenaBelt = dual?.aena_belt || (flight?.aena_belt ? String(flight.aena_belt) : (flight?.source === 'aena' && flight?.belt ? String(flight.belt) : ''));
+    const aeroBelt = dual?.aeroapi_belt || (snapshot.belt ? String(snapshot.belt) : '');
+    const diverges = Boolean(aeroBelt && aenaBelt && aenaBelt !== aeroBelt) || dual?.status === 'diverge';
+    const agrees = Boolean(aeroBelt && aenaBelt && aenaBelt === aeroBelt);
     const quotaLine = quota
-      ? `Cuota ${quota.used ?? '—'}/${quota.limit ?? 2300} result sets · quedan ${quota.remaining ?? '—'} (${quota.month_key || 'mes'}, Europe/Madrid).`
-      : 'API de pago; no sustituye cinta ni sala de Aena.';
-    return `<section class="telemetry-card aeroapi-snapshot ${diverges?'aeroapi-belt-diverge':''} mb-4">
-      <header><div><strong>FlightAware AeroAPI · cinta propuesta</strong><span class="badge ${diverges?'text-bg-danger':'text-bg-success'}">${diverges?'≠ Aena':'API'}</span></div><time>${dateTime(snapshot.observed_at)}</time></header>
+      ? `Cuota ${quota.used ?? '—'}/${quota.limit ?? 2300} · quedan ${quota.remaining ?? '—'} · proyección ~${quota.pace?.projected_month_end ?? '—'} (${quota.month_key || 'mes'}, Europe/Madrid).`
+      : 'API de pago; hard stop 2300.';
+    return `<section class="telemetry-card aeroapi-snapshot ${diverges?'aeroapi-belt-diverge':(agrees?'aeroapi-belt-ok':'')} mb-4">
+      <header><div><strong>FlightAware AeroAPI · doble fuente cinta</strong><span class="badge ${diverges?'text-bg-danger':(agrees?'text-bg-success':'text-bg-secondary')}">${diverges?'≠ Aena':(agrees?'Aena+FA ✓':'API')}</span></div><time>${dateTime(snapshot.observed_at)}</time></header>
+      ${beltDualMarkup(flight)}
       <div class="aeroapi-belt-hero">
-        <small>Cinta propuesta FlightAware</small>
+        <small>Cinta FlightAware</small>
         <strong>${esc(aeroBelt || 'sin cinta aún')}</strong>
         <span>${diverges
-          ? `Aena tiene ${esc(aenaBelt || 'sin cinta')} · atención crítica · se fuerza Infovuelos`
-          : (aenaBelt ? `Coincide con Aena ${esc(aenaBelt)}` : 'Aena aún no confirma; oficial sigue siendo Aena')}</span>
+          ? `Aena ${esc(aenaBelt || '—')} ≠ FA ${esc(aeroBelt)} · alerta · reconsultar ambas · análisis manual`
+          : (agrees ? `Confirmada con Aena ${esc(aenaBelt)}` : (aenaBelt ? `Aena ${esc(aenaBelt)} · FA aún sin baggage` : 'Aena aún sin cinta; FA provisional'))}</span>
       </div>
       <p>${esc(snapshot.status_text || 'Sin estado')}</p>
       <div class="telemetry-values">
@@ -3591,7 +3600,8 @@
         <div><small>Ident</small><strong>${esc(snapshot.ident_icao || snapshot.ident_iata || '—')}</strong></div>
         <div><small>Fase</small><strong>${esc(snapshot.phase || '—')}</strong></div>
       </div>
-      <small class="telemetry-note">${esc(quotaLine)} Vigilancia de cinta desde 1 h antes del despegue estimado (el estimado se mueve con el retraso).</small>
+      ${paceLine}
+      <small class="telemetry-note">${esc(quotaLine)} Vigilancia cinta desde T−60 dep. estimado. Evidencia Aena no gasta esta cuota.</small>
     </section>`;
   }
 
@@ -3868,6 +3878,7 @@
       });
       const data = await response.json();
       if (!response.ok || data.ok === false) throw new Error(data.error || data.message || 'No se pudo forzar.');
+      if (data.quota) updateAeroQuotaChips(data.quota);
       if (data.flight_data) {
         state.flights = state.flights.map(f => Number(f.id) === Number(flightId) ? data.flight_data : f);
       }
@@ -3910,6 +3921,131 @@
     }
   }
 
+  function bindAenaEvidenceButtons(root = document) {
+    root.querySelectorAll('[data-aena-evidence-open]').forEach(button => {
+      if (button.dataset.boundEvidence === '1') return;
+      button.dataset.boundEvidence = '1';
+      button.addEventListener('click', () => openAenaEvidenceModal().catch(error => window.alert(error.message)));
+    });
+    root.querySelectorAll('[data-aena-evidence-capture]').forEach(button => {
+      if (button.dataset.boundEvidenceCap === '1') return;
+      button.dataset.boundEvidenceCap = '1';
+      button.addEventListener('click', () => captureAenaEvidence(button).catch(error => window.alert(error.message)));
+    });
+    root.querySelectorAll('[data-aena-evidence-refresh]').forEach(button => {
+      if (button.dataset.boundEvidenceRef === '1') return;
+      button.dataset.boundEvidenceRef = '1';
+      button.addEventListener('click', () => {
+        const list = button.closest('[data-aena-evidence-panel]')?.querySelector('[data-aena-evidence-list]')
+          || document.querySelector('[data-aena-evidence-list]');
+        loadAenaEvidenceList(list).catch(error => window.alert(error.message));
+      });
+    });
+  }
+
+  async function aenaEvidenceAuthBody(extra = {}) {
+    const body = {...extra};
+    if (appMain?.dataset.focusAdmin === '1') {
+      body.csrf = appMain.dataset.focusCsrf || '';
+    } else {
+      const token = localStorage.getItem('matrix.pushDevice') || '';
+      if (!token) throw new Error('Activa avisos o inicia sesión para pedir evidencia Aena.');
+      body.device_token = token;
+    }
+    return body;
+  }
+
+  async function loadAenaEvidenceList(container) {
+    if (!container) return;
+    container.textContent = 'Cargando evidencias…';
+    const response = await fetch('api/aena-evidence.php', {cache: 'no-store', headers: {Accept: 'application/json'}});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'No se pudo listar evidencias.');
+    if (data.aeroapi_quota) updateAeroQuotaChips(data.aeroapi_quota);
+    const items = Array.isArray(data.items) ? data.items : [];
+    if (!items.length) {
+      container.innerHTML = '<p class="mb-0">Todavía no hay capturas. Pulsa «Evidencia Aena ahora» (0 AeroAPI).</p>';
+      return;
+    }
+    const fileUrl = name => `api/aena-evidence.php?file=${encodeURIComponent(String(name || '').split('/').pop())}`;
+    container.innerHTML = items.map(item => {
+      const when = esc(item.captured_at || '—');
+      const id = String(item.id || 'evidencia');
+      const compareName = item.compare_path ? String(item.compare_path).split('/').pop() : '';
+      const imgName = item.image ? String(item.image).split('/').pop() : '';
+      const compare = compareName
+        ? ` · <a href="${fileUrl(compareName)}" target="_blank" rel="noopener">comparativa</a>`
+        : '';
+      const img = imgName
+        ? ` · <a href="${fileUrl(imgName)}" target="_blank" rel="noopener">foto</a>`
+        : '';
+      const spent = Number(item.aeroapi_spent || 0);
+      return `<article class="aena-evidence-item"><time>${when}</time>
+        <a href="${fileUrl(id)}" target="_blank" rel="noopener">${esc(id)}</a>
+        <small>${Number(item.canarias_rows || 0)} Canarias · FA gastado ${spent}${compare}${img}</small></article>`;
+    }).join('');
+  }
+
+  async function captureAenaEvidence(button) {
+    const original = button?.textContent || '';
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Capturando Infovuelos…';
+    }
+    try {
+      const body = await aenaEvidenceAuthBody({mode: 'dual'});
+      const response = await fetch('api/aena-evidence.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) throw new Error(data.error || data.message || 'No se pudo capturar.');
+      if (data.aeroapi_quota) updateAeroQuotaChips(data.aeroapi_quota);
+      const list = document.querySelector('[data-aena-evidence-list]');
+      await loadAenaEvidenceList(list);
+      const when = data.meta?.captured_at || 'ahora';
+      window.alert((data.message || 'Evidencia guardada.') + ` · ${when} · AeroAPI gastado: 0`);
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = original || '📸 Evidencia Aena ahora';
+      }
+    }
+  }
+
+  async function openAenaEvidenceModal() {
+    let modal = document.querySelector('#aenaEvidenceModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'aenaEvidenceModal';
+      modal.className = 'modal fade';
+      modal.tabIndex = -1;
+      modal.innerHTML = `<div class="modal-dialog modal-dialog-scrollable modal-lg">
+        <div class="modal-content bg-dark text-light">
+          <div class="modal-header border-secondary">
+            <h2 class="modal-title h5">Evidencias Aena Infovuelos</h2>
+            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+          </div>
+          <div class="modal-body">
+            <p class="small text-secondary">Capturas JSON con hora. <b>No consumen AeroAPI</b>. Cuota FA solo informativa: <span data-aero-quota-chip></span></p>
+            <div class="d-flex flex-wrap gap-2 mb-3">
+              <button class="btn btn-success" type="button" data-aena-evidence-capture>📸 Evidencia Aena ahora</button>
+              <button class="btn btn-outline-light" type="button" data-aena-evidence-refresh>↻ Actualizar lista</button>
+            </div>
+            <div data-aena-evidence-panel><div data-aena-evidence-list class="aena-evidence-list">Cargando…</div></div>
+          </div>
+        </div>
+      </div>`;
+      document.body.appendChild(modal);
+    }
+    bindAenaEvidenceButtons(modal);
+    const chipHost = modal.querySelector('[data-aero-quota-chip]');
+    if (chipHost) chipHost.outerHTML = aeroQuotaChip(state.aeroapiQuota || null);
+    await loadAenaEvidenceList(modal.querySelector('[data-aena-evidence-list]'));
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+  }
+
   async function forceCanariasAeroApi(button) {
     const body = await forceAeroAuthorizedBody({mode: 'canarias', limit: 12});
     const status = document.querySelector('#forceCanariasStatus');
@@ -3926,8 +4062,11 @@
       });
       const data = await response.json();
       if (!response.ok || data.ok === false) throw new Error(data.error || data.message || 'No se pudo forzar Canarias.');
+      if (data.quota) updateAeroQuotaChips(data.quota);
       await loadBoard(true);
-      const note = data.message || 'Canarias forzada.';
+      const q = data.quota;
+      const qNote = q ? ` · FA ${q.used}/${q.limit} (quedan ${q.remaining})` : '';
+      const note = (data.message || 'Canarias forzada.') + qNote;
       if (status) status.textContent = note;
       if (button) {
         button.disabled = false;
@@ -4031,19 +4170,53 @@
     }
   }
 
+  function aeroQuotaChip(quota) {
+    if (!quota) return '<span class="aero-quota-chip" data-aero-quota-chip>Cuota FA —/2300</span>';
+    const used = Number(quota.used ?? 0);
+    const limit = Number(quota.limit ?? 2300);
+    const rem = Number(quota.remaining ?? Math.max(0, limit - used));
+    const projected = Number(quota.pace?.projected_month_end || 0);
+    const danger = rem < 50 || quota.exhausted || quota.pace_warning;
+    const title = [quota.message, quota.pace_message].filter(Boolean).join(' · ');
+    const pace = quota.pace_warning
+      ? ` · ~${projected}/mes`
+      : '';
+    return `<span class="aero-quota-chip ${danger?'is-danger':''}" data-aero-quota-chip title="${esc(title)}">FA ${used}/${limit} · quedan ${rem}${pace}</span>`;
+  }
+  function updateAeroQuotaChips(quota) {
+    if (!quota) return;
+    state.aeroapiQuota = quota;
+    document.querySelectorAll('[data-aero-quota-chip]').forEach(el => {
+      el.outerHTML = aeroQuotaChip(quota);
+    });
+  }
+  function beltDualMarkup(flight) {
+    const dual = flight?.belt_dual;
+    if (!dual) return '';
+    const aena = dual.aena_belt ? `Aena ${esc(dual.aena_belt)}` : 'Aena —';
+    const fa = dual.aeroapi_belt ? `FA ${esc(dual.aeroapi_belt)}` : 'FA —';
+    const klass = dual.status === 'diverge' ? 'belt-dual-diverge'
+      : dual.status === 'confirmed' ? 'belt-dual-ok' : 'belt-dual';
+    return `<div class="${klass}" title="${esc(dual.label || '')}"><b>${aena}</b><span>·</span><b>${fa}</b><small>${esc(dual.label || '')}</small></div>`;
+  }
+
   function renderDetailQuickBar(flight) {
     if (!els.detailQuickBar || !flight) return;
     const watched = flightIsWatched(flight.id);
     const meta = focusRefreshMeta(flight, state.focusStatus);
+    const quota = state.aeroapiQuota || null;
     els.detailQuickBar.hidden = false;
     els.detailQuickBar.innerHTML = `
       <button class="btn ${watched?'btn-warning':'btn-outline-warning'}" type="button" data-watch-flight="${Number(flight.id)}" data-watching="${watched?'1':'0'}">${watched?'🔔 Vigilado · quitar':'🔔 Vigilar este vuelo'}</button>
       <button class="btn btn-info" type="button" data-focus-refresh="${Number(flight.id)}" ${meta.disabled?'disabled':''}>↻ ${esc(meta.label)}</button>
-      <button class="btn btn-outline-warning" type="button" data-force-aero-cloud="${Number(flight.id)}" title="AeroAPI de este vuelo + nube ±1 h y Aena. No lo marca como vigilado.">⚡ Forzar FA + nube ±1h</button>
+      <button class="btn btn-outline-warning" type="button" data-force-aero-cloud="${Number(flight.id)}" title="AeroAPI de este vuelo + nube ±1 h y Aena. Gasta cuota. No vigila.">⚡ Forzar FA + nube ±1h</button>
+      <button class="btn btn-outline-success" type="button" data-aena-evidence-open title="Evidencias Infovuelos (0 AeroAPI)">📋 Evidencias Aena</button>
+      ${aeroQuotaChip(quota)}
       <small class="focus-refresh-status" data-focus-refresh-status></small>`;
     bindWatchButtons(els.detailQuickBar);
     bindFocusRefreshButtons(els.detailQuickBar);
     bindForceAeroButtons(els.detailQuickBar);
+    bindAenaEvidenceButtons(els.detailQuickBar);
   }
 
   async function openDetail(id) {
@@ -4103,15 +4276,26 @@
       renderDetailQuickBar(flight);
       const aeroSnap = payload.aeroapi || flight.aeroapi || null;
       const aeroQuota = payload.aeroapi_quota || null;
+      if (aeroQuota) updateAeroQuotaChips(aeroQuota);
       els.detailBody.innerHTML = `<div class="tracked-focus-layout detail-focus-layout">
         <aside class="tracked-focus-summary">
           <div data-focus-hero>${focusHeroMarkup(flight, state.focusStatus, false, true)}</div>
+          ${beltDualMarkup(flight)}
           <div data-focus-red-day>${dailyRedUsageMarkup(flight)}</div>
           <div data-focus-telemetry>${telemetrySummary(flight, true)}</div>
         </aside>
         <div class="tracked-focus-belts" data-focus-window>${focusWindowMarkup(flight)}</div>
       </div>`
         + summary + watchSupport
+        + `<section class="aena-evidence-card mb-4" data-aena-evidence-panel>
+            <header><strong>Evidencias Aena Infovuelos</strong>${aeroQuotaChip(aeroQuota)}</header>
+            <p class="mb-2 text-secondary small">Solo JSON Infovuelos · <b>0 AeroAPI</b>. Hora de cada captura y solicitud en vivo.</p>
+            <div class="d-flex flex-wrap gap-2 mb-2">
+              <button class="btn btn-sm btn-success" type="button" data-aena-evidence-capture>📸 Evidencia Aena ahora</button>
+              <button class="btn btn-sm btn-outline-light" type="button" data-aena-evidence-refresh>↻ Lista</button>
+            </div>
+            <div data-aena-evidence-list class="aena-evidence-list text-secondary small">Cargando evidencias…</div>
+          </section>`
         + `<div data-aeroapi-snapshot>${aeroApiSnapshotMarkup(aeroSnap, aeroQuota, flight)}</div>`
         + beltIntelligence(flight)
         + `<div data-flightaware-snapshot>${flightAwareSnapshotMarkup(payload.flightaware)}</div>`
@@ -4119,8 +4303,10 @@
         + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
       bindFocusRefreshButtons(document.querySelector('#flightDetail'));
       bindForceAeroButtons(document.querySelector('#flightDetail'));
+      bindAenaEvidenceButtons(document.querySelector('#flightDetail'));
       bindWatchButtons(document.querySelector('#flightDetail'));
       renderWatchButton(id);
+      loadAenaEvidenceList(document.querySelector('[data-aena-evidence-list]'));
       requestFlightAwareSnapshot(id, payload.flightaware?.observed_at || null);
     } catch (error) {
       els.detailBody.innerHTML = `<div class="alert alert-danger">${esc(error.message)}</div>`;
@@ -4325,6 +4511,11 @@
     forceCanariasAeroApi(event.currentTarget).catch(error => window.alert(error.message));
   });
   bindForceAeroButtons(document);
+  bindAenaEvidenceButtons(document);
+  fetch('api/aena-evidence.php', {cache:'no-store', headers:{Accept:'application/json'}})
+    .then(r => r.json())
+    .then(data => { if (data.aeroapi_quota) updateAeroQuotaChips(data.aeroapi_quota); })
+    .catch(() => {});
   els.now.addEventListener('click', () => {
     if (els.arrivalsCollapse && !els.arrivalsCollapse.classList.contains('show')) {
       bootstrap.Collapse.getOrCreateInstance(els.arrivalsCollapse).show();

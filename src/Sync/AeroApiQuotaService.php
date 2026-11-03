@@ -52,7 +52,8 @@ final class AeroApiQuotaService
     public function status(): array
     {
         $limit = $this->monthlyLimit();
-        $month = $this->monthKey();
+        $now = new \DateTimeImmutable('now', new \DateTimeZone(self::TIMEZONE));
+        $month = $this->monthKey($now);
         $used = 0;
         $httpCalls = 0;
         $lastCall = null;
@@ -69,6 +70,10 @@ final class AeroApiQuotaService
             }
         }
         $remaining = max(0, $limit - $used);
+        $pace = $this->paceAnalysis($used, $limit, $remaining, $now);
+        $baseMessage = $remaining < 1
+            ? "AeroAPI sin cuota: {$used}/{$limit} result sets en {$month} (Europe/Madrid)."
+            : "AeroAPI {$used}/{$limit} result sets · quedan {$remaining} este mes ({$month}, Europe/Madrid).";
         return [
             'ready' => $this->ready(),
             'timezone' => self::TIMEZONE,
@@ -80,9 +85,101 @@ final class AeroApiQuotaService
             'last_call_at' => $lastCall,
             'exhausted' => $remaining < 1,
             'flights_per_result_set' => self::FLIGHTS_PER_RESULT_SET,
-            'message' => $remaining < 1
-                ? "AeroAPI sin cuota: {$used}/{$limit} result sets en {$month} (Europe/Madrid)."
-                : "AeroAPI {$used}/{$limit} result sets · quedan {$remaining} este mes ({$month}, Europe/Madrid).",
+            'message' => $baseMessage,
+            'pace' => $pace,
+            'pace_warning' => $pace['warning'],
+            'pace_message' => $pace['message'],
+        ];
+    }
+
+    /**
+     * Alerta temprana de ritmo (no reduce cadencia sola; hard stop sigue en 2300).
+     *
+     * @return array{
+     *   day_of_month:int,
+     *   days_in_month:int,
+     *   days_remaining:int,
+     *   month_fraction:float,
+     *   used_fraction:float,
+     *   projected_month_end:int,
+     *   sustainable_per_day:float,
+     *   current_per_day:float,
+     *   warning:bool,
+     *   level:?string,
+     *   message:?string,
+     *   reasons:list<string>
+     * }
+     */
+    public function paceAnalysis(int $used, int $limit, int $remaining, ?\DateTimeImmutable $now = null): array
+    {
+        $now ??= new \DateTimeImmutable('now', new \DateTimeZone(self::TIMEZONE));
+        $now = $now->setTimezone(new \DateTimeZone(self::TIMEZONE));
+        $day = (int)$now->format('j');
+        $daysInMonth = (int)$now->format('t');
+        $daysRemaining = max(0, $daysInMonth - $day);
+        $monthFraction = $day / max(1, $daysInMonth);
+        $usedFraction = $limit > 0 ? $used / $limit : 0.0;
+        $currentPerDay = $day > 0 ? $used / $day : 0.0;
+        $projected = (int)round($currentPerDay * $daysInMonth);
+        $sustainablePerDay = $daysRemaining > 0
+            ? $remaining / $daysRemaining
+            : (float)$remaining;
+
+        $reasons = [];
+        if ($remaining < 1) {
+            $reasons[] = 'exhausted';
+        } else {
+            if ($projected > $limit) {
+                $reasons[] = 'linear_projection';
+            }
+            if ($daysRemaining > 0 && $currentPerDay > ($sustainablePerDay + 0.05) && $used >= 20) {
+                $reasons[] = 'pace_above_sustainable';
+            }
+            // >70% del cupo con menos del 55% del mes → quemando demasiado pronto.
+            if ($usedFraction >= 0.70 && $monthFraction <= 0.55) {
+                $reasons[] = 'mid_month_over_70';
+            }
+            // Quedan pocos días y el ritmo reciente no cabe.
+            if ($daysRemaining > 0 && $daysRemaining <= 10 && $currentPerDay > $sustainablePerDay && $remaining < (int)ceil($limit * 0.25)) {
+                $reasons[] = 'late_month_tight';
+            }
+            // Ritmo alto absoluto: proyección > 90% del tope ya con margen.
+            if ($projected >= (int)ceil($limit * 0.92) && $usedFraction >= 0.35 && $monthFraction < 0.85) {
+                $reasons[] = 'near_limit_projection';
+            }
+        }
+
+        $warning = $reasons !== [] && $remaining >= 1;
+        $level = null;
+        $message = null;
+        if ($remaining < 1) {
+            $level = 'critical';
+            $message = "AeroAPI agotada: {$used}/{$limit}. Hard stop activo hasta el próximo mes (Europe/Madrid).";
+        } elseif ($warning) {
+            $level = in_array('mid_month_over_70', $reasons, true) || $projected >= (int)ceil($limit * 1.15)
+                ? 'critical'
+                : 'warning';
+            $message = sprintf(
+                'Ritmo alto: vas a ~%d a fin de mes (tope %d). Quedan %d. Hay que bajar cadencia.',
+                $projected,
+                $limit,
+                $remaining
+            );
+        }
+
+        return [
+            'day_of_month' => $day,
+            'days_in_month' => $daysInMonth,
+            'days_remaining' => $daysRemaining,
+            'month_fraction' => round($monthFraction, 4),
+            'used_fraction' => round($usedFraction, 4),
+            'projected_month_end' => $projected,
+            'sustainable_per_day' => round($sustainablePerDay, 2),
+            'current_per_day' => round($currentPerDay, 2),
+            'warning' => $warning,
+            'level' => $level,
+            'message' => $message,
+            'reasons' => $reasons,
         ];
     }
 

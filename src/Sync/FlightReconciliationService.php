@@ -334,11 +334,15 @@ final class FlightReconciliationService
     /** @param array<string,mixed> $previous @param array<string,mixed> $current @param array<string,mixed> $record @param array<string,int> $counts */
     private function detectOperationalEvents(int $flightId, int $runId, string $provider, array $previous, array $current, array $record, array &$counts): void
     {
-        // Cinta, sala y equipaje solo son operativos cuando los publica Aena.
-        // AirLabs/FlightStats/AeroAPI pueden guardar belt/hall en observaciones como propuesta,
-        // pero no generan belt_changed ni avisos de cambio de cinta.
-        $aenaOnlyFields = ['hall', 'belt', 'baggage_state'];
+        // Cinta: Aena y AeroAPI generan eventos (doble fuente que se respaldan).
+        // AirLabs/FlightStats siguen sin emitir belt_changed (ruido).
+        // Sala/equipaje siguen siendo solo Aena.
+        $aenaOnlyFields = ['hall', 'baggage_state'];
+        $beltDualProviders = ['aena', 'aeroapi'];
         foreach (self::OPERATIONAL_FIELDS as $field) {
+            if ($field === 'belt' && !in_array($provider, $beltDualProviders, true)) {
+                continue;
+            }
             if ($provider !== 'aena' && in_array($field, $aenaOnlyFields, true)) {
                 continue;
             }
@@ -385,7 +389,7 @@ final class FlightReconciliationService
         if ($field === 'belt') {
             if ($before === null && $after !== null) return ['belt_assigned', 'belt_assignment', 'Primera cinta publicada por la fuente.'];
             if ($before !== null && $after === null) return ['belt_removed', 'belt_removed', 'La fuente retiró la cinta; la causa operativa no fue publicada.'];
-            return ['belt_changed', 'belt_change', 'La fuente cambió la cinta; la causa operativa no fue publicada.'];
+            return ['belt_changed', 'belt_change', 'Cambio de cinta detectado; avisar ya para análisis manual (no esperar acuerdo entre fuentes).'];
         }
         if ($field === 'hall' && $before === null && $after !== null) return ['hall_assigned', 'hall_assignment', 'Primera sala publicada por la fuente.'];
         if ($field === 'hall') return ['hall_changed', 'hall_change', 'La fuente cambió la sala; la causa operativa no fue publicada.'];

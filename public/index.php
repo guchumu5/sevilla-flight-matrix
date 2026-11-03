@@ -154,8 +154,10 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
         <p class="mb-0 text-secondary small">Toca un vuelo para abrir el historial (no lo vigila). Solo la campana «Vigilar» activa avisos. FlightAware AeroAPI propone cinta desde ~1 h antes del despegue estimado.</p>
       </div>
       <div class="canary-watch-tools">
-        <button class="btn btn-sm btn-outline-info" id="forceCanariasAeroApi" type="button" title="Consulta AeroAPI Canarias + reconfirma Aena. No marca vigilados.">⚡ Forzar Canarias</button>
+        <button class="btn btn-sm btn-outline-info" id="forceCanariasAeroApi" type="button" title="Consulta AeroAPI Canarias + reconfirma Aena. Gasta cuota FA. No marca vigilados.">⚡ Forzar Canarias</button>
+        <button class="btn btn-sm btn-outline-success" type="button" data-aena-evidence-open title="Evidencias Infovuelos (0 AeroAPI)">📋 Evidencias Aena</button>
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>
+        <span class="aero-quota-chip" data-aero-quota-chip title="Tope duro 2300 result sets/mes Europe/Madrid">FA —/2300</span>
         <small id="forceCanariasStatus" class="force-aero-status" aria-live="polite"></small>
       </div>
     </header>

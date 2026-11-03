@@ -488,6 +488,51 @@ body {
 .aeroapi-belt-hero strong { font-size:1.45rem; line-height:1.1; color:#ffd47d; }
 .aeroapi-belt-diverge .aeroapi-belt-hero strong { color:#ff8f8f; }
 .aeroapi-belt-hero span { color:var(--muted); font-size:.78rem; }
+.aero-pace-banner {
+  margin:.65rem 0 0;
+  padding:.55rem .7rem;
+  border-radius:8px;
+  background:rgba(255,181,71,.14);
+  border:1px solid rgba(255,181,71,.35);
+  color:#ffd47d;
+  font-size:.82rem;
+}
+.aero-pace-banner.is-critical {
+  background:rgba(255,95,109,.14);
+  border-color:rgba(255,95,109,.4);
+  color:#ff9ca5;
+}
+.aeroapi-belt-ok { border-color:rgba(47,211,138,.4); }
+.aero-pace-warn { display:block; margin-top:.25rem; color:#ffb547; font-size:.75rem; }
+.aena-evidence-card { border:1px solid var(--border); border-radius:12px; padding:.85rem 1rem; background:rgba(13,27,45,.7); }
+.aena-evidence-card header { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; justify-content:space-between; margin-bottom:.55rem; }
+.aena-evidence-list { display:grid; gap:.45rem; }
+.aena-evidence-item { display:grid; gap:.1rem; padding:.45rem .55rem; border-radius:8px; background:rgba(18,36,58,.85); border:1px solid var(--border); }
+.aena-evidence-item time { color:var(--muted); font-size:.72rem; }
+.aero-quota-chip {
+  display:inline-flex; align-items:center; gap:.25rem; padding:.2rem .55rem; border-radius:999px;
+  border:1px solid rgba(255,181,71,.35); background:rgba(255,181,71,.08); color:#ffd47d;
+  font-size:.68rem; font-weight:750; white-space:nowrap;
+}
+.aero-quota-chip.is-danger { border-color:rgba(255,95,109,.5); background:rgba(255,95,109,.12); color:#ff9ca5; }
+.belt-dual, .belt-dual-ok, .belt-dual-diverge {
+  display:grid; gap:.15rem; margin:.55rem 0 .75rem; padding:.55rem .7rem; border-radius:10px;
+  border:1px solid var(--border); background:rgba(18,36,58,.65); font-size:.78rem;
+}
+.belt-dual-ok { border-color:rgba(47,211,138,.35); background:rgba(47,211,138,.08); }
+.belt-dual-diverge { border-color:rgba(255,95,109,.45); background:rgba(255,95,109,.1); }
+.belt-dual b, .belt-dual-ok b, .belt-dual-diverge b { font-size:.95rem; }
+.belt-dual small, .belt-dual-ok small, .belt-dual-diverge small { color:var(--muted); }
+.aena-evidence-card {
+  border:1px solid rgba(47,211,138,.28); border-radius:12px; padding:.85rem 1rem;
+  background:rgba(47,211,138,.06);
+}
+.aena-evidence-card header { display:flex; flex-wrap:wrap; justify-content:space-between; gap:.5rem; margin-bottom:.35rem; }
+.aena-evidence-list { display:grid; gap:.55rem; max-height:16rem; overflow:auto; }
+.aena-evidence-item { display:grid; gap:.1rem; padding:.45rem .55rem; border-radius:8px; background:rgba(7,17,31,.45); border:1px solid var(--border); }
+.aena-evidence-item time { color:#9fefc4; font-weight:700; font-size:.72rem; }
+.aena-evidence-item a { color:var(--text); font-weight:650; }
+.aena-evidence-item small { color:var(--muted); }
 .secondary-belt-proposal-fa { border-color:rgba(255,181,71,.4); }
 .secondary-dot { flex:0 0 auto; width:7px; height:7px; border-radius:50%; background:#708399; }
 .secondary-belt-candidate { color:#ffd47d; font-weight:750; }

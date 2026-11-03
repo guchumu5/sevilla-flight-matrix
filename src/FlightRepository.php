@@ -158,6 +158,8 @@ SELECT
     COALESCE(latest_aena.actual_arrival, latest_other.actual_arrival) AS actual_arrival,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.hall ELSE latest_other.hall END AS hall,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.belt ELSE latest_other.belt END AS belt,
+    latest_aena.belt AS aena_belt,
+    latest_aena.hall AS aena_hall,
     COALESCE(latest_aena.gate, latest_other.gate) AS gate,
     COALESCE(latest_aena.stand, latest_other.stand) AS stand,
     CASE WHEN latest_aena.id IS NOT NULL THEN latest_aena.baggage_state ELSE latest_other.baggage_state END AS baggage_state,
@@ -182,10 +184,9 @@ SELECT
     latest_secondary_belt.belt AS secondary_belt,
     aena_state.last_seen_at AS authoritative_seen_at,
     CONCAT_WS(' / ', f.physical_flight, NULLIF(codes.codes, '')) AS codes,
-    CASE WHEN latest_aena.id IS NOT NULL
-         THEN COALESCE(changes.aena_belt_changes, 0)
-         ELSE COALESCE(changes.other_belt_changes, 0)
-    END AS belt_changes,
+    COALESCE(changes.aena_belt_changes, 0) AS aena_belt_changes,
+    COALESCE(changes.aeroapi_belt_changes, 0) AS aeroapi_belt_changes,
+    (COALESCE(changes.aena_belt_changes, 0) + COALESCE(changes.aeroapi_belt_changes, 0)) AS belt_changes,
     CASE WHEN latest_aena.id IS NOT NULL
          THEN first_aena_belt.observed_at ELSE first_other_belt.observed_at
     END AS first_belt_at,
@@ -283,7 +284,8 @@ LEFT JOIN (
 LEFT JOIN (
     SELECT flight_id,
            SUM(CASE WHEN source = 'aena' AND event_type = 'belt_changed' THEN 1 ELSE 0 END) AS aena_belt_changes,
-           SUM(CASE WHEN source <> 'aena' AND event_type = 'belt_changed' THEN 1 ELSE 0 END) AS other_belt_changes
+           SUM(CASE WHEN source = 'aeroapi' AND event_type = 'belt_changed' THEN 1 ELSE 0 END) AS aeroapi_belt_changes,
+           SUM(CASE WHEN source NOT IN ('aena','aeroapi') AND event_type = 'belt_changed' THEN 1 ELSE 0 END) AS other_belt_changes
     FROM flight_events
     GROUP BY flight_id
 ) changes ON changes.flight_id = f.id
@@ -699,7 +701,7 @@ SQL;
              e.reason_detail,e.confidence,e.evidence,e.detected_at{$analysisSelect}
              FROM flight_events e{$analysisJoin}
              WHERE e.flight_id IN ($placeholders)
-             AND e.source='aena'
+             AND e.source IN ('aena','aeroapi')
              AND e.event_type IN ('belt_assigned','belt_changed','belt_removed')
              ORDER BY e.detected_at,e.id"
         );
@@ -809,11 +811,28 @@ SQL;
         foreach ($rows as &$row) {
             $row['belt_attention'] = null;
             $row['belt_attention_reason'] = null;
+            $dual = BeltDualSource::evaluate($row);
+            $row['belt_dual'] = $dual;
             $status = strtolower((string)(($row['status'] ?? '') . ' ' . ($row['baggage_state'] ?? '')));
             if (preg_match('/final|cancel|equipaje entregado|entrega finalizada|completed/', $status)) continue;
-            if ((int)($row['belt_changes'] ?? 0) > 0) {
-                $row['belt_attention'] = 'important';
-                $row['belt_attention_reason'] = 'Aena cambió la cinta: seguimiento reforzado cada 5 min hasta finalizar el equipaje.';
+
+            // Cualquier cambio o divergencia Aena↔FA → avisar YA (análisis manual).
+            if ($dual['attention'] !== null) {
+                $row['belt_attention'] = $dual['attention'];
+                $row['belt_attention_reason'] = $dual['attention_reason'];
+                continue;
+            }
+            if ((int)($row['belt_changes'] ?? 0) > 0
+                || (int)($row['aena_belt_changes'] ?? 0) > 0
+                || (int)($row['aeroapi_belt_changes'] ?? 0) > 0) {
+                $row['belt_attention'] = 'critical';
+                $aenaCh = (int)($row['aena_belt_changes'] ?? 0);
+                $faCh = (int)($row['aeroapi_belt_changes'] ?? 0);
+                $bits = [];
+                if ($aenaCh > 0) $bits[] = "Aena ×{$aenaCh}";
+                if ($faCh > 0) $bits[] = "FlightAware ×{$faCh}";
+                $row['belt_attention_reason'] = 'Cambio de cinta (' . implode(' · ', $bits ?: ['fuente'])
+                    . '): notificar vigilados y análisis manual. No esperar acuerdo.';
                 continue;
             }
             if (($row['secondary_belt_state'] ?? null) === 'candidate' && !empty($row['secondary_belt'])) {
@@ -821,16 +840,13 @@ SQL;
                 $source = $sourceRaw === 'aeroapi'
                     ? 'FlightAware AeroAPI'
                     : strtoupper((string)($row['secondary_belt_source'] ?? 'API'));
-                // AeroAPI ≠ Aena: crítico. Otras APIs (p.ej. AirLabs) quedan en importante.
                 $row['belt_attention'] = $sourceRaw === 'aeroapi' ? 'critical' : 'important';
-                $row['belt_attention_reason'] = $source . ' propone cinta '
+                $row['belt_attention_reason'] = $source . ' cinta '
                     . trim((string)(($row['secondary_hall'] ?? '') !== '' ? $row['secondary_hall'] . '/' : '') . $row['secondary_belt'])
-                    . ' distinta de Aena: revalidar Infovuelos ahora.';
+                    . ' distinta de Aena: reconsultar ambas YA · análisis manual.';
                 continue;
             }
             $officialBelt = ($row['source'] ?? null) === 'aena' && !empty($row['belt']);
-            // Con cinta ya publicada no marcamos IMPORTANTE en pantalla; aena-control
-            // sigue forzando reconfirmación JSON cada 5 min en ventana operativa.
             if ($officialBelt) continue;
             if (!empty($row['actual_arrival']) || preg_match('/aterr|landed|tierra|entrega/', $status)) {
                 $row['belt_attention'] = 'critical';

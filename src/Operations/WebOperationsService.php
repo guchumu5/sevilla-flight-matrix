@@ -86,6 +86,7 @@ final class WebOperationsService
             'latest_runs' => $latestRuns,
             'latest_fetch_runs' => $latestFetchRuns,
             'provider_health' => $providerHealth,
+            'aeroapi_quota' => (new AeroApiIngestService($this->pdo))->quota()->status(),
             'limits' => ['airlabs_max' => 50, 'opensky_max' => 25],
         ];
     }
@@ -265,6 +266,13 @@ final class WebOperationsService
                     ?? sprintf('%d consultas registradas este mes.', $attemptsMonth)),
                 default => sprintf('%d consultas registradas este mes.', $attemptsMonth),
             };
+            $aeroQuota = null;
+            if ($provider === 'aeroapi') {
+                $aeroQuota = (new AeroApiIngestService($this->pdo))->quota()->status();
+                if (!empty($aeroQuota['pace_message'])) {
+                    $quotaNote .= ' · ' . $aeroQuota['pace_message'];
+                }
+            }
 
             $nextExpectedAt = $lastTimestamp
                 ? date('Y-m-d H:i:s', $lastTimestamp + ((int)$definition['cadence_minutes'] * 60))
@@ -286,8 +294,12 @@ final class WebOperationsService
                 'attempts_today' => (int)($row['attempts_today'] ?? 0),
                 'attempts_month' => $attemptsMonth,
                 'estimated_upstream_requests_month' => $requestEstimate,
-                'rate_limited' => $rateLimited,
+                'rate_limited' => $rateLimited || !empty($aeroQuota['exhausted']),
                 'quota_note' => $quotaNote,
+                'quota' => $aeroQuota,
+                'pace_warning' => !empty($aeroQuota['pace_warning']),
+                'pace_message' => $aeroQuota['pace_message'] ?? null,
+                'pace_level' => $aeroQuota['pace']['level'] ?? null,
             ];
             if ($provider === 'aena') $item['modes'] = $aenaModes;
             $result[] = $item;

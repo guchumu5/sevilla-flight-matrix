@@ -44,6 +44,19 @@ expectSame(2, AeroApiQuotaService::estimateResultSets(['flights' => array_fill(0
 expectSame(2300, AeroApiQuotaService::DEFAULT_MONTHLY_LIMIT, 'tope duro 2300');
 expectSame('Europe/Madrid', AeroApiQuotaService::TIMEZONE, 'mes en Europe/Madrid');
 
+// Ritmo alto: proyección lineal > tope → warning (sin auto-bajar cadencia).
+$quotaProbe = new class extends AeroApiQuotaService {
+    public function __construct() {}
+    public function ready(): bool { return false; }
+};
+$midMonth = new DateTimeImmutable('2026-11-15 12:00:00', new DateTimeZone('Europe/Madrid'));
+$paceHot = (new ReflectionClass(AeroApiQuotaService::class))
+    ->newInstanceWithoutConstructor()
+    ->paceAnalysis(1400, 2300, 900, $midMonth);
+expectSame(true, $paceHot['warning'], 'ritmo alto a mitad de mes con proyección por encima');
+expectSame(true, is_string($paceHot['message']) && str_contains($paceHot['message'], 'Ritmo alto'), 'mensaje ritmo alto en español');
+expectSame(true, str_contains((string)$paceHot['message'], 'Hay que bajar cadencia'), 'pide bajar cadencia sin auto-reducir');
+
 // Regresión HY093: PDO nativo no reutiliza el mismo named placeholder dos veces.
 foreach ([
     dirname(__DIR__) . '/src/Sync/AeroApiIngestService.php',

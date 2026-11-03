@@ -445,6 +445,13 @@ final class MatrixEngine
             return 'confirmed';
         }
 
+        // Cualquier desacuerdo Aena↔secundaria es candidato a alerta YA.
+        // No ocultar con not_confirmed por timestamps: el cambio no debe perderse.
+        $source = strtolower((string)($flight['secondary_belt_source'] ?? ''));
+        if ($source === 'aeroapi') {
+            return 'candidate';
+        }
+
         $officialAt = $flight['authoritative_seen_at'] ?? $flight['observed_at'] ?? null;
         $secondaryAt = $flight['secondary_belt_at'] ?? null;
         if ($officialAt && $secondaryAt && strcmp((string)$secondaryAt, (string)$officialAt) <= 0) {
