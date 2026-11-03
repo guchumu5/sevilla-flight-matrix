@@ -593,6 +593,7 @@ final class WebOperationsService
                     'eta' => $this->providerDate($data['arr_estimated'] ?? $data['arr_estimated_utc'] ?? null),
                     'actual_departure' => $this->providerDate($data['dep_actual'] ?? $data['dep_actual_utc'] ?? null),
                     'actual_arrival' => $this->providerDate($data['arr_actual'] ?? $data['arr_actual_utc'] ?? null),
+                    // belt/hall se guardan solo como propuesta secundaria; no generan eventos de cambio.
                     'hall' => $this->nullable($data['arr_terminal'] ?? null),
                     'belt' => $this->nullable($data['arr_baggage'] ?? null),
                     'gate' => $this->nullable($data['arr_gate'] ?? null),
@@ -600,7 +601,7 @@ final class WebOperationsService
                     'occupancy_level' => 'no_verificable',
                     'confidence' => 'provisional',
                     'reason_code' => 'secondary_provider_update',
-                    'reason_detail' => 'AirLabs actualizó información secundaria de horario o telemetría; no constituye una causa operativa publicada por Aena.',
+                    'reason_detail' => 'AirLabs actualizó horario o telemetría. La cinta/sala que indique es propuesta secundaria: la operativa la publica solo Aena.',
                     'raw_data' => [
                         'schedule' => $scheduleData,
                         'live' => $liveData,

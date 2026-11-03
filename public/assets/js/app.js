@@ -3674,7 +3674,11 @@
 
   function beltIntelligence(flight) {
     const events = (Array.isArray(flight.belt_events) ? flight.belt_events : []);
-    const changes = events.filter(event => event.event_type === 'belt_changed' || event.event_type === 'belt_removed');
+    // Solo Aena genera cambios de cinta operativos. Lo demás es propuesta secundaria.
+    const changes = events.filter(event =>
+      event.source === 'aena'
+      && (event.event_type === 'belt_changed' || event.event_type === 'belt_removed')
+    );
     const intervals = [flight.previous_same_belt_minutes, flight.next_same_belt_minutes].filter(value => value !== null);
     const minimum = intervals.length ? Math.min(...intervals.map(Number)) : null;
     const context = [
@@ -3682,20 +3686,31 @@
       `Afluencia ${hallLoadText(flight.hall_load).toLowerCase()} · ${Number(flight.hall_flights_30m || 0)} vuelos / ${Number(flight.hall_capacity_30m || 0).toLocaleString('es-ES')} plazas teóricas en ±30 min`,
       Math.abs(Number(flight.deviation_minutes || 0)) >= 15 ? `Desviación ${signed(flight.deviation_minutes)}` : 'Sin desviación ≥15 min'
     ];
+    const official = flight.source === 'aena' && flight.belt
+      ? beltPosition(flight)
+      : null;
+    const secondaryProposal = flight.secondary_belt_state === 'candidate' && flight.secondary_belt
+      ? `<aside class="observed-context secondary-belt-proposal">
+          <strong>Propuesta API — no es cambio oficial</strong>
+          <span>${esc((flight.secondary_belt_source || 'secundaria').toUpperCase())} indica ${beltPosition({hall:flight.secondary_hall,belt:flight.secondary_belt})}${
+            official ? ` · Aena mantiene ${official}` : ' · Aena aún no confirma cinta'
+          }</span>
+        </aside>`
+      : '';
     const eventMarkup = changes.length ? changes.map(event => {
       const publishedReason = event.reason_code && !['belt_change','belt_removed','source_changed'].includes(event.reason_code);
       const analyzed = Boolean(event.analysis_reason_label);
-      const reason = analyzed ? event.analysis_reason_detail : publishedReason ? event.reason_detail : 'La fuente no publicó una causa operativa verificable.';
+      const reason = analyzed ? event.analysis_reason_detail : publishedReason ? event.reason_detail : 'Aena no publicó una causa operativa verificable.';
       const reasonLabel = analyzed
         ? `${Number(event.analysis_official_reason)===1 ? 'Causa publicada' : 'Motivo inferido por la matriz'} · ${event.analysis_reason_label}`
         : null;
       return `<article class="belt-event-item">
         <header><strong>${esc(event.before_value || 'sin cinta')} → ${esc(event.after_value || 'retirada')}</strong><time>${dateTime(event.detected_at)}</time></header>
-        <div><span class="badge ${event.source==='aena'?'text-bg-success':'text-bg-warning'}">${esc((event.source||'').toUpperCase())}</span> <span class="badge ${event.analysis_confidence==='confirmado'?'text-bg-success':event.analysis_confidence==='probable'?'text-bg-warning':'text-bg-secondary'}">${esc(event.analysis_confidence || event.confidence || 'provisional')}</span></div>
+        <div><span class="badge text-bg-success">AENA</span> <span class="badge ${event.analysis_confidence==='confirmado'?'text-bg-success':event.analysis_confidence==='probable'?'text-bg-warning':'text-bg-secondary'}">${esc(event.analysis_confidence || event.confidence || 'provisional')}</span></div>
         ${reasonLabel ? `<strong class="belt-event-reason">${esc(reasonLabel)}</strong>` : ''}
         <p>${esc(reason)}</p>
       </article>`;
-    }).join('') : '<p class="text-secondary mb-0">No se han registrado cambios de cinta.</p>';
+    }).join('') : '<p class="text-secondary mb-0">No hay cambios de cinta publicados por Aena.</p>';
     return `<section class="belt-intelligence mb-4">
       <h3 class="h6">Inteligencia de cinta</h3>
       <div class="detail-grid mb-3">
@@ -3715,6 +3730,7 @@
       ${beltDistributionMarkup(flight.belt_distribution_flight, `Mismo vuelo ${flight.physical_flight}`, flight.belt)}
       ${Number(flight.is_canary)===1 ? beltDistributionMarkup(flight.belt_distribution_origin, `Origen canario ${flight.origin_name}`, flight.belt) : ''}
       <div class="belt-event-list">${eventMarkup}</div>
+      ${secondaryProposal}
       ${changes.length ? `<aside class="observed-context"><strong>Contexto observado — no demuestra causalidad</strong>${context.map(item=>`<span>${esc(item)}</span>`).join('')}</aside>` : ''}
     </section>`;
   }

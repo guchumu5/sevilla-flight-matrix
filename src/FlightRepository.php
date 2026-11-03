@@ -692,6 +692,7 @@ SQL;
              e.reason_detail,e.confidence,e.evidence,e.detected_at{$analysisSelect}
              FROM flight_events e{$analysisJoin}
              WHERE e.flight_id IN ($placeholders)
+             AND e.source='aena'
              AND e.event_type IN ('belt_assigned','belt_changed','belt_removed')
              ORDER BY e.detected_at,e.id"
         );

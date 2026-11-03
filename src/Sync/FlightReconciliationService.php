@@ -326,7 +326,14 @@ final class FlightReconciliationService
     /** @param array<string,mixed> $previous @param array<string,mixed> $current @param array<string,mixed> $record @param array<string,int> $counts */
     private function detectOperationalEvents(int $flightId, int $runId, string $provider, array $previous, array $current, array $record, array &$counts): void
     {
+        // Cinta, sala y equipaje solo son operativos cuando los publica Aena.
+        // AirLabs/FlightStats pueden guardar belt/hall en observaciones como propuesta,
+        // pero no generan belt_changed ni avisos de cambio de cinta.
+        $aenaOnlyFields = ['hall', 'belt', 'baggage_state'];
         foreach (self::OPERATIONAL_FIELDS as $field) {
+            if ($provider !== 'aena' && in_array($field, $aenaOnlyFields, true)) {
+                continue;
+            }
             $before = $this->scalar($previous[$field] ?? null);
             $after = $this->scalar($current[$field] ?? null);
             if ($field === 'occupancy_level' && $before === null && $after === 'no_verificable') {

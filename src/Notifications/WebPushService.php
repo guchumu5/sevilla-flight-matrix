@@ -488,6 +488,15 @@ final class WebPushService
              SET o.attempts=4,o.last_error='Descartado por la política de avisos operativos'
              WHERE o.pushed_at IS NULL AND o.attempts<4 AND e.event_type NOT IN ({$watched})"
         );
+        // Cinta/sala: solo Aena. Descarta ruido histórico de AirLabs u otros secundarios.
+        $this->pdo->exec(
+            "UPDATE push_outbox o
+             JOIN flight_events e ON e.id=o.flight_event_id
+             SET o.attempts=4,o.last_error='Descartado: cinta/sala solo oficiales de Aena'
+             WHERE o.pushed_at IS NULL AND o.attempts<4
+               AND e.event_type IN ('belt_assigned','belt_changed','belt_removed','hall_changed','hall_assigned')
+               AND e.source<>'aena'"
+        );
         $this->pdo->exec(
             "UPDATE push_outbox o
              JOIN flight_events e ON e.id=o.flight_event_id
@@ -590,6 +599,10 @@ final class WebPushService
                AND NOT (
                  e.event_type IN ('status_changed','status_published')
                  AND e.source IN ('flightstats','airlabs','opensky')
+               )
+               AND NOT (
+                 e.event_type IN ('belt_assigned','belt_changed','belt_removed','hall_changed','hall_assigned')
+                 AND e.source<>'aena'
                )"
         );
         $criticalBelt = $this->queueCriticalBeltAlarms();
