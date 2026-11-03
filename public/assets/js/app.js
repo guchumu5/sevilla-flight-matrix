@@ -250,8 +250,11 @@
       confirmed: 'coincide con Aena',
       not_confirmed: 'Aena actualizó después sin confirmarla'
     };
+    const candidateNote = flight.secondary_belt_state === 'candidate'
+      ? ' · revalidar Aena'
+      : '';
     return `<span class="secondary-belt secondary-belt-${esc(flight.secondary_belt_state)}" title="${esc(labels[flight.secondary_belt_state] || '')}">
-      <span class="secondary-dot" aria-hidden="true"></span>${source}: ${position}
+      <span class="secondary-dot" aria-hidden="true"></span>${source}: ${position}${candidateNote}
     </span>`;
   };
   const aircraftSilhouette = flight => `<svg class="aircraft-silhouette" viewBox="0 0 180 90" role="img" aria-label="Silueta de ${esc(flight.aircraft_type || 'aeronave')}">
@@ -1541,7 +1544,7 @@
   }
 
   async function requestAndWaitAena(flightId = 0, onProgress = () => {}) {
-    onProgress('Pidiendo Aena…');
+    onProgress('Reconfirmando cinta Aena…');
     const token = localStorage.getItem('matrix.pushDevice') || '';
     const response = await fetch('api/aena-refresh.php', {
       method:'POST',
@@ -1551,7 +1554,15 @@
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(data.error || 'No se pudo pedir Aena.');
-    const baseline = Number(data.baseline_aena_unix || data.status?.last_aena_unix || 0);
+    // JSON Infovuelos en Plesk termina en la misma petición: no esperar GitHub.
+    if (data.local_json && data.ok) {
+      onProgress(data.wait_hint || 'Cinta Aena reconfirmada.');
+      return {
+        request:data,
+        wait:{ok:true, status:data.status || null, waited:0, local_json:true}
+      };
+    }
+    const baseline = Number(data.baseline_aena_unix || 0);
     const wait = await waitForAenaCapture({
       baseline,
       flightId,
@@ -1582,12 +1593,17 @@
         state.watchedFlightsBrief = state.watchedFlightsBrief.map(item => Number(item.id) === id ? {...item, flightstats: data.flightstats} : item);
         renderTrackedFocus();
       }
-      const baseline = Number(data.baseline_aena_unix || 0);
-      const wait = await waitForAenaCapture({
-        baseline,
-        flightId,
-        onProgress: label => { if (button) button.textContent = label; }
-      });
+      let wait = {ok:false, status:null, waited:0};
+      if (data.aena?.local_json && data.aena?.ok) {
+        wait = {ok:true, status:data.aena.status || null, waited:0, local_json:true};
+      } else {
+        const baseline = Number(data.baseline_aena_unix || 0);
+        wait = await waitForAenaCapture({
+          baseline,
+          flightId,
+          onProgress: label => { if (button) button.textContent = label; }
+        });
+      }
       await loadBoard(true);
       const belt = wait.status?.aena_belt ? ` · cinta Aena ${wait.status.aena_belt}` : '';
       state.pushCheckNote = wait.ok
@@ -3785,15 +3801,20 @@
         state.focusStatus.retry_after_seconds = Number(data.opensky.retry_after_seconds);
       }
       if (state.focusStatus) state.focusStatus.cooldown_started_at = Date.now();
-      const baseline = Number(data.baseline_aena_unix || data.aena?.baseline_aena_unix || 0);
-      const wait = await waitForAenaCapture({
-        baseline,
-        flightId: id,
-        onProgress: label => {
-          if (status) status.innerHTML = `<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>${esc(label)}`;
-          button.textContent = label;
-        }
-      });
+      let wait = {ok:false, status:null};
+      if (data.aena?.local_json && data.aena?.ok) {
+        wait = {ok:true, status:data.aena.status || null, waited:0, local_json:true};
+      } else {
+        const baseline = Number(data.baseline_aena_unix || data.aena?.baseline_aena_unix || 0);
+        wait = await waitForAenaCapture({
+          baseline,
+          flightId: id,
+          onProgress: label => {
+            if (status) status.innerHTML = `<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>${esc(label)}`;
+            button.textContent = label;
+          }
+        });
+      }
       await loadBoard(true);
       const aircraftMessage = data.aircraft?.message || '';
       const flightAwareMessage = data.flightaware?.message || '';
@@ -4061,7 +4082,9 @@
       let baseline = Number(data.baseline_aena_unix || data.results?.aena?.baseline_aena_unix || 0);
       const focusId = Number(state.detailFlightId || state.pinnedFlightId || 0);
       let wait = {ok:false};
-      if (!baseline || data.skipped || data.running) {
+      if (data.results?.aena?.local_json && data.results?.aena?.ok) {
+        wait = {ok:true, status:null, waited:0, local_json:true};
+      } else if (!baseline || data.skipped || data.running) {
         try {
           const forced = await requestAndWaitAena(focusId, setBusy);
           baseline = Number(forced.request?.baseline_aena_unix || baseline || 0);

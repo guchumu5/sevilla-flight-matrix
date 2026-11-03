@@ -83,8 +83,10 @@ try {
             'complete' => true,
             'withdraw_after' => 3,
             'metadata' => [
-                'transport' => 'github_actions_browser',
-                'collector' => trim((string)($payload['collector'] ?? 'aena-playwright-v1')),
+                'transport' => str_contains((string)($payload['collector'] ?? ''), 'json')
+                    ? 'infovuelos_json'
+                    : 'github_actions_collector',
+                'collector' => trim((string)($payload['collector'] ?? 'aena-json-v2')),
                 'aena_updated_label' => trim((string)($payload['aena_updated_label'] ?? '')),
             ],
         ]);

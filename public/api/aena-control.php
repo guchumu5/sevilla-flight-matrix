@@ -54,6 +54,7 @@ try {
         $focusedIds = array_fill_keys(array_map('intval', $focusRows), true);
     }
     $critical = [];
+    $reconfirmCount = 0;
     foreach ($flights as $flight) {
         $arrival = strtotime((string)($flight['effective_arrival'] ?? $flight['scheduled_arrival'] ?? '')) ?: 0;
         $status = strtolower((string)(($flight['status'] ?? '') . ' ' . ($flight['baggage_state'] ?? '')));
@@ -62,21 +63,32 @@ try {
         $monitored = isset($watchedIds[(int)$flight['id']])
             || isset($focusedIds[(int)$flight['id']])
             || ($canaryGlobal && (int)$flight['is_canary'] === 1);
-        // Los vigilados y las cintas críticas van a 5 min; el resto, 15 min.
+        // Ventana operativa: reconfirmar cinta aunque Aena ya la haya publicado.
+        $needsBeltReconfirm = !$finished
+            && $minutesToArrival !== null
+            && $minutesToArrival <= 180
+            && $minutesToArrival >= -120;
+        if ($needsBeltReconfirm) {
+            $reconfirmCount++;
+        }
         $priorityWatch = TrackingCadence::intervalMinutes(
             $minutesToArrival,
             $monitored,
             $finished,
-            !empty($flight['belt_attention'])
+            !empty($flight['belt_attention']) || $needsBeltReconfirm
         ) === TrackingCadence::FINAL_MINUTES;
-        if (empty($flight['belt_attention']) && !$priorityWatch) continue;
+        if (empty($flight['belt_attention']) && !$priorityWatch && !$needsBeltReconfirm) {
+            continue;
+        }
         $reason = !empty($flight['belt_attention_reason'])
             ? (string)$flight['belt_attention_reason']
-            : (isset($focusedIds[(int)$flight['id']])
+            : ($needsBeltReconfirm
+                ? 'Reconfirmación periódica de cinta Aena (dato crítico operativo).'
+                : (isset($focusedIds[(int)$flight['id']])
                 ? 'Centro de atención activo: comprobación Aena prioritaria solicitada desde la ficha del vuelo.'
                 : ((int)$flight['is_canary'] === 1 && $canaryGlobal
                 ? 'Avisos de Canarias activos: comprobación Aena reforzada.'
-                : 'Vuelo vigilado individualmente: comprobación Aena reforzada.'));
+                : 'Vuelo vigilado individualmente: comprobación Aena reforzada.')));
         $critical[] = [
             'id' => (int)$flight['id'],
             'flight' => (string)$flight['physical_flight'],
@@ -85,9 +97,10 @@ try {
             'belt' => $flight['belt'] ?? null,
             'status' => $flight['status'] ?? null,
             'baggage_state' => $flight['baggage_state'] ?? null,
-            'level' => (string)($flight['belt_attention'] ?: 'watched'),
+            'level' => (string)($flight['belt_attention'] ?: ($needsBeltReconfirm ? 'reconfirm' : 'watched')),
             'reason' => $reason,
             'watch_priority' => $priorityWatch,
+            'belt_reconfirm' => $needsBeltReconfirm,
             'minutes_to_arrival' => $minutesToArrival,
             'tracking_phase' => TrackingCadence::phase($minutesToArrival, $monitored, $finished),
         ];
@@ -101,21 +114,25 @@ try {
     $lastTimestamp = $last ? strtotime((string)$last) : false;
     $ageMinutes = $lastTimestamp === false ? null : max(0, (int)floor((time() - $lastTimestamp) / 60));
     $forced = WebOperationsService::aenaForcePending();
+    $liveWindow = $reconfirmCount > 0;
+    // Con vuelos en ventana operativa: revalidar cinta cada 5 min aunque ya esté asignada.
+    $dueMinutes = ($liveWindow || $critical !== [] || $forced) ? 5 : 12;
 
     Response::json([
         'ok' => true,
-        'critical' => $critical !== [] || $forced,
+        'critical' => $critical !== [] || $forced || $liveWindow,
         'critical_count' => count($critical),
         'critical_flights' => $critical,
+        'belt_reconfirm_count' => $reconfirmCount,
         'individual_watches' => count($watchedIds),
         'focused_flights' => count($focusedIds),
         'canary_watch_active' => $canaryGlobal,
         'last_aena_success_at' => $last ?: null,
         'last_aena_age_minutes' => $ageMinutes,
-        'normal_due' => $forced || $ageMinutes === null || $ageMinutes >= 12,
+        'normal_due' => $forced || $ageMinutes === null || $ageMinutes >= $dueMinutes,
         'forced' => $forced,
-        'recommended_interval_minutes' => ($critical !== [] || $forced) ? 5 : 15,
-        'policy' => 'Vuelo vigilado: cada 5 min hasta finalizar el equipaje. El resto de la matriz, 15 min. Las cintas críticas también van a 5 min.',
+        'recommended_interval_minutes' => $dueMinutes <= 5 ? 5 : 15,
+        'policy' => 'Cinta Aena: reconfirmación cada 5 min en ventana operativa (−2 h…+3 h), aunque ya haya cinta. Vigilados y críticas también a 5 min. Fuera de ventana, 12–15 min.',
     ]);
 } catch (Throwable $error) {
     Response::json(['error' => $error->getMessage()], 500);

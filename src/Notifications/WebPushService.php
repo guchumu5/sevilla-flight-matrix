@@ -195,7 +195,13 @@ final class WebPushService
         }
         FlightRepository::forgetSnapshotCaches();
         $notice = $this->forceCheckNotice($flightId);
-        if (!empty($aena['ok'])) {
+        if (!empty($aena['local_json']) && !empty($aena['ok'])) {
+            $belt = '';
+            if (!empty($aena['result']) || !empty($aena['message'])) {
+                $belt = ' · cinta reconfirmada';
+            }
+            $notice['body'] = 'Aena JSON ok' . $belt . ' · ' . $notice['body'];
+        } elseif (!empty($aena['ok'])) {
             $notice['body'] = 'Aena pedida · ' . $notice['body'];
         }
         $path = $this->testNoticePath($deviceToken);

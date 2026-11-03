@@ -269,9 +269,13 @@ final class FlightReconciliationService
 
         $snapshot = $this->snapshot($record);
         $payloadHash = hash('sha256', $this->canonicalJson($snapshot));
-        if (!$state || !hash_equals((string)$state['last_payload_hash'], $payloadHash)) {
+        $changed = !$state || !hash_equals((string)$state['last_payload_hash'], $payloadHash);
+        // Aena: siempre registrar observación para reconfirmar cinta/sala aunque no cambie.
+        if ($changed || $provider === 'aena') {
             $this->addObservation($flightId, $provider, $record);
             $counts['observations_created']++;
+        }
+        if ($changed) {
             $this->detectOperationalEvents($flightId, $runId, $provider, $previous, $snapshot, $record, $counts);
         }
 

@@ -808,7 +808,17 @@ SQL;
                 $row['belt_attention_reason'] = 'Aena cambió la cinta: seguimiento reforzado cada 5 min hasta finalizar el equipaje.';
                 continue;
             }
+            if (($row['secondary_belt_state'] ?? null) === 'candidate' && !empty($row['secondary_belt'])) {
+                $source = strtoupper((string)($row['secondary_belt_source'] ?? 'API'));
+                $row['belt_attention'] = 'important';
+                $row['belt_attention_reason'] = $source . ' propone cinta '
+                    . trim((string)(($row['secondary_hall'] ?? '') !== '' ? $row['secondary_hall'] . '/' : '') . $row['secondary_belt'])
+                    . ' distinta de Aena: revalidar Infovuelos ahora.';
+                continue;
+            }
             $officialBelt = ($row['source'] ?? null) === 'aena' && !empty($row['belt']);
+            // Con cinta ya publicada no marcamos IMPORTANTE en pantalla; aena-control
+            // sigue forzando reconfirmación JSON cada 5 min en ventana operativa.
             if ($officialBelt) continue;
             if (!empty($row['actual_arrival']) || preg_match('/aterr|landed|tierra|entrega/', $status)) {
                 $row['belt_attention'] = 'critical';

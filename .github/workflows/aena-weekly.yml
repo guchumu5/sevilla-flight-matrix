@@ -20,7 +20,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 10
     env:
       MATRIX_INGEST_URL: ${{ vars.MATRIX_INGEST_URL }}
       MATRIX_INGEST_TOKEN: ${{ secrets.MATRIX_INGEST_TOKEN }}
@@ -34,13 +34,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Instalar recolector
-        run: npm install --no-audit --no-fund
-
-      - name: Instalar Chromium
-        run: npx playwright install --with-deps chromium
-
-      - name: Leer siete días y conciliar
+      - name: Leer Infovuelos JSON (ventana dos días) y conciliar
         shell: bash
         run: |
           for attempt in 1 2; do
@@ -48,9 +42,9 @@ jobs:
               exit 0
             fi
             if [ "$attempt" -eq 2 ]; then
-              echo "::error::La programación semanal no pudo leerse tras dos ciclos completos."
+              echo "::error::La programación Aena JSON no pudo leerse tras dos intentos."
               exit 1
             fi
-            echo "::warning::Infovuelos estuvo inestable; nuevo ciclo completo dentro de 90 segundos."
-            sleep 90
+            echo "::warning::Infovuelos JSON inestable; nuevo intento en 20 segundos."
+            sleep 20
           done

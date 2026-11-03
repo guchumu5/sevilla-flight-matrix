@@ -15,7 +15,7 @@ concurrency:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 8
     env:
       MATRIX_INGEST_URL: ${{ vars.MATRIX_INGEST_URL }}
       MATRIX_CONTROL_URL: ${{ vars.MATRIX_CONTROL_URL }}
@@ -28,7 +28,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "Ejecución manual: se realizará la captura."
+            echo "Ejecución manual: se realizará la captura JSON."
             exit 0
           fi
 
@@ -53,12 +53,13 @@ jobs:
           critical=$(jq -r '.critical // false' <<< "$response")
           normal_due=$(jq -r '.normal_due // true' <<< "$response")
           count=$(jq -r '.critical_count // 0' <<< "$response")
+          reconfirm=$(jq -r '.belt_reconfirm_count // 0' <<< "$response")
           if [ "$critical" = "true" ] || [ "$normal_due" = "true" ]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-            echo "Captura activada: casos críticos=$count, vencimiento normal=$normal_due."
+            echo "Captura JSON activada: críticos=$count, reconfirmación_cinta=$reconfirm, vencimiento=$normal_due."
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "Sin casos críticos y con captura Aena reciente; esta comprobación no abre el navegador."
+            echo "Sin ventana operativa ni vencimiento; se omite este ciclo."
           fi
 
       - name: Descargar código
@@ -71,15 +72,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Instalar recolector
-        if: steps.cadence.outputs.run == 'true'
-        run: npm install --no-audit --no-fund
-
-      - name: Instalar Chromium
-        if: steps.cadence.outputs.run == 'true'
-        run: npx playwright install --with-deps chromium
-
-      - name: Leer Infovuelos y conciliar
+      - name: Leer Infovuelos JSON y conciliar
         if: steps.cadence.outputs.run == 'true'
         shell: bash
         run: |
@@ -88,9 +81,9 @@ jobs:
               exit 0
             fi
             if [ "$attempt" -eq 2 ]; then
-              echo "::error::Aena no respondió correctamente tras dos intentos."
+              echo "::error::Aena JSON no respondió correctamente tras dos intentos."
               exit 1
             fi
-            echo "::warning::Infovuelos no estuvo listo; se repetirá la captura completa en 20 segundos."
-            sleep 20
+            echo "::warning::Infovuelos JSON no estuvo listo; se repetirá en 15 segundos."
+            sleep 15
           done

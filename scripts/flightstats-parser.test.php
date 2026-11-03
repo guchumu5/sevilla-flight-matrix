@@ -34,10 +34,7 @@ expectSame(20, $parsed['delay_minutes'] ?? null, 'El JSON de VY3190 debe leer 20
 expectSame('2026-10-26 23:55:00', $parsed['eta'] ?? null, 'ETA local 23:55.');
 expectSame('2026-10-26 20:44:00', $parsed['actual_departure'] ?? null, 'Salida real 20:44.');
 expectSame(null, $parsed['actual_arrival'] ?? null, 'No debe marcar llegada real si sigue en ruta.');
-if (str_contains(json_encode($parsed), 'baggage')) {
-    fwrite(STDERR, "El parser no debe copiar la cinta publicada por FlightStats.\n");
-    exit(1);
-}
+expectSame('2', $parsed['belt'] ?? null, 'FlightStats baggage 2 debe leerse como cinta provisional.');
 
 $html = FlightStatsParser::fromHtml(
     'Delayed by 20m Scheduled 20:20 WET Actual 20:44 WET Scheduled 23:35 CET Estimated 23:55 CET',

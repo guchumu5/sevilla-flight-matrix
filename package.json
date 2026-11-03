@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "check:aena": "node --check scripts/aena-collector.mjs",
+    "check:aena": "node --check scripts/aena-collector.mjs && node --check scripts/aena-status.mjs",
     "check:flightaware": "node --check scripts/flightaware-collector.mjs",
     "check:flightstats": "node --check scripts/flightstats-collector.mjs",
     "test:flightaware": "node scripts/flightaware-parser.test.mjs",

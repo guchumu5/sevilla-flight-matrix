@@ -405,30 +405,49 @@ final class WebOperationsService
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES), LOCK_EX);
 
         $before = $this->aenaStatus();
-        $dispatch = $this->dispatchGithubWorkflow('aena-live.yml');
-        if ($dispatch['ok']) {
-            return [
-                'ok' => true,
-                'useful' => true,
-                'action' => 'aena',
-                'dispatched' => true,
+
+        // Preferir JSON Infovuelos en el propio servidor: reconfirma cinta al momento.
+        try {
+            $sync = (new \SevillaMatrix\Sync\AenaInfovuelosSyncService($this->pdo))->syncLive($by);
+            return array_merge($sync, [
+                'dispatched' => false,
                 'requested_at' => $requestedAt,
                 'requested_at_iso' => date('c', $requestedAt),
                 'baseline_aena_unix' => $before['last_aena_unix'] ?? null,
-                'message' => 'Captura Aena pedida a GitHub Actions. Esperando Infovuelos…',
+                'local_json' => true,
+                'status' => $this->aenaStatus(),
+            ]);
+        } catch (Throwable $error) {
+            $dispatch = $this->dispatchGithubWorkflow('aena-live.yml');
+            if ($dispatch['ok']) {
+                return [
+                    'ok' => true,
+                    'useful' => true,
+                    'action' => 'aena',
+                    'dispatched' => true,
+                    'local_json' => false,
+                    'local_error' => substr($error->getMessage(), 0, 300),
+                    'requested_at' => $requestedAt,
+                    'requested_at_iso' => date('c', $requestedAt),
+                    'baseline_aena_unix' => $before['last_aena_unix'] ?? null,
+                    'message' => 'JSON Infovuelos falló en Plesk; captura pedida a GitHub Actions. Esperando…',
+                ];
+            }
+            return [
+                'ok' => false,
+                'useful' => false,
+                'action' => 'aena',
+                'dispatched' => false,
+                'local_json' => false,
+                'local_error' => substr($error->getMessage(), 0, 300),
+                'requested_at' => $requestedAt,
+                'requested_at_iso' => date('c', $requestedAt),
+                'baseline_aena_unix' => $before['last_aena_unix'] ?? null,
+                'message' => 'No se pudo reconfirmar Aena por JSON ni disparar GitHub: '
+                    . substr($error->getMessage(), 0, 200)
+                    . ($dispatch['error'] !== '' ? ' · ' . $dispatch['error'] : ''),
             ];
         }
-        return [
-            'ok' => true,
-            'useful' => true,
-            'action' => 'aena',
-            'dispatched' => false,
-            'requested_at' => $requestedAt,
-            'requested_at_iso' => date('c', $requestedAt),
-            'baseline_aena_unix' => $before['last_aena_unix'] ?? null,
-            'message' => 'Captura Aena marcada como urgente. El siguiente ciclo de GitHub (máx. 5 min) leerá Infovuelos.'
-                . ($dispatch['error'] !== '' ? ' Disparo inmediato no configurado: ' . $dispatch['error'] : ''),
-        ];
     }
 
     /** @return array{ok:bool,error:string} */

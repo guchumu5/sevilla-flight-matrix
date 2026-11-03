@@ -103,6 +103,8 @@ try {
             'aena' => [
                 'ok' => (bool)($results['aena']['ok'] ?? false),
                 'dispatched' => (bool)($results['aena']['dispatched'] ?? false),
+                'local_json' => (bool)($results['aena']['local_json'] ?? false),
+                'physical_flights' => (int)($results['aena']['physical_flights'] ?? 0),
                 'requested_at' => $results['aena']['requested_at'] ?? null,
                 'baseline_aena_unix' => $results['aena']['baseline_aena_unix'] ?? null,
                 'message' => $results['aena']['message'] ?? null,

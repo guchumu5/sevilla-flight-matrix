@@ -115,8 +115,10 @@ final class FlightFocusService
         $flightAware = $this->queueFlightAwareLookup($flight);
         $openSky = $this->refreshOpenSky($flight);
         $aenaMessage = !empty($aena['ok'])
-            ? (string)($aena['message'] ?? 'Captura Aena pedida.')
-            : ('No se pudo pedir Aena ahora: ' . (string)($aena['error'] ?? 'error'));
+            ? (string)($aena['message'] ?? (!empty($aena['local_json'])
+                ? 'Cinta/sala Aena reconfirmadas por JSON Infovuelos.'
+                : 'Captura Aena pedida.'))
+            : ('No se pudo pedir Aena ahora: ' . (string)($aena['error'] ?? $aena['local_error'] ?? 'error'));
         $message = trim(
             $aenaMessage . ' ' .
             (string)($aircraft['message'] ?? '') . ' ' .
@@ -139,7 +141,9 @@ final class FlightFocusService
             'aena' => $aena,
             'aena_requested_at' => $aena['requested_at'] ?? null,
             'baseline_aena_unix' => $aena['baseline_aena_unix'] ?? null,
-            'aena_message' => $aenaMessage . ' Mientras llega Infovuelos, este vuelo sigue en prioridad 5 min.',
+            'aena_message' => !empty($aena['local_json']) && !empty($aena['ok'])
+                ? $aenaMessage . ' Este vuelo sigue en prioridad 5 min para reconfirmar cinta.'
+                : $aenaMessage . ' Mientras llega Infovuelos, este vuelo sigue en prioridad 5 min.',
             'aircraft' => $aircraft,
             'flightaware' => $flightAware,
             'opensky' => $openSky,

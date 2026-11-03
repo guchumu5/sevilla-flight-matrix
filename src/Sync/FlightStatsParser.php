@@ -73,6 +73,13 @@ final class FlightStatsParser
 
         if ($statusText === '' && $eta === null && $actualDeparture === null) return null;
 
+        $baggage = trim((string)($arrival['baggage'] ?? ''));
+        if ($baggage === '' || !preg_match('/^[A-Za-z0-9]{1,4}$/', $baggage)) {
+            $baggage = null;
+        } else {
+            $baggage = strtoupper($baggage);
+        }
+
         return [
             'iata_carrier' => preg_match('/^[A-Z][A-Z0-9]$/', $carrier) ? $carrier : null,
             'iata_number' => preg_match('/^\d{1,4}[A-Z]?$/', $number) ? $number : null,
@@ -84,6 +91,7 @@ final class FlightStatsParser
             'departure_text' => self::clockLabel($depClock, $depZone, $depTitle === 'actual' ? 'Actual' : null),
             'arrival_text' => self::clockLabel($arrClock, $arrZone, $arrTitle === 'actual' ? 'Actual' : 'Estimated'),
             'phase' => substr(trim((string)($note['phase'] ?? $data['flightState'] ?? '')), 0, 40) ?: null,
+            'belt' => $baggage,
             'public_url' => $publicUrl,
             'canceled' => $canceled,
             'origin_iata' => strtoupper(trim((string)($departure['iata'] ?? $header['departureAirportFS'] ?? ''))),
@@ -167,6 +175,7 @@ final class FlightStatsParser
     {
         $delay = $parsed['delay_minutes'] ?? null;
         if (is_numeric($delay) && (int)$delay !== 0) return false;
+        if (!empty($parsed['belt'])) return false;
         if (!empty($parsed['actual_departure']) || !empty($parsed['actual_arrival']) || !empty($parsed['canceled'])) {
             return false;
         }

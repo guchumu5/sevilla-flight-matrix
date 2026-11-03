@@ -177,8 +177,23 @@ final class FlightStatsIngestService
                     break;
                 }
             }
+            // La cinta Cirium vive en la observación; un cambio de baggage fuerza sync.
+            if ($same && (string)($record['belt'] ?? $normalized['belt'] ?? '') !== '') {
+                $prevBelt = '';
+                if (is_array($previous) && is_string($previous['raw_excerpt'] ?? null)) {
+                    $prevRaw = json_decode((string)$previous['raw_excerpt'], true);
+                    if (is_array($prevRaw)) {
+                        $prevBelt = (string)($prevRaw['belt'] ?? '');
+                    }
+                }
+                if ($prevBelt !== (string)($record['belt'] ?? $normalized['belt'] ?? '')) {
+                    $same = false;
+                }
+            }
             if (!$same) {
-                $insert->execute($normalized);
+                $row = $normalized;
+                unset($row['belt']);
+                $insert->execute($row);
                 $saved++;
                 $observation = $this->observationRecord($flight, $normalized);
                 if ($observation !== null) $records[] = $observation;
@@ -429,6 +444,17 @@ final class FlightStatsIngestService
         }
         $publicUrl = $text('public_url', 300)
             ?: IataFlightCode::trackerUrl($carrier, $number, IataFlightCode::trackerDate((string)$flight['scheduled_arrival']));
+        $belt = $text('belt', 4);
+        $rawExcerpt = $text('raw_excerpt', 8000);
+        if ($rawExcerpt === null && $belt !== null) {
+            $rawExcerpt = json_encode(['belt' => $belt], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        } elseif ($rawExcerpt !== null && $belt !== null) {
+            $decoded = json_decode($rawExcerpt, true);
+            if (is_array($decoded)) {
+                $decoded['belt'] = $belt;
+                $rawExcerpt = json_encode($decoded, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            }
+        }
         return [
             'flight_id' => (int)$flight['id'],
             'observed_at' => $observed->format('Y-m-d H:i:s'),
@@ -443,7 +469,8 @@ final class FlightStatsIngestService
             'departure_text' => $text('departure_text', 80),
             'arrival_text' => $text('arrival_text', 80),
             'phase' => $text('phase', 40),
-            'raw_excerpt' => $text('raw_excerpt', 8000),
+            'belt' => $belt,
+            'raw_excerpt' => $rawExcerpt,
         ];
     }
 
@@ -458,7 +485,11 @@ final class FlightStatsIngestService
         $eta = $snapshot['eta'];
         $departure = $snapshot['actual_departure'];
         $arrival = $snapshot['actual_arrival'];
-        if ($status === null && $eta === null && $departure === null && $arrival === null) return null;
+        $belt = isset($snapshot['belt']) && trim((string)$snapshot['belt']) !== ''
+            ? strtoupper(trim((string)$snapshot['belt'])) : null;
+        if ($status === null && $eta === null && $departure === null && $arrival === null && $belt === null) {
+            return null;
+        }
         return [
             'source_key' => implode('|', [
                 (string)$flight['flight_date'],
@@ -476,14 +507,18 @@ final class FlightStatsIngestService
             'eta' => $eta,
             'actual_departure' => $departure,
             'actual_arrival' => $arrival,
+            'belt' => $belt,
             'confidence' => 'provisional',
             'reason_code' => 'secondary_provider_update',
-            'reason_detail' => 'FlightStats actualizó retraso, despegue o ETA; no sustituye cinta, sala ni estado de Aena.',
+            'reason_detail' => $belt !== null
+                ? 'FlightStats/Cirium publicó cinta provisional ' . $belt . '; no sustituye a Aena, pero obliga a revalidar Infovuelos.'
+                : 'FlightStats actualizó retraso, despegue o ETA; no sustituye cinta, sala ni estado de Aena.',
             'occupancy_level' => 'no_verificable',
             'raw_data' => [
                 'provider' => 'flightstats',
                 'delay_minutes' => $snapshot['delay_minutes'],
                 'phase' => $snapshot['phase'],
+                'belt' => $belt,
                 'public_url' => $snapshot['public_url'],
             ],
         ];

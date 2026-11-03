@@ -47,11 +47,15 @@ try {
     $by = Auth::check() ? 'admin' : 'device';
     $request = $service->requestAenaSweep($by);
     $status = $service->aenaStatus($postFlightId ? (int)$postFlightId : null);
+    $waitHint = 'Sin disparo inmediato: el próximo ciclo de GitHub (máx. 5 min) lee Infovuelos.';
+    if (!empty($request['local_json']) && !empty($request['ok'])) {
+        $waitHint = 'Cinta/sala reconfirmadas ahora mismo vía JSON Infovuelos.';
+    } elseif (!empty($request['dispatched'])) {
+        $waitHint = 'Infovuelos JSON falló en Plesk; captura pedida a GitHub. Suele responder en 1–2 minutos.';
+    }
     Response::json($request + [
         'status' => $status,
-        'wait_hint' => !empty($request['dispatched'])
-            ? 'Infovuelos suele responder en 1–2 minutos. No cierres la pantalla.'
-            : 'Sin disparo inmediato: el próximo ciclo de GitHub (máx. 5 min) lee Infovuelos.',
+        'wait_hint' => $waitHint,
     ]);
 } catch (Throwable $error) {
     Response::json(['error' => $error->getMessage()], 500);

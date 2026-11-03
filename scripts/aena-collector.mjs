@@ -1,17 +1,16 @@
-import { chromium } from 'playwright';
-import { baggageStateFromAenaStatus, statusIndicatesArrival } from './aena-status.mjs';
+import {
+  baggageStateFromAenaStatus,
+  statusIndicatesArrival,
+  statusLabelFromCode,
+} from './aena-status.mjs';
 import { choosePhysicalCode } from './aena-flight-identity.mjs';
 
-const AENA_URL = 'https://www.aena.es/es/infovuelos.html';
+const AENA_JSON_URL = 'https://www.aena.es/sites/Satellite?pagename=AENA_ConsultarVuelos&airport=SVQ&flightType=L&dosDias=si';
 const canonicalAppUrl = value => String(value || '').replace(/^https:\/\/ojito\.top\//i, 'https://www.ojito.top/');
 const INGEST_URL = canonicalAppUrl(process.env.MATRIX_INGEST_URL || 'https://www.ojito.top/public/api/aena-board.php');
 const INGEST_TOKEN = process.env.MATRIX_INGEST_TOKEN || '';
 const TIME_ZONE = 'Europe/Madrid';
-const MAX_VISIBLE_ROWS = 20;
 const MODE = process.env.AENA_MODE === 'week' ? 'week' : 'live';
-const FORM_TIMEOUT = 60000;
-const DATE_TIMEOUT = 15000;
-const RESULT_TIMEOUT = 45000;
 
 if (INGEST_TOKEN.length < 24) {
   throw new Error('Falta MATRIX_INGEST_TOKEN o tiene menos de 24 caracteres.');
@@ -42,332 +41,148 @@ function localDay(offset = 0) {
   return shifted.toISOString().slice(0, 10);
 }
 
-function dayLabel(isoDate) {
-  const [year, month, day] = isoDate.split('-').map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day, 12));
-  const weekday = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: 'UTC' }).format(date);
-  const monthName = new Intl.DateTimeFormat('en-US', { month: 'long', timeZone: 'UTC' }).format(date);
-  const mod100 = day % 100;
-  const suffix = mod100 >= 11 && mod100 <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[day % 10] || 'th');
-  return `Choose ${weekday}, ${monthName} ${day}${suffix}, ${year}`;
+function clean(value) {
+  const text = String(value ?? '').trim();
+  if (!text || text.toLowerCase() === 'null' || text === '-') return null;
+  return text;
 }
 
-function mysqlDateTime(day, time) {
-  return `${day} ${time}:00`;
+function spanishDateToIso(fecha) {
+  const match = String(fecha || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : null;
 }
 
-function minutesToParts(value) {
-  return { hour: Math.floor(value / 60), minute: value % 60 };
+function clock(hora) {
+  const match = String(hora || '').match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
+  return match ? `${match[1]}:${match[2]}` : null;
 }
 
-async function chooseClock(page, side, totalMinutes) {
-  const { hour, minute } = minutesToParts(totalMinutes);
-  const minuteIndex = [0, 15, 30, 45].indexOf(minute);
-  if (minuteIndex < 0) throw new Error(`Minuto no admitido por Aena: ${minute}`);
-  await page.locator(`#horario .${side} .hora`).click();
-  await page.locator(`#horario .${side} .hora li`).nth(hour).click();
-  await page.locator(`#horario .${side} .minuto`).click();
-  await page.locator(`#horario .${side} .minuto li`).nth(minuteIndex).click();
-}
-
-async function selectDay(page, day) {
-  const dateField = page.locator('#fecha');
-  await dateField.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
-  await dateField.click();
-  const buttonName = dayLabel(day);
-  const rangeStart = localDay(0);
-  const [startYear, startMonth, startDay] = rangeStart.split('-');
-  const [year, month, dayOfMonth] = day.split('-');
-  const expected = `${startDay}/${startMonth}/${startYear} - ${dayOfMonth}/${month}/${year}`;
-
-  const clickDay = async () => {
-    // El calendario muestra al final de cada panel varios días del mes vecino.
-    // Se limita la búsqueda al panel real del mes para no pulsar ese duplicado.
-    const monthPanel = page.locator(`[aria-label="month  ${year}-${month}"]`);
-    const dayButton = monthPanel.getByRole('button', { name: buttonName, exact: true });
-    await dayButton.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
-    await dayButton.click();
+function codesFromRow(row) {
+  const number = String(row.numVuelo || '').replace(/\D+/g, '');
+  if (!number) return [];
+  const codes = [];
+  const push = value => {
+    const code = String(value || '').replace(/\s+/g, '').toUpperCase();
+    if (code && !codes.includes(code)) codes.push(code);
   };
-
-  // Infovuelos no permite elegir de forma aislada un día futuro. El calendario
-  // conserva el día actual como inicio y el clic fija el final del intervalo.
-  // Los separadores de fecha del resultado permiten atribuir cada fila a su día.
-  await clickDay();
-  if (day === rangeStart) {
-    // El primer clic deja el final abierto ("hasta(opc)"); el segundo cierra
-    // el intervalo del modo en directo en el mismo día.
-    await dateField.click();
-    await clickDay();
-  }
-
-  try {
-    await page.waitForFunction(value => document.querySelector('#fecha')?.value === value, expected, { timeout: DATE_TIMEOUT });
-  } catch (error) {
-    const selected = await dateField.inputValue().catch(() => 'valor no disponible');
-    throw new Error(`Aena no confirmó la fecha ${day}; el campo mostró "${selected}".`, { cause: error });
-  }
-  console.log(`[aena] Intervalo seleccionado: ${rangeStart} → ${day}`);
-}
-
-async function preparePage(browser, day) {
-  const page = await browser.newPage({ timezoneId: TIME_ZONE });
-  await page.goto(AENA_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
-  // El aviso de cookies añade un botón "Aceptar todas". Se cierra antes de
-  // manejar los selectores de Aena para que no interfiera con sus botones.
-  const acceptCookies = page.getByRole('button', { name: 'Aceptar todas', exact: true }).first();
-  if (await acceptCookies.isVisible().catch(() => false)) {
-    await acceptCookies.click();
-  }
-  const arrivals = page.getByRole('textbox', { name: 'Llegadas en la red Aena:' });
-  await arrivals.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
-  await arrivals.fill('Sevilla');
-  await page.waitForTimeout(700);
-  await selectDay(page, day);
-  return page;
-}
-
-async function setTimeRange(page, start, end = null) {
-  await page.getByRole('textbox', { name: 'Horas:' }).click();
-  await chooseClock(page, 'desde', start);
-  if (end !== null) await chooseClock(page, 'hasta', end);
-  await page.getByRole('button', { name: 'Aceptar', exact: true }).click();
-}
-
-async function executeSearch(page) {
-  const searchButton = page.getByRole('button', { name: 'Buscar', exact: true });
-  await searchButton.waitFor({ state: 'visible', timeout: FORM_TIMEOUT });
-  await page.waitForFunction(() => {
-    const button = [...document.querySelectorAll('button')]
-      .find(element => element.textContent?.trim() === 'Buscar');
-    return button && !button.disabled && button.getAttribute('aria-disabled') !== 'true';
-  }, null, { timeout: FORM_TIMEOUT });
-  await searchButton.click({ timeout: FORM_TIMEOUT });
-  await page.waitForTimeout(900);
-  await page.waitForFunction(() => {
-    const body = document.body.innerText || '';
-    return /vuelos con las caracter.sticas buscadas/i.test(body)
-      || /no se han encontrado/i.test(body)
-      || document.querySelectorAll('.resultados .listado > .fila').length > 0;
-  }, null, { timeout: RESULT_TIMEOUT }).catch(() => null);
-  await page.waitForTimeout(350);
-}
-
-async function readResult(page, day) {
-  return page.evaluate(({ day, maxVisible }) => {
-    const bodyText = document.body.innerText || '';
-    const totalMatch = bodyText.match(/(\d+)\s+vuelos con las caracter.sticas buscadas/i);
-    const total = totalMatch ? Number(totalMatch[1]) : 0;
-    const updatedMatch = bodyText.match(/Actualizado a las\s+(\d{2}:\d{2})/i);
-    const parseDisplayedDay = value => {
-      const match = String(value || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
-      return match ? `${match[3]}-${match[2]}-${match[1]}` : null;
-    };
-    const rows = [];
-    let displayedDay = null;
-    const children = [...document.querySelectorAll('.resultados .listado > *')];
-    for (const node of children) {
-      if (node.matches('.day.separador')) {
-        displayedDay = parseDisplayedDay(node.textContent);
-        continue;
-      }
-      if (!node.matches('.fila')) continue;
-      const text = selector => (node.querySelector(selector)?.textContent || '').replace(/\s+/g, ' ').trim();
-      const times = [...node.querySelectorAll('.hora span')]
-        .map(element => (element.textContent || '').trim())
-        .filter(value => /^\d{2}:\d{2}$/.test(value));
-      const scheduled = times.length ? times[times.length - 1] : null;
-      const effective = times.length > 1 ? times[0] : scheduled;
-      const originText = text('.origen-destino');
-      const originMatch = originText.match(/\(([A-Z]{3})\)\s*$/);
-      const status = text('.estadovuelo');
-      const hallValue = text('.cintamostrador button');
-      const beltValue = text('.puertaembarque span');
-      const code = text('.vuelo').toUpperCase();
-      const airline = text('.comp p') || node.querySelector('.comp img')?.getAttribute('alt') || null;
-      const row = {
-        day: displayedDay || day,
-        code,
-        airline,
-        scheduled,
-        effective,
-        origin_iata: originMatch ? originMatch[1] : null,
-        origin_name: originText.replace(/\s*\([A-Z]{3}\)\s*$/, '').trim(),
-        hall: hallValue && hallValue !== '-' ? hallValue.toUpperCase() : null,
-        belt: beltValue && beltValue !== '-' ? beltValue : null,
-        status: status || null,
-      };
-      if (row.code && row.scheduled && row.origin_iata) rows.push(row);
-    }
-    return { total, truncated: total > maxVisible, updatedLabel: updatedMatch?.[1] || null, rows };
-  }, { day, maxVisible: MAX_VISIBLE_ROWS });
-}
-
-async function expandAllResults(page, day) {
-  let result = await readResult(page, day);
-  let loaded = result.rows.length;
-  let pageNumber = 1;
-  const maximumPages = Math.ceil(Math.max(result.total, 1) / MAX_VISIBLE_ROWS) + 2;
-
-  while (loaded < result.total) {
-    if (pageNumber >= maximumPages) {
-      throw new Error(`Aena anunció ${result.total} filas pero la paginación se detuvo en ${loaded}.`);
-    }
-    const more = page.getByText('Ver más', { exact: true }).first();
-    await more.waitFor({ state: 'visible', timeout: RESULT_TIMEOUT });
-    await more.click({ timeout: RESULT_TIMEOUT });
-    await page.waitForFunction(previous => (
-      document.querySelectorAll('.resultados .listado > .fila').length > previous
-    ), loaded, { timeout: RESULT_TIMEOUT });
-    result = await readResult(page, day);
-    loaded = result.rows.length;
-    pageNumber += 1;
-    if (pageNumber % 10 === 0 || loaded >= result.total) {
-      console.log(`[aena] Paginación: ${loaded}/${result.total} filas cargadas.`);
+  const oaci = clean(row.oaciCompania) || clean(row.compania);
+  const iata = clean(row.iataCompania);
+  if (oaci) push(`${oaci}${number}`);
+  if (iata) push(`${iata}${number}`);
+  for (const field of ['codigosCompania', 'iatasCompaniaSecundarios', 'oacisCompaniaSecundarios']) {
+    const raw = clean(row[field]);
+    if (!raw) continue;
+    for (const token of raw.split(',')) {
+      const part = token.trim().toUpperCase();
+      if (!part || part === 'NULL') continue;
+      if (/^[A-Z0-9]{2,3}\d{1,4}[A-Z]?$/.test(part)) push(part);
+      else if (/^[A-Z]{2,3}$/.test(part)) push(`${part}${number}`);
     }
   }
-
-  if (loaded !== result.total) {
-    throw new Error(`Aena anunció ${result.total} filas pero se leyeron ${loaded}.`);
-  }
-  return result;
+  return codes;
 }
 
-async function queryWindow(page, day, start, end = null) {
-  await setTimeRange(page, start, end);
-  await executeSearch(page);
-  return readResult(page, day);
+function preferPhysical(codes) {
+  const chosen = choosePhysicalCode(codes);
+  if (!chosen) return null;
+  const icao = codes.find(code => /^[A-Z]{3}\d/.test(code));
+  return icao || chosen;
 }
 
-async function collectBounded(page, day, start, end, sink, labels) {
-  const result = await queryWindow(page, day, start, end);
-  if (result.total > MAX_VISIBLE_ROWS && end - start > 15) {
-    const midpoint = start + Math.ceil(((end - start) / 2) / 15) * 15;
-    await collectBounded(page, day, start, midpoint, sink, labels);
-    await collectBounded(page, day, midpoint, end, sink, labels);
-    return;
+async function fetchInfovuelosJson() {
+  const response = await fetch(AENA_JSON_URL, {
+    headers: {
+      Accept: 'application/json,text/plain,*/*',
+      Referer: 'https://www.aena.es/es/infovuelos.html',
+      'User-Agent': 'SevillaFlightMatrix-AenaCollectorJson/2.0',
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Infovuelos JSON HTTP ${response.status}`);
   }
-  if (result.total > MAX_VISIBLE_ROWS) {
-    throw new Error(`Aena devolvió ${result.total} filas en solo 15 minutos; se aborta para no perder vuelos.`);
+  const rows = await response.json();
+  if (!Array.isArray(rows)) {
+    throw new Error('Infovuelos JSON devolvió un formato inesperado.');
   }
-  sink.push(...result.rows);
-  if (result.updatedLabel) labels.add(result.updatedLabel);
-}
-
-async function collectTail(browser, day, start, sink, labels) {
-  let page = await preparePage(browser, day);
-  let result = await queryWindow(page, day, start, null);
-  if (result.total <= MAX_VISIBLE_ROWS) {
-    sink.push(...result.rows);
-    if (result.updatedLabel) labels.add(result.updatedLabel);
-    await page.close();
-    return;
-  }
-  await page.close();
-  const step = result.total > 40 ? 30 : 60;
-  for (let cursor = start; cursor < 24 * 60 - 15; cursor += step) {
-    page = await preparePage(browser, day);
-    const end = Math.min(cursor + step, 23 * 60 + 45);
-    await collectBounded(page, day, cursor, end, sink, labels);
-    await page.close();
-  }
-  page = await preparePage(browser, day);
-  result = await queryWindow(page, day, 23 * 60 + 45, null);
-  if (result.total > MAX_VISIBLE_ROWS) throw new Error('La última ventana Aena supera 20 filas.');
-  sink.push(...result.rows);
-  if (result.updatedLabel) labels.add(result.updatedLabel);
-  await page.close();
-}
-
-async function closeCollectorPages(browser) {
-  const contexts = browser.contexts();
-  await Promise.all(contexts.map(context => context.close().catch(() => null)));
-}
-
-async function collectRangeWithRetry(browser, day, sink, labels, maximumAttempts = 3) {
-  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
-    const dayRows = [];
-    const dayLabels = new Set();
-    console.log(`[aena] Procesando intervalo hasta ${day} · intento ${attempt}/${maximumAttempts}`);
-    try {
-      const page = await preparePage(browser, day);
-      // La hora de Aena se aplica al intervalo cronológico completo, no a cada
-      // día. Se consulta el rango entero y se pagina con el control oficial.
-      await executeSearch(page);
-      const result = await expandAllResults(page, day);
-      dayRows.push(...result.rows);
-      if (result.updatedLabel) dayLabels.add(result.updatedLabel);
-      await page.close();
-      sink.push(...dayRows);
-      dayLabels.forEach(label => labels.add(label));
-      const capturedDays = [...new Set(dayRows.map(row => row.day))].sort();
-      console.log(`[aena] Intervalo hasta ${day} completado · ${dayRows.length} filas · días ${capturedDays.join(', ')}.`);
-      return;
-    } catch (error) {
-      await closeCollectorPages(browser);
-      console.warn(`[aena] El intervalo hasta ${day} falló en el intento ${attempt}: ${error.message}`);
-      if (attempt === maximumAttempts) {
-        throw new Error(`No se pudo completar el intervalo hasta ${day} tras ${maximumAttempts} intentos.`, { cause: error });
-      }
-      await new Promise(resolve => setTimeout(resolve, 15_000 * attempt));
-    }
-  }
+  return rows;
 }
 
 function groupPhysicalFlights(rows, windowFrom) {
   const minimum = windowFrom.slice(0, 16);
   const groups = new Map();
   for (const row of rows) {
-    const scheduledArrival = mysqlDateTime(row.day, row.scheduled);
-    const effectiveArrival = mysqlDateTime(row.day, row.effective);
+    const day = spanishDateToIso(clean(row.fecha));
+    const scheduledClock = clock(clean(row.horaProgramada));
+    const estimatedDay = spanishDateToIso(clean(row.fechaEstimada)) || day;
+    const estimatedClock = clock(clean(row.horaEstimada)) || scheduledClock;
+    const origin = String(clean(row.iataOtro) || '').toUpperCase();
+    if (!day || !scheduledClock || !origin) continue;
+    const scheduledArrival = `${day} ${scheduledClock}:00`;
+    const effectiveArrival = `${estimatedDay} ${estimatedClock}:00`;
     if (scheduledArrival.slice(0, 16) < minimum && effectiveArrival.slice(0, 16) < minimum) continue;
-    const signature = [row.day, row.scheduled, row.effective, row.origin_iata, row.hall || '', row.belt || '', row.status || ''].join('|');
-    if (!groups.has(signature)) groups.set(signature, { ...row, codes: [], airlines: [] });
+
+    const codes = codesFromRow(row);
+    if (!preferPhysical(codes)) continue;
+    const statusCode = String(clean(row.estado) || '').toUpperCase();
+    const status = statusLabelFromCode(statusCode) || statusCode || null;
+    const hall = clean(row.salaPrimera);
+    const belt = clean(row.cintaPrimera);
+    const signature = [day, scheduledClock, estimatedClock, origin, hall || '', belt || '', statusCode].join('|');
+    if (!groups.has(signature)) {
+      groups.set(signature, {
+        day,
+        scheduledArrival,
+        effectiveArrival,
+        origin_iata: origin,
+        origin_name: clean(row.ciudadIataOtro) || origin,
+        hall: hall ? hall.toUpperCase() : null,
+        belt,
+        statusCode,
+        status,
+        codes: [],
+      });
+    }
     const group = groups.get(signature);
-    if (!group.codes.includes(row.code)) group.codes.push(row.code);
-    if (row.airline && !group.airlines.includes(row.airline)) group.airlines.push(row.airline);
+    for (const code of codes) {
+      if (!group.codes.includes(code)) group.codes.push(code);
+    }
   }
 
   const flights = [...groups.values()].map(group => {
-    const physical = choosePhysicalCode(group.codes);
+    const physical = preferPhysical(group.codes);
     const codeshares = group.codes.filter(code => code !== physical);
     const status = group.status || null;
-    // Aena ha mostrado ambas variantes: "Entrega equipaje" y
-    // "Entrega de equipajes". La segunda debe activar igualmente la cinta.
-    const arrived = statusIndicatesArrival(status);
-    const baggageState = baggageStateFromAenaStatus(status);
-    const scheduledArrival = mysqlDateTime(group.day, group.scheduled);
-    const effectiveArrival = mysqlDateTime(group.day, group.effective);
+    const arrived = statusIndicatesArrival(group.statusCode) || statusIndicatesArrival(status);
+    const baggageState = baggageStateFromAenaStatus(group.statusCode || status);
     return {
       source_key: [group.day, physical, group.origin_iata, 'SVQ'].join('|'),
       flight_date: group.day,
       physical_flight: physical,
       origin_iata: group.origin_iata,
-      origin_name: group.origin_name || group.origin_iata,
-      scheduled_arrival: scheduledArrival,
+      origin_name: group.origin_name,
+      scheduled_arrival: group.scheduledArrival,
       codeshares,
       status,
-      eta: !arrived && effectiveArrival !== scheduledArrival ? effectiveArrival : null,
-      actual_arrival: arrived ? effectiveArrival : null,
+      eta: !arrived && group.effectiveArrival !== group.scheduledArrival ? group.effectiveArrival : null,
+      actual_arrival: arrived ? group.effectiveArrival : null,
       hall: group.hall,
       belt: group.belt,
       baggage_state: baggageState,
       occupancy_level: 'no_verificable',
       confidence: 'confirmado',
-      reason_code: 'aena_board_capture',
-      reason_detail: 'Captura automática de Infovuelos; Aena no publicó una causa operativa para este estado.',
+      reason_code: 'aena_infovuelos_json',
+      reason_detail: 'Reconfirmación Infovuelos JSON; Aena publica cinta/sala oficiales.',
       raw_data: {
-        transport: 'github_actions_browser',
+        transport: 'infovuelos_json',
+        status_code: group.statusCode,
         codes: group.codes,
-        airlines: group.airlines,
-        displayed_effective_time: group.effective,
+        cintaPrimera: group.belt,
+        salaPrimera: group.hall,
+        displayed_effective_time: group.effectiveArrival.slice(11, 16),
       },
     };
   });
 
-  // Aena puede programar el mismo número de vuelo, ruta y fecha más de una vez
-  // (por ejemplo RYR2200 VCE-SVQ a las 00:55 y a las 12:50). Solo en esas
-  // colisiones se añade la hora a source_key; las claves normales permanecen
-  // estables y compatibles con el histórico ya guardado.
   const keyCounts = new Map();
   for (const flight of flights) {
     keyCounts.set(flight.source_key, (keyCounts.get(flight.source_key) || 0) + 1);
@@ -386,11 +201,11 @@ async function postCapture(payload) {
   const response = await fetch(INGEST_URL, {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${INGEST_TOKEN}`,
+      Authorization: `Bearer ${INGEST_TOKEN}`,
       'X-Matrix-Token': INGEST_TOKEN,
       'Content-Type': 'application/json',
-      'Accept': 'application/json',
-      'User-Agent': 'SevillaFlightMatrix-AenaCollector/1.0',
+      Accept: 'application/json',
+      'User-Agent': 'SevillaFlightMatrix-AenaCollectorJson/2.0',
     },
     body: JSON.stringify(payload),
   });
@@ -403,34 +218,35 @@ async function postCapture(payload) {
   return body;
 }
 
-const browser = await chromium.launch({ headless: true });
-try {
-  const days = Array.from({ length: MODE === 'week' ? 7 : 1 }, (_, index) => localDay(index));
-  const rows = [];
-  const updatedLabels = new Set();
-  // Aena expresa las fechas futuras como un único intervalo que empieza hoy.
-  // Una sola captura hasta el último día evita repetir y reasignar filas.
-  await collectRangeWithRetry(browser, days[days.length - 1], rows, updatedLabels);
-
-  const now = localNow();
-  const nowDate = new Date();
-  const fromDate = new Date(nowDate.getTime() - 2 * 60 * 60 * 1000);
-  const fromParts = madridParts(fromDate);
-  const windowFrom = `${fromParts.year}-${fromParts.month}-${fromParts.day} ${fromParts.hour}:${fromParts.minute}:00`;
-  const windowTo = `${days[days.length - 1]} 23:59:59`;
-  const requestedDays = new Set(days);
-  const flights = groupPhysicalFlights(rows.filter(row => requestedDays.has(row.day)), windowFrom);
-  if (!flights.length) throw new Error('La captura Aena no produjo vuelos físicos en la ventana viva.');
-
-  const response = await postCapture({
-    collector: `aena-playwright-v1-${MODE}`,
-    observed_at: now,
-    window_from: windowFrom,
-    window_to: windowTo,
-    aena_updated_label: [...updatedLabels].join(', '),
-    flights,
-  });
-  console.log(JSON.stringify({ ok: true, mode: MODE, days, raw_rows: rows.length, physical_flights: flights.length, response }, null, 2));
-} finally {
-  await browser.close();
+const rows = await fetchInfovuelosJson();
+const now = localNow();
+const nowDate = new Date();
+const fromDate = new Date(nowDate.getTime() - 2 * 60 * 60 * 1000);
+const fromParts = madridParts(fromDate);
+const windowFrom = `${fromParts.year}-${fromParts.month}-${fromParts.day} ${fromParts.hour}:${fromParts.minute}:00`;
+const days = Array.from({ length: MODE === 'week' ? 2 : 1 }, (_, index) => localDay(index));
+const windowTo = `${days[days.length - 1]} 23:59:59`;
+const requestedDays = new Set(days);
+const mapped = groupPhysicalFlights(rows, windowFrom);
+const flights = mapped.filter(flight => requestedDays.has(flight.flight_date));
+if (!flights.length) {
+  throw new Error('La captura Aena JSON no produjo vuelos físicos en la ventana viva.');
 }
+
+const response = await postCapture({
+  collector: `aena-json-v2-${MODE}`,
+  observed_at: now,
+  window_from: windowFrom,
+  window_to: windowTo,
+  aena_updated_label: 'infovuelos-json',
+  flights,
+});
+console.log(JSON.stringify({
+  ok: true,
+  mode: MODE,
+  transport: 'infovuelos_json',
+  days,
+  raw_rows: rows.length,
+  physical_flights: flights.length,
+  response,
+}, null, 2));
