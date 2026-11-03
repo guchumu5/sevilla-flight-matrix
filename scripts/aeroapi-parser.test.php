@@ -43,4 +43,27 @@ expectSame(2, AeroApiQuotaService::estimateResultSets(['flights' => array_fill(0
 expectSame(2300, AeroApiQuotaService::DEFAULT_MONTHLY_LIMIT, 'tope duro 2300');
 expectSame('Europe/Madrid', AeroApiQuotaService::TIMEZONE, 'mes en Europe/Madrid');
 
+// Regresión HY093: PDO nativo no reutiliza el mismo named placeholder dos veces.
+foreach ([
+    dirname(__DIR__) . '/src/Sync/AeroApiIngestService.php',
+    dirname(__DIR__) . '/src/Sync/AeroApiQuotaService.php',
+] as $sourcePath) {
+    $source = (string)file_get_contents($sourcePath);
+    if (!preg_match_all("/'(?:\\\\'|[^'])*'|\"(?:\\\\\"|[^\"])*\"/", $source, $stringMatches)) {
+        continue;
+    }
+    foreach ($stringMatches[0] as $literal) {
+        if (!preg_match_all('/(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)/', $literal, $params)) {
+            continue;
+        }
+        $counts = array_count_values($params[1]);
+        foreach ($counts as $name => $times) {
+            if ($times > 1) {
+                fwrite(STDERR, basename($sourcePath) . " reutiliza :{$name} {$times} veces (HY093 con EMULATE_PREPARES=false)\n");
+                exit(1);
+            }
+        }
+    }
+}
+
 fwrite(STDOUT, "aeroapi-parser.test.php OK\n");

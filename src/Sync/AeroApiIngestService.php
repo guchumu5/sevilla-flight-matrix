@@ -294,14 +294,16 @@ final class AeroApiIngestService
         if (in_array($code, $this->canaryFeederCodes(), true)) return true;
         $ts = strtotime((string)($row['scheduled_arrival'] ?? ''));
         if ($ts === false) return false;
+        // PDO nativo (EMULATE_PREPARES=false) no reutiliza el mismo named param dos veces.
+        $when = date('Y-m-d H:i:s', $ts);
         $near = $this->pdo->prepare(
             'SELECT 1 FROM flights
              WHERE is_canary=1
-               AND scheduled_arrival BETWEEN DATE_SUB(:when, INTERVAL 30 MINUTE)
-                                        AND DATE_ADD(:when, INTERVAL 30 MINUTE)
+               AND scheduled_arrival BETWEEN DATE_SUB(:when_from, INTERVAL 30 MINUTE)
+                                        AND DATE_ADD(:when_to, INTERVAL 30 MINUTE)
              LIMIT 1'
         );
-        $near->execute(['when' => date('Y-m-d H:i:s', $ts)]);
+        $near->execute(['when_from' => $when, 'when_to' => $when]);
         return (bool)$near->fetchColumn();
     }
 
@@ -636,11 +638,12 @@ final class AeroApiIngestService
 
     private function markError(int $flightId, string $message): void
     {
+        $error = substr($message, 0, 500);
         $this->pdo->prepare(
             "INSERT INTO aeroapi_requests (flight_id,requested_at,processed_at,request_count,status,last_error)
-             VALUES (:id,NOW(),NOW(),1,'error',:error)
-             ON DUPLICATE KEY UPDATE processed_at=NOW(),status='error',last_error=:error"
-        )->execute(['id' => $flightId, 'error' => substr($message, 0, 500)]);
+             VALUES (:id,NOW(),NOW(),1,'error',:error_ins)
+             ON DUPLICATE KEY UPDATE processed_at=NOW(),status='error',last_error=:error_upd"
+        )->execute(['id' => $flightId, 'error_ins' => $error, 'error_upd' => $error]);
     }
 
     /** @return array<string,mixed>|null */

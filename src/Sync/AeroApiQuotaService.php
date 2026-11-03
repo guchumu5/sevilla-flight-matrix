@@ -136,17 +136,20 @@ final class AeroApiQuotaService
         if (!$this->ready()) return $this->status();
 
         $month = $this->monthKey();
+        // Named params distintos: PDO nativo no permite reutilizar :sets/:calls en UPDATE.
         $this->pdo->prepare(
             'INSERT INTO aeroapi_usage (month_key,result_sets,http_calls,last_call_at)
-             VALUES (:month,:sets,:calls,NOW())
+             VALUES (:month,:sets_ins,:calls_ins,NOW())
              ON DUPLICATE KEY UPDATE
-               result_sets=result_sets+:sets,
-               http_calls=http_calls+:calls,
+               result_sets=result_sets+:sets_upd,
+               http_calls=http_calls+:calls_upd,
                last_call_at=NOW()'
         )->execute([
             'month' => $month,
-            'sets' => $resultSets,
-            'calls' => $httpCalls,
+            'sets_ins' => $resultSets,
+            'calls_ins' => $httpCalls,
+            'sets_upd' => $resultSets,
+            'calls_upd' => $httpCalls,
         ]);
         return $this->status();
     }
