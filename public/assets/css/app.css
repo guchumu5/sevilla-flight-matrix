@@ -476,6 +476,19 @@ body {
 .belt-important { display:block; max-width:250px; margin-top:.28rem; color:#ff8d98; font-size:.64rem; font-weight:850; white-space:normal; }
 .belt.red { background:#3b1720; color:#ff9ca5; border-color:#76303a; }
 .secondary-belt { display:flex; align-items:center; gap:.3rem; width:max-content; max-width:180px; margin-top:.35rem; color:var(--muted); font-size:.68rem; line-height:1.2; white-space:normal; }
+.secondary-belt-flightaware { max-width:240px; color:#ffd47d; font-weight:750; font-size:.72rem; }
+.secondary-belt-flightaware.secondary-belt-candidate { color:#ffb347; }
+.canary-proposal-fa { color:#ffb347; font-weight:700; }
+.force-aero-status { display:block; margin-top:.35rem; color:var(--muted); font-size:.72rem; max-width:16rem; }
+.aeroapi-snapshot { border-color:rgba(255,181,71,.35); box-shadow:0 0 0 1px rgba(255,181,71,.08); }
+.aeroapi-belt-diverge { border-color:rgba(255,90,90,.55); }
+.aeroapi-belt-hero { display:grid; gap:.2rem; margin:0 0 .85rem; padding:.75rem .9rem; border-radius:10px; background:rgba(255,181,71,.1); border:1px solid rgba(255,181,71,.28); }
+.aeroapi-belt-diverge .aeroapi-belt-hero { background:rgba(255,90,90,.12); border-color:rgba(255,90,90,.35); }
+.aeroapi-belt-hero small { color:var(--muted); text-transform:uppercase; letter-spacing:.04em; font-size:.65rem; }
+.aeroapi-belt-hero strong { font-size:1.45rem; line-height:1.1; color:#ffd47d; }
+.aeroapi-belt-diverge .aeroapi-belt-hero strong { color:#ff8f8f; }
+.aeroapi-belt-hero span { color:var(--muted); font-size:.78rem; }
+.secondary-belt-proposal-fa { border-color:rgba(255,181,71,.4); }
 .secondary-dot { flex:0 0 auto; width:7px; height:7px; border-radius:50%; background:#708399; }
 .secondary-belt-candidate { color:#ffd47d; font-weight:750; }
 .secondary-belt-candidate .secondary-dot { background:var(--orange); box-shadow:0 0 0 3px rgba(255,181,71,.14); }

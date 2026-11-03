@@ -248,7 +248,12 @@ LEFT JOIN observations latest_secondary_belt ON latest_secondary_belt.id = (
     SELECT o.id FROM observations o
     WHERE o.flight_id = f.id AND o.source <> 'aena'
       AND o.belt IS NOT NULL AND o.belt <> ''
-    ORDER BY o.observed_at DESC, o.id DESC
+    ORDER BY CASE o.source
+               WHEN 'aeroapi' THEN 0
+               WHEN 'flightstats' THEN 1
+               WHEN 'airlabs' THEN 2
+               ELSE 3 END,
+             o.observed_at DESC, o.id DESC
     LIMIT 1
 )
 LEFT JOIN (
@@ -812,8 +817,12 @@ SQL;
                 continue;
             }
             if (($row['secondary_belt_state'] ?? null) === 'candidate' && !empty($row['secondary_belt'])) {
-                $source = strtoupper((string)($row['secondary_belt_source'] ?? 'API'));
-                $row['belt_attention'] = 'important';
+                $sourceRaw = strtolower((string)($row['secondary_belt_source'] ?? ''));
+                $source = $sourceRaw === 'aeroapi'
+                    ? 'FlightAware AeroAPI'
+                    : strtoupper((string)($row['secondary_belt_source'] ?? 'API'));
+                // AeroAPI ≠ Aena: crítico. Otras APIs (p.ej. AirLabs) quedan en importante.
+                $row['belt_attention'] = $sourceRaw === 'aeroapi' ? 'critical' : 'important';
                 $row['belt_attention_reason'] = $source . ' propone cinta '
                     . trim((string)(($row['secondary_hall'] ?? '') !== '' ? $row['secondary_hall'] . '/' : '') . $row['secondary_belt'])
                     . ' distinta de Aena: revalidar Infovuelos ahora.';

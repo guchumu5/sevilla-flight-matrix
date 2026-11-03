@@ -119,7 +119,7 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
       <div class="col-6 col-md-1">
         <div class="form-check form-switch filter-switch">
           <input class="form-check-input" type="checkbox" role="switch" id="secondaryOnly">
-          <label class="form-check-label" for="secondaryOnly">Cintas API</label>
+          <label class="form-check-label" for="secondaryOnly">Cintas FlightAware</label>
         </div>
       </div>
       <div class="col-12 col-md-3 text-md-end d-flex gap-2 justify-content-md-end">
@@ -139,10 +139,10 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
   <section class="panel watch-dock mb-3 d-none" id="trackedFocusPanel" aria-labelledby="trackedFocusTitle">
     <header class="panel-header watch-dock-header">
       <div>
-        <small class="tracked-focus-kicker">Vigilados</small>
-        <h2 class="h6 mb-0" id="trackedFocusTitle">Vuelos en seguimiento</h2>
+        <small class="tracked-focus-kicker">Vigilados · campana</small>
+        <h2 class="h6 mb-0" id="trackedFocusTitle">Vuelos vigilados</h2>
       </div>
-      <p class="watch-dock-hint mb-0">Toca uno para abrir el historial</p>
+      <p class="watch-dock-hint mb-0">Solo con «Vigilar». Abrir ficha no vigila.</p>
     </header>
     <div class="watch-dock-list" id="trackedFocusBody"></div>
   </section>
@@ -151,10 +151,12 @@ $focusCsrf = $focusAdmin ? Auth::csrf() : '';
     <header class="panel-header canary-watch-header">
       <div class="canary-watch-copy">
         <h2 class="h6 mb-1" id="canaryWatchTitle">Canarias · semana</h2>
-        <p class="mb-0 text-secondary small">Toca un vuelo para abrir su historial. Filtra por origen o noche. FlightStats avisa el retraso aunque Aena siga en hora.</p>
+        <p class="mb-0 text-secondary small">Toca un vuelo para abrir el historial (no lo vigila). Solo la campana «Vigilar» activa avisos. FlightAware AeroAPI propone cinta desde ~1 h antes del despegue estimado.</p>
       </div>
       <div class="canary-watch-tools">
+        <button class="btn btn-sm btn-outline-info" id="forceCanariasAeroApi" type="button" title="Consulta AeroAPI Canarias + reconfirma Aena. No marca vigilados.">⚡ Forzar Canarias</button>
         <button class="btn btn-sm btn-outline-warning" id="enableNotifications" type="button">🔔 Activar avisos Canarias</button>
+        <small id="forceCanariasStatus" class="force-aero-status" aria-live="polite"></small>
       </div>
     </header>
     <nav class="canary-week" id="canaryWeek" aria-label="Días de la semana con vuelos canarios"></nav>

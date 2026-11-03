@@ -241,9 +241,19 @@
     if (item?.belt) return item.hall ? `${esc(item.hall)}/${esc(item.belt)}` : `cinta ${esc(item.belt)} · sala no informada`;
     return item?.hall ? `${esc(item.hall)}/cinta pendiente` : 'sin cinta';
   };
+  const secondaryBeltSourceLabel = source => {
+    const raw = String(source || '').toLowerCase();
+    if (raw === 'aeroapi') return 'FlightAware';
+    if (raw === 'airlabs') return 'AirLabs';
+    if (raw === 'flightstats') return 'FlightStats';
+    return String(source || 'API').toUpperCase();
+  };
   const secondaryBeltMarkup = flight => {
     if (!flight.secondary_belt || !flight.secondary_belt_state) return '';
-    const source = esc((flight.secondary_belt_source || 'secundaria').toUpperCase());
+    // Con AeroAPI como propuesta seria, no enseñamos AirLabs de cinta (ruido).
+    if (String(flight.secondary_belt_source || '').toLowerCase() === 'airlabs') return '';
+    const isFa = String(flight.secondary_belt_source || '').toLowerCase() === 'aeroapi';
+    const source = esc(secondaryBeltSourceLabel(flight.secondary_belt_source));
     const position = beltPosition({hall:flight.secondary_hall,belt:flight.secondary_belt});
     const labels = {
       candidate: `propuesta posterior · ${dateTime(flight.secondary_belt_at)}`,
@@ -251,10 +261,13 @@
       not_confirmed: 'Aena actualizó después sin confirmarla'
     };
     const candidateNote = flight.secondary_belt_state === 'candidate'
-      ? ' · revalidar Aena'
+      ? (isFa ? ' · crítica · revalidar Aena' : ' · revalidar Aena')
       : '';
-    return `<span class="secondary-belt secondary-belt-${esc(flight.secondary_belt_state)}" title="${esc(labels[flight.secondary_belt_state] || '')}">
-      <span class="secondary-dot" aria-hidden="true"></span>${source}: ${position}${candidateNote}
+    const klass = isFa
+      ? `secondary-belt secondary-belt-flightaware secondary-belt-${esc(flight.secondary_belt_state)}`
+      : `secondary-belt secondary-belt-${esc(flight.secondary_belt_state)}`;
+    return `<span class="${klass}" title="${esc(labels[flight.secondary_belt_state] || '')}">
+      <span class="secondary-dot" aria-hidden="true"></span>${isFa ? '✈ ' : ''}${source}: ${position}${candidateNote}
     </span>`;
   };
   const aircraftSilhouette = flight => `<svg class="aircraft-silhouette" viewBox="0 0 180 90" role="img" aria-label="Silueta de ${esc(flight.aircraft_type || 'aeronave')}">
@@ -753,6 +766,7 @@
       ${laterNightMarkup(flight)}
       ${hideActions ? '' : `<div class="focus-hero-actions">
         <button class="btn btn-info w-100" type="button" data-focus-refresh="${Number(flight.id)}" ${meta.disabled?'disabled':''}>↻ ${esc(meta.label)}</button>
+        <button class="btn btn-outline-warning w-100" type="button" data-force-aero-cloud="${Number(flight.id)}" title="No marca vigilado">⚡ Forzar FA + nube ±1h</button>
         ${allowExpand ? `<button class="btn btn-outline-light w-100" type="button" data-open-flight="${Number(flight.id)}">Ampliar vuelo</button>` : ''}
       </div>`}
       ${watchUpdateScheduleMarkup(flight)}
@@ -2224,7 +2238,7 @@
     });
   }
   function openFlightFromEvent(event) {
-    if (event.target.closest('[data-watch-flight], [data-flightaware-link], [data-canary-date], [data-canary-filter], [data-canary-origin], [data-night-date], [data-night-origin], [data-night-sort], [data-red-list-toggle], [data-focus-refresh], .btn-close, .detail-close, .detail-close-bar')) {
+    if (event.target.closest('[data-watch-flight], [data-flightaware-link], [data-canary-date], [data-canary-filter], [data-canary-origin], [data-night-date], [data-night-origin], [data-night-sort], [data-red-list-toggle], [data-focus-refresh], [data-force-aero-cloud], [data-force-canarias], .btn-close, .detail-close, .detail-close-bar')) {
       return false;
     }
     const opener = event.target.closest('[data-open-flight], [data-flight-id]');
@@ -2244,7 +2258,8 @@
   // Vuelo fijado + vigilados, ordenados por hora de llegada. Los vigilados de
   // otros días se muestran con sus datos básicos y un acceso a su día.
   function trackedEntries() {
-    const ids = [...new Set([state.pinnedFlightId, ...state.watchedFlightIds].map(Number).filter(Boolean))];
+    // Solo vigilados explícitos (campana). Abrir ficha / forzar / pin local NO entra aquí.
+    const ids = [...new Set(state.watchedFlightIds.map(Number).filter(Boolean))];
     return ids.map(id => {
       const flight = state.flights.find(item => Number(item.id) === id) || null;
       const brief = state.watchedFlightsBrief.find(item => Number(item.id) === id) || null;
@@ -2252,7 +2267,7 @@
       const source = flight || brief;
       return {
         id, flight, brief,
-        watched: flightIsWatched(id),
+        watched: true,
         date: flight ? els.date.value : (operationalDateOf(brief.scheduled_arrival) || brief.flight_date),
         arrival: parseDate(flight ? effectiveArrival(flight) : brief.scheduled_arrival)?.getTime() || 0,
         label: source.physical_flight, origin: source.origin_name
@@ -2310,8 +2325,8 @@
     }
     if (els.trackedFocusTitle) {
       els.trackedFocusTitle.textContent = entries.length === 1
-        ? '1 vuelo en seguimiento'
-        : `${entries.length} vuelos en seguimiento`;
+        ? '1 vuelo vigilado (campana)'
+        : `${entries.length} vuelos vigilados (campana)`;
     }
     els.trackedFocusPanel.classList.remove('d-none');
     els.trackedFocusBody.innerHTML = entries.map(watchChipMarkup).join('');
@@ -2547,7 +2562,7 @@
       </div>
       ${beltOccupancyMarkup(f)}
       ${f.belt_attention ? `<div class="canary-important"><b>IMPORTANTE</b><span>${esc(f.belt_attention_reason)}</span></div>` : ''}
-      ${f.secondary_belt_state === 'candidate' ? `<small class="canary-proposal">● ${esc((f.secondary_belt_source||'API').toUpperCase())}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}</small>` : ''}
+      ${f.secondary_belt_state === 'candidate' && String(f.secondary_belt_source||'').toLowerCase() !== 'airlabs' ? `<small class="canary-proposal ${String(f.secondary_belt_source||'').toLowerCase()==='aeroapi'?'canary-proposal-fa':''}">● ${esc(secondaryBeltSourceLabel(f.secondary_belt_source))}: ${beltPosition({hall:f.secondary_hall,belt:f.secondary_belt})}${String(f.secondary_belt_source||'').toLowerCase()==='aeroapi'?' · crítica':''}</small>` : ''}
       ${laterNightMarkup(f)}
       <div class="canary-card-actions">
         <button class="canary-quick-watch ${watched?'active':''}" type="button" data-watch-flight="${Number(f.id)}" data-watch-compact="1" data-watching="${watched?'1':'0'}" aria-pressed="${watched?'true':'false'}"><span aria-hidden="true">${watched?'🔔':'🔕'}</span> ${watched?'Vigilando':'Vigilar'}</button>
@@ -3537,24 +3552,34 @@
     </section>`;
   }
 
-  function aeroApiSnapshotMarkup(snapshot, quota) {
+  function aeroApiSnapshotMarkup(snapshot, quota, flight = null) {
     if (!snapshot && !quota) return '';
     if (!snapshot) {
       const msg = quota?.exhausted
         ? (quota.message || 'Cuota AeroAPI agotada este mes.')
-        : (quota?.message || 'AeroAPI sin lectura todavía.');
-      return `<section class="telemetry-card aeroapi-snapshot mb-4">
-        <header><div><strong>FlightAware AeroAPI</strong><span class="badge text-bg-secondary">secundario</span></div></header>
+        : (quota?.message || 'AeroAPI sin lectura todavía. Usa «Forzar FA + nube» para gastar cuota a conciencia (no vigila).');
+      return `<section class="telemetry-card aeroapi-snapshot aeroapi-snapshot-empty mb-4">
+        <header><div><strong>FlightAware AeroAPI · cinta propuesta</strong><span class="badge text-bg-secondary">prioridad cuota</span></div></header>
         <p class="mb-0 text-secondary">${esc(msg)}</p>
       </section>`;
     }
     const delay = Number(snapshot.delay_minutes);
     const delayLabel = Number.isFinite(delay) ? `${delay > 0 ? '+' : ''}${delay} min` : '—';
+    const aenaBelt = flight?.source === 'aena' && flight?.belt ? String(flight.belt) : '';
+    const aeroBelt = snapshot.belt ? String(snapshot.belt) : '';
+    const diverges = Boolean(aeroBelt && (!aenaBelt || aenaBelt !== aeroBelt));
     const quotaLine = quota
       ? `Cuota ${quota.used ?? '—'}/${quota.limit ?? 2300} result sets · quedan ${quota.remaining ?? '—'} (${quota.month_key || 'mes'}, Europe/Madrid).`
       : 'API de pago; no sustituye cinta ni sala de Aena.';
-    return `<section class="telemetry-card aeroapi-snapshot mb-4">
-      <header><div><strong>FlightAware AeroAPI</strong><span class="badge text-bg-success">API</span></div><time>${dateTime(snapshot.observed_at)}</time></header>
+    return `<section class="telemetry-card aeroapi-snapshot ${diverges?'aeroapi-belt-diverge':''} mb-4">
+      <header><div><strong>FlightAware AeroAPI · cinta propuesta</strong><span class="badge ${diverges?'text-bg-danger':'text-bg-success'}">${diverges?'≠ Aena':'API'}</span></div><time>${dateTime(snapshot.observed_at)}</time></header>
+      <div class="aeroapi-belt-hero">
+        <small>Cinta propuesta FlightAware</small>
+        <strong>${esc(aeroBelt || 'sin cinta aún')}</strong>
+        <span>${diverges
+          ? `Aena tiene ${esc(aenaBelt || 'sin cinta')} · atención crítica · se fuerza Infovuelos`
+          : (aenaBelt ? `Coincide con Aena ${esc(aenaBelt)}` : 'Aena aún no confirma; oficial sigue siendo Aena')}</span>
+      </div>
       <p>${esc(snapshot.status_text || 'Sin estado')}</p>
       <div class="telemetry-values">
         <div><small>Retraso</small><strong>${esc(delayLabel)}</strong></div>
@@ -3562,11 +3587,11 @@
         <div><small>Salida real</small><strong>${time(snapshot.actual_departure)}</strong></div>
         <div><small>Llegada real</small><strong>${time(snapshot.actual_arrival)}</strong></div>
         <div><small>Matrícula</small><strong>${esc(snapshot.registration || '—')}</strong></div>
-        <div><small>Puerta / cinta prop.</small><strong>${esc([snapshot.gate, snapshot.belt].filter(Boolean).join(' · ') || '—')}</strong></div>
+        <div><small>Puerta</small><strong>${esc(snapshot.gate || '—')}</strong></div>
         <div><small>Ident</small><strong>${esc(snapshot.ident_icao || snapshot.ident_iata || '—')}</strong></div>
         <div><small>Fase</small><strong>${esc(snapshot.phase || '—')}</strong></div>
       </div>
-      <small class="telemetry-note">${esc(quotaLine)} Si la cinta propuesta diverge de Aena, se fuerza Infovuelos; la oficial sigue siendo Aena.</small>
+      <small class="telemetry-note">${esc(quotaLine)} Vigilancia de cinta desde 1 h antes del despegue estimado (el estimado se mueve con el retraso).</small>
     </section>`;
   }
 
@@ -3739,10 +3764,11 @@
     const official = flight.source === 'aena' && flight.belt
       ? beltPosition(flight)
       : null;
-    const secondaryProposal = flight.secondary_belt_state === 'candidate' && flight.secondary_belt
-      ? `<aside class="observed-context secondary-belt-proposal">
-          <strong>Propuesta API — no es cambio oficial</strong>
-          <span>${esc((flight.secondary_belt_source || 'secundaria').toUpperCase())} indica ${beltPosition({hall:flight.secondary_hall,belt:flight.secondary_belt})}${
+    const secSrc = String(flight.secondary_belt_source || '').toLowerCase();
+    const secondaryProposal = flight.secondary_belt_state === 'candidate' && flight.secondary_belt && secSrc !== 'airlabs'
+      ? `<aside class="observed-context secondary-belt-proposal ${secSrc==='aeroapi'?'secondary-belt-proposal-fa':''}">
+          <strong>${secSrc==='aeroapi'?'FlightAware AeroAPI · cinta propuesta (crítica)':'Propuesta API'} — no es cambio oficial</strong>
+          <span>${esc(secondaryBeltSourceLabel(flight.secondary_belt_source))} indica ${beltPosition({hall:flight.secondary_hall,belt:flight.secondary_belt})}${
             official ? ` · Aena mantiene ${official}` : ' · Aena aún no confirma cinta'
           }</span>
         </aside>`
@@ -3793,6 +3819,130 @@
     });
   }
 
+  function bindForceAeroButtons(root = document) {
+    root.querySelectorAll('[data-force-aero-cloud]').forEach(button => {
+      if (button.dataset.bound === '1') return;
+      button.dataset.bound = '1';
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        forceAeroFlightCloud(button.dataset.forceAeroCloud, button).catch(error => window.alert(error.message));
+      });
+    });
+    root.querySelectorAll('[data-force-canarias]').forEach(button => {
+      if (button.dataset.bound === '1') return;
+      button.dataset.bound = '1';
+      button.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        forceCanariasAeroApi(button).catch(error => window.alert(error.message));
+      });
+    });
+  }
+
+  /** Forzado AeroAPI: NO crea flight_watches. Solo la campana vigila. */
+  async function forceAeroAuthorizedBody(extra = {}) {
+    const csrf = appMain?.dataset.focusCsrf || '';
+    const deviceToken = localStorage.getItem('matrix.pushDevice') || '';
+    if (!csrf && !deviceToken) {
+      throw new Error('Activa las notificaciones de este dispositivo o inicia sesión en Aena / Admin.');
+    }
+    return {csrf, device_token: deviceToken, ...extra};
+  }
+
+  async function forceAeroFlightCloud(flightId, button) {
+    const body = await forceAeroAuthorizedBody({mode: 'flight_cloud', flight_id: Number(flightId)});
+    const status = button?.closest('[data-focus-surface], #detailQuickBar, #flightDetail')
+      ?.querySelector('[data-focus-refresh-status]')
+      || document.querySelector('#flightDetail [data-focus-refresh-status]');
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Forzando…';
+    }
+    if (status) status.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>AeroAPI + nube ±1 h + Aena (sin vigilar)…';
+    try {
+      const response = await fetch('api/aeroapi-force.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) throw new Error(data.error || data.message || 'No se pudo forzar.');
+      if (data.flight_data) {
+        state.flights = state.flights.map(f => Number(f.id) === Number(flightId) ? data.flight_data : f);
+      }
+      let wait = {ok: false, status: null};
+      if (data.aena?.local_json && data.aena?.ok) {
+        wait = {ok: true, status: data.aena.status || null, local_json: true};
+      } else if (data.aena?.ok) {
+        wait = await waitForAenaCapture({
+          baseline: Number(data.aena?.baseline_aena_unix || 0),
+          flightId,
+          onProgress: label => {
+            if (status) status.innerHTML = `<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>${esc(label)}`;
+            if (button) button.textContent = label;
+          }
+        });
+      }
+      await loadBoard(true);
+      const belt = wait.status?.aena_belt ? ` · cinta Aena ${wait.status.aena_belt}` : '';
+      const note = `${data.message || 'Forzado OK'}${belt}. No se ha marcado como vigilado.`;
+      state.focusNotice = note;
+      if (Number(state.detailFlightId) === Number(flightId)) await openDetail(flightId);
+      if (status) {
+        status.className = 'focus-refresh-status';
+        status.textContent = note;
+      }
+      if (button) {
+        button.disabled = false;
+        button.textContent = wait.ok ? `FA+Aena ✓${belt}` : '⚡ Forzar FA + nube ±1h';
+      }
+    } catch (error) {
+      if (status) {
+        status.className = 'focus-refresh-status text-danger';
+        status.textContent = error.message || 'Falló el forzado.';
+      }
+      if (button) {
+        button.disabled = false;
+        button.textContent = '⚡ Forzar FA + nube ±1h';
+      }
+      throw error;
+    }
+  }
+
+  async function forceCanariasAeroApi(button) {
+    const body = await forceAeroAuthorizedBody({mode: 'canarias', limit: 12});
+    const status = document.querySelector('#forceCanariasStatus');
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Forzando Canarias…';
+    }
+    if (status) status.textContent = 'AeroAPI Canarias + Aena (sin marcar vigilados)…';
+    try {
+      const response = await fetch('api/aeroapi-force.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify(body)
+      });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) throw new Error(data.error || data.message || 'No se pudo forzar Canarias.');
+      await loadBoard(true);
+      const note = data.message || 'Canarias forzada.';
+      if (status) status.textContent = note;
+      if (button) {
+        button.disabled = false;
+        button.textContent = '⚡ Forzar Canarias';
+      }
+    } catch (error) {
+      if (status) status.textContent = error.message || 'Falló el forzado Canarias.';
+      if (button) {
+        button.disabled = false;
+        button.textContent = '⚡ Forzar Canarias';
+      }
+      throw error;
+    }
+  }
+
   function refreshFocusLiveSections(flight) {
     if (!flight || Number(state.detailFlightId) !== Number(flight.id)) return;
     const hero = els.detailBody.querySelector('[data-focus-hero]');
@@ -3805,6 +3955,7 @@
     if (telemetry) telemetry.innerHTML = telemetrySummary(flight, true);
     renderDetailQuickBar(flight);
     bindFocusRefreshButtons(els.detailBody);
+    bindForceAeroButtons(els.detailBody);
   }
 
   async function refreshFocusedFlight(id, button) {
@@ -3851,13 +4002,14 @@
       }
       await loadBoard(true);
       const aircraftMessage = data.aircraft?.message || '';
+      const aeroApiMessage = data.aeroapi?.message || '';
       const flightAwareMessage = data.flightaware?.message || '';
       const openSkyMessage = data.opensky?.message || 'Telemetría sin cambios.';
       const belt = wait.status?.aena_belt ? ` Cinta Aena ${wait.status.aena_belt}.` : '';
       const aenaBit = wait.ok
         ? `Aena actualizado.${belt}`
         : (data.aena_message || 'Aena pedida; Infovuelos aún no ha respondido.');
-      state.focusNotice = `${aenaBit} ${aircraftMessage} ${flightAwareMessage} ${openSkyMessage}`.trim();
+      state.focusNotice = `${aenaBit} ${aeroApiMessage} ${aircraftMessage} ${flightAwareMessage} ${openSkyMessage}`.trim();
       if (openedFromDetail) {
         await openDetail(id);
       } else {
@@ -3887,9 +4039,11 @@
     els.detailQuickBar.innerHTML = `
       <button class="btn ${watched?'btn-warning':'btn-outline-warning'}" type="button" data-watch-flight="${Number(flight.id)}" data-watching="${watched?'1':'0'}">${watched?'🔔 Vigilado · quitar':'🔔 Vigilar este vuelo'}</button>
       <button class="btn btn-info" type="button" data-focus-refresh="${Number(flight.id)}" ${meta.disabled?'disabled':''}>↻ ${esc(meta.label)}</button>
+      <button class="btn btn-outline-warning" type="button" data-force-aero-cloud="${Number(flight.id)}" title="AeroAPI de este vuelo + nube ±1 h y Aena. No lo marca como vigilado.">⚡ Forzar FA + nube ±1h</button>
       <small class="focus-refresh-status" data-focus-refresh-status></small>`;
     bindWatchButtons(els.detailQuickBar);
     bindFocusRefreshButtons(els.detailQuickBar);
+    bindForceAeroButtons(els.detailQuickBar);
   }
 
   async function openDetail(id) {
@@ -3957,12 +4111,14 @@
         </aside>
         <div class="tracked-focus-belts" data-focus-window>${focusWindowMarkup(flight)}</div>
       </div>`
-        + summary + watchSupport + beltIntelligence(flight)
-        + `<div data-aeroapi-snapshot>${aeroApiSnapshotMarkup(aeroSnap, aeroQuota)}</div>`
+        + summary + watchSupport
+        + `<div data-aeroapi-snapshot>${aeroApiSnapshotMarkup(aeroSnap, aeroQuota, flight)}</div>`
+        + beltIntelligence(flight)
         + `<div data-flightaware-snapshot>${flightAwareSnapshotMarkup(payload.flightaware)}</div>`
         + `<div data-flightstats-snapshot>${flightStatsSnapshotMarkup(payload.flightstats || flight.flightstats)}</div>`
         + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;
       bindFocusRefreshButtons(document.querySelector('#flightDetail'));
+      bindForceAeroButtons(document.querySelector('#flightDetail'));
       bindWatchButtons(document.querySelector('#flightDetail'));
       renderWatchButton(id);
       requestFlightAwareSnapshot(id, payload.flightaware?.observed_at || null);
@@ -4164,6 +4320,11 @@
   }
   els.syncNow?.addEventListener('click', () => { forceBoardSync().catch(error => window.alert(error.message)); });
   els.mobileSyncNow?.addEventListener('click', () => { forceBoardSync().catch(error => window.alert(error.message)); });
+  document.querySelector('#forceCanariasAeroApi')?.addEventListener('click', event => {
+    event.preventDefault();
+    forceCanariasAeroApi(event.currentTarget).catch(error => window.alert(error.message));
+  });
+  bindForceAeroButtons(document);
   els.now.addEventListener('click', () => {
     if (els.arrivalsCollapse && !els.arrivalsCollapse.classList.contains('show')) {
       bootstrap.Collapse.getOrCreateInstance(els.arrivalsCollapse).show();

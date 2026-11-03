@@ -32,6 +32,7 @@ $normalized = AeroApiParser::normalize($picked, '2026-11-02 23:45:00');
 expectSame(20, $normalized['delay_minutes'] ?? null, 'arrival_delay 1200 s → 20 min');
 expectSame('2026-11-03 01:05:00', $normalized['eta'] ?? null, 'estimated_in UTC → Europe/Madrid');
 expectSame('2026-11-02 21:55:00', $normalized['actual_departure'] ?? null, 'actual_out local');
+expectSame(true, !empty($normalized['estimated_departure']) || isset($normalized['estimated_departure']), 'estimated_departure presente (null o string)');
 expectSame('2', $normalized['belt'] ?? null, 'baggage_claim → cinta provisional');
 expectSame('B7', $normalized['gate'] ?? null, 'gate_destination');
 expectSame('EC-NTU', $normalized['registration'] ?? null, 'matrícula');

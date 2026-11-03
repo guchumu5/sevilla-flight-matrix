@@ -92,14 +92,14 @@ final class AeroApiParser
             ?: self::utcToLocal($flight['actual_on'] ?? null);
         $actualDeparture = self::utcToLocal($flight['actual_out'] ?? null)
             ?: self::utcToLocal($flight['actual_off'] ?? null);
+        $estimatedDeparture = self::utcToLocal($flight['estimated_out'] ?? null)
+            ?: self::utcToLocal($flight['estimated_off'] ?? null);
 
-        $delaySeconds = null;
-        foreach (['arrival_delay', 'departure_delay'] as $key) {
-            if (isset($flight[$key]) && is_numeric($flight[$key])) {
-                $delaySeconds = (int)$flight[$key];
-                break;
-            }
-        }
+        $departureDelaySeconds = isset($flight['departure_delay']) && is_numeric($flight['departure_delay'])
+            ? (int)$flight['departure_delay'] : null;
+        $arrivalDelaySeconds = isset($flight['arrival_delay']) && is_numeric($flight['arrival_delay'])
+            ? (int)$flight['arrival_delay'] : null;
+        $delaySeconds = $arrivalDelaySeconds ?? $departureDelaySeconds;
         $delayMinutes = $delaySeconds !== null
             ? (int)round($delaySeconds / 60)
             : null;
@@ -108,6 +108,21 @@ final class AeroApiParser
             $right = strtotime($eta);
             if ($left !== false && $right !== false) {
                 $delayMinutes = (int)round(($right - $left) / 60);
+            }
+        }
+        // Si AeroAPI no publica estimated_out, el estimado de despegue se mueve
+        // con el retraso (preferir departure_delay; si no, el de llegada).
+        if ($estimatedDeparture === null && $scheduledArrival) {
+            $scheduledOut = self::utcToLocal($flight['scheduled_out'] ?? null)
+                ?: self::utcToLocal($flight['scheduled_off'] ?? null);
+            if ($scheduledOut !== null) {
+                $slip = $departureDelaySeconds !== null
+                    ? (int)round($departureDelaySeconds / 60)
+                    : ($delayMinutes ?? 0);
+                $base = strtotime($scheduledOut);
+                if ($base !== false) {
+                    $estimatedDeparture = date('Y-m-d H:i:s', $base + $slip * 60);
+                }
             }
         }
 
@@ -125,6 +140,7 @@ final class AeroApiParser
             'status_text' => $status !== '' ? substr($status, 0, 160) : null,
             'delay_minutes' => $delayMinutes !== null ? max(-24 * 60, min(24 * 60, $delayMinutes)) : null,
             'eta' => $eta,
+            'estimated_departure' => $estimatedDeparture,
             'actual_departure' => $actualDeparture,
             'actual_arrival' => $actualArrival,
             'gate' => $gate,

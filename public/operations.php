@@ -58,10 +58,11 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-light w-100 operation-button" data-action="weather">Actualizar tiempo</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-info w-100 operation-button" data-action="flightstats">Actualizar FlightStats</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-warning w-100 operation-button" data-action="aeroapi">Actualizar AeroAPI</button></div>
+      <div class="col-sm-6 col-xl"><button class="btn btn-warning w-100" type="button" id="forceCanariasOps">⚡ Forzar Canarias</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-warning w-100 operation-button" data-action="push">🔔 Despachar avisos</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-success w-100 operation-button" data-action="all">Actualizar fuentes</button></div>
     </div>
-    <p class="small text-secondary mt-3 mb-0">«Actualizar Aena» reconfirma cinta por JSON Infovuelos (o pide GitHub Actions si falla). Aena prevalece en estado, sala y cinta. <strong>AeroAPI</strong> solo gasta cuota en vigilados → Canarias noche → Canarias → feeder → nube ±30 min, con tope duro <code>AEROAPI_MONTHLY_LIMIT</code> (2300 result sets/mes, Europe/Madrid). AirLabs es provisional; OpenSky telemetría; AviationWeather el METAR. «Despachar avisos» prueba la cola del cron.</p>
+    <p class="small text-secondary mt-3 mb-0">«Actualizar Aena» reconfirma cinta por JSON Infovuelos (o pide GitHub Actions si falla). Aena prevalece en estado, sala y cinta. <strong>AeroAPI</strong> solo gasta cuota en vigilados (campana) → Canarias noche / fase cinta T−60 despegue estimado → Canarias → feeder → nube ±60 min, tope duro <code>AEROAPI_MONTHLY_LIMIT</code> (2300 result sets/mes, Europe/Madrid). «Forzar Canarias» gasta cuota a conciencia y no marca vigilados. AirLabs ya no propone cinta si hay AeroAPI; OpenSky telemetría; AviationWeather el METAR.</p>
   </section>
 
   <section class="panel p-3 p-md-4 mb-4">
@@ -213,6 +214,28 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
   document.querySelector('#importJson').addEventListener('click', importJson);
 
   document.querySelectorAll('.operation-button').forEach(button => button.addEventListener('click', () => run(button)));
+  document.querySelector('#forceCanariasOps')?.addEventListener('click', async buttonEvent => {
+    const button = buttonEvent.currentTarget;
+    const original = button.textContent;
+    button.disabled = true;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Forzando Canarias';
+    try {
+      const response = await fetch('api/aeroapi-force.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+        body: JSON.stringify({mode: 'canarias', limit: 12, csrf})
+      });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) throw new Error(data.error || data.message || 'No se pudo forzar Canarias.');
+      showAlert((data.message || 'Canarias forzada.') + ' (sin marcar vigilados)', true, data);
+      await loadStatus();
+    } catch (error) {
+      showAlert(error.message, false);
+    } finally {
+      button.disabled = false;
+      button.textContent = original;
+    }
+  });
   document.querySelector('#refreshStatus').addEventListener('click', loadStatus);
   loadStatus();
 })();

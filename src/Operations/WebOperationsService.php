@@ -626,9 +626,9 @@ final class WebOperationsService
                     'eta' => $this->providerDate($data['arr_estimated'] ?? $data['arr_estimated_utc'] ?? null),
                     'actual_departure' => $this->providerDate($data['dep_actual'] ?? $data['dep_actual_utc'] ?? null),
                     'actual_arrival' => $this->providerDate($data['arr_actual'] ?? $data['arr_actual_utc'] ?? null),
-                    // belt/hall se guardan solo como propuesta secundaria; no generan eventos de cambio.
+                    // Si ya hay cinta AeroAPI, no ensuciamos con propuesta AirLabs de cinta.
                     'hall' => $this->nullable($data['arr_terminal'] ?? null),
-                    'belt' => $this->nullable($data['arr_baggage'] ?? null),
+                    'belt' => $this->airlabsBeltIfUseful((int)$flight['id'], $this->nullable($data['arr_baggage'] ?? null)),
                     'gate' => $this->nullable($data['arr_gate'] ?? null),
                     'baggage_state' => null,
                     'occupancy_level' => 'no_verificable',
@@ -1084,6 +1084,25 @@ final class WebOperationsService
             $finish->execute(['error_message' => $message, 'id' => $runId]);
             throw $error;
         }
+    }
+
+    /** Omite cinta AirLabs si AeroAPI ya publicó una para ese vuelo. */
+    private function airlabsBeltIfUseful(int $flightId, ?string $belt): ?string
+    {
+        if ($belt === null || $flightId < 1) return $belt;
+        try {
+            $stmt = $this->pdo->prepare(
+                "SELECT 1 FROM observations
+                 WHERE flight_id=:id AND source='aeroapi'
+                   AND belt IS NOT NULL AND belt<>''
+                   AND observed_at>=DATE_SUB(NOW(),INTERVAL 12 HOUR)
+                 LIMIT 1"
+            );
+            $stmt->execute(['id' => $flightId]);
+            if ($stmt->fetchColumn()) return null;
+        } catch (Throwable) {
+        }
+        return $belt;
     }
 
     /** @return list<string> */
