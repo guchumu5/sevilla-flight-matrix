@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/src/bootstrap.php';
 
+use SevillaMatrix\BeltDualSource;
 use SevillaMatrix\IataFlightCode;
 use SevillaMatrix\Sync\AeroApiParser;
 use SevillaMatrix\Sync\AeroApiQuotaService;
@@ -45,17 +46,33 @@ expectSame(2300, AeroApiQuotaService::DEFAULT_MONTHLY_LIMIT, 'tope duro 2300');
 expectSame('Europe/Madrid', AeroApiQuotaService::TIMEZONE, 'mes en Europe/Madrid');
 
 // Ritmo alto: proyección lineal > tope → warning (sin auto-bajar cadencia).
-$quotaProbe = new class extends AeroApiQuotaService {
-    public function __construct() {}
-    public function ready(): bool { return false; }
-};
 $midMonth = new DateTimeImmutable('2026-11-15 12:00:00', new DateTimeZone('Europe/Madrid'));
-$paceHot = (new ReflectionClass(AeroApiQuotaService::class))
-    ->newInstanceWithoutConstructor()
-    ->paceAnalysis(1400, 2300, 900, $midMonth);
+$paceHot = (new class extends AeroApiQuotaService {
+    public function __construct()
+    {
+    }
+})->paceAnalysis(1400, 2300, 900, $midMonth);
 expectSame(true, $paceHot['warning'], 'ritmo alto a mitad de mes con proyección por encima');
 expectSame(true, is_string($paceHot['message']) && str_contains($paceHot['message'], 'Ritmo alto'), 'mensaje ritmo alto en español');
 expectSame(true, str_contains((string)$paceHot['message'], 'Hay que bajar cadencia'), 'pide bajar cadencia sin auto-reducir');
+
+// Ground truth bug 02/11: VLG3190 Aena cinta 7 vs FA distinta → diverge + atención crítica.
+$dualBug = BeltDualSource::evaluate([
+    'source' => 'aena',
+    'belt' => '7',
+    'hall' => 'A',
+    'aena_belt' => '7',
+    'aena_hall' => 'A',
+    'aeroapi' => ['belt' => '2'],
+    'belt_changes' => 1,
+]);
+expectSame(BeltDualSource::STATUS_DIVERGE, $dualBug['status'], 'cinta 7 Aena ≠ 2 FA = diverge');
+expectSame('critical', $dualBug['attention'], 'aviso crítico sin esperar acuerdo');
+expectSame(true, $dualBug['needs_manual_review'], 'análisis manual obligatorio');
+$dualOk = BeltDualSource::evaluate([
+    'source' => 'aena', 'aena_belt' => '7', 'aena_hall' => 'A', 'aeroapi' => ['belt' => '7'],
+]);
+expectSame(BeltDualSource::STATUS_CONFIRMED, $dualOk['status'], 'Aena+FA cinta 7 confirmada');
 
 // Regresión HY093: PDO nativo no reutiliza el mismo named placeholder dos veces.
 foreach ([

@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "captured_at": "2026-11-02 22:33:00",
+    "timezone": "Europe/Madrid",
+    "source": "Infovuelos app screenshot (usuario)",
+    "airport": "SVQ",
+    "flight": "VLG3190 / IBE5662",
+    "origin": "LPA Gran Canaria",
+    "scheduled": "23:35",
+    "estimated_or_actual_display": "23:18",
+    "status": "Entrega Equip.",
+    "belt_aena_real": "7",
+    "hall_terminal": "Terminal 1",
+    "image": "storage/evidence/aena-infovuelos-vlg3190-cinta7-2026-11-02-2233.png",
+    "bug": "Nuestro sistema no detectó el cambio a cinta 7; evidencia previa mostraba SCH futuros con otras cintas.",
+    "aeroapi_spent": 0,
+    "note": "Ground truth operativo: Aena publicó cinta 7 en entrega. Debe generar belt_changed / alerta / push a vigilados."
+  },
+  "expected_detection": {
+    "aena_belt": "7",
+    "must_notify_on_change_from_previous": true,
+    "must_alert_if_aeroapi_differs": true,
+    "dual_source": "Aena Infovuelos JSON + FlightAware baggage_claim"
+  }
+}

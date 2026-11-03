@@ -24,7 +24,7 @@ try {
     if ($method === 'GET' || $method === 'HEAD') {
         $download = basename(trim((string)($_GET['download'] ?? $_GET['file'] ?? '')));
         if ($download !== '') {
-            if (!preg_match('/^aena-[A-Za-z0-9._-]+\.(json|html|jpg|jpeg|png)$/', $download)) {
+            if (!preg_match('/^(?:aena-|ground-truth-)[A-Za-z0-9._-]+\.(json|html|jpg|jpeg|png)$/', $download)) {
                 Response::json(['error' => 'Nombre de evidencia no válido.'], 422);
             }
             $absolute = dirname(__DIR__, 2) . '/storage/evidence/' . $download;

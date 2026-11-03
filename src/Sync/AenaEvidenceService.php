@@ -135,20 +135,49 @@ final class AenaEvidenceService
                 $jpg = $dir . '/aena-svq-canarias-cintas.jpg';
                 if (is_file($jpg)) $compare = $this->publicRelative($jpg);
             }
+            $image = null;
+            if (!empty($meta['image'])) {
+                $image = (string)$meta['image'];
+            } elseif ($base === 'aena-svq-canarias-2026-11-03.json') {
+                $image = $this->publicRelative($dir . '/aena-svq-canarias-cintas.jpg');
+            } elseif ($base === 'ground-truth-vlg3190-cinta7-2026-11-02.json'
+                || str_contains($base, 'dual-')) {
+                $gt = $dir . '/aena-infovuelos-vlg3190-cinta7-2026-11-02-2233.png';
+                if (is_file($gt)) $image = $this->publicRelative($gt);
+            }
+            $html = preg_replace('/\.json$/', '.html', $file);
+            if (is_string($html) && is_file($html) && $compare === null) {
+                $compare = $this->publicRelative($html);
+            }
             $out[] = [
                 'id' => $base,
                 'path' => $this->publicRelative($file),
                 'compare_path' => $compare,
                 'captured_at' => $captured,
                 'size_bytes' => filesize($file) ?: 0,
-                'canarias_rows' => (int)($meta['canarias_rows'] ?? 0),
+                'canarias_rows' => (int)($meta['canarias_rows'] ?? $meta['raw_rows'] ?? 0),
                 'aeroapi_spent' => (int)($meta['aeroapi_spent'] ?? 0),
-                'note' => (string)($meta['note'] ?? 'Evidencia Aena Infovuelos'),
-                'image' => $base === 'aena-svq-canarias-2026-11-03.json'
-                    ? $this->publicRelative($dir . '/aena-svq-canarias-cintas.jpg')
-                    : null,
+                'note' => (string)($meta['note'] ?? $meta['reason'] ?? 'Evidencia Aena Infovuelos'),
+                'image' => $image,
+                'superseded' => !empty($meta['superseded']),
             ];
             if (count($out) >= $limit) break;
+        }
+        // Ground truth del bug cinta 7 (si no entró por glob aena-*).
+        $gtJson = $dir . '/ground-truth-vlg3190-cinta7-2026-11-02.json';
+        if (is_file($gtJson) && count($out) < $limit) {
+            array_unshift($out, [
+                'id' => 'ground-truth-vlg3190-cinta7-2026-11-02.json',
+                'path' => $this->publicRelative($gtJson),
+                'compare_path' => null,
+                'captured_at' => '2026-11-02 22:33:00',
+                'size_bytes' => filesize($gtJson) ?: 0,
+                'canarias_rows' => 1,
+                'aeroapi_spent' => 0,
+                'note' => 'GROUND TRUTH: VLG3190 Entrega Equip. · Cinta 7 (app Infovuelos).',
+                'image' => $this->publicRelative($dir . '/aena-infovuelos-vlg3190-cinta7-2026-11-02-2233.png'),
+                'superseded' => false,
+            ]);
         }
         return $out;
     }
