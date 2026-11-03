@@ -372,7 +372,14 @@ En Plesk, crea tareas de tipo **Ejecutar un comando**. Para la instalación de
 7 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-airlabs.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
 */5 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-opensky.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
 */10 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-weather.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
+*/5 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-aeroapi.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
+*/5 * * * * /opt/plesk/php/8.3/bin/php /var/www/vhosts/ojito.top/httpdocs/bin/poll-flightstats.php >> /var/www/vhosts/ojito.top/httpdocs/storage/logs/cron.log 2>&1
 ```
+
+FlightAware AeroAPI (clave `FLIGHTAWARE_API_KEY` o `AEROAPI_KEY`) solo consulta idents
+concretos de vigilados/Canarias/feeder/nube y para al llegar a
+`AEROAPI_MONTHLY_LIMIT` (2300 result sets/mes, Europe/Madrid). Sin clave o sin
+cuota, Aena y el resto siguen igual. Aplica la actualización MySQL **015**.
 
 Los nombres `sync-week.php`, `sync-near.php` y `sync-live.php` no pertenecen a
 esta versión y no deben añadirse como tareas. `bin/sync-json.php` sí forma parte

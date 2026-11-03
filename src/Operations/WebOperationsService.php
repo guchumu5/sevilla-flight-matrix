@@ -10,13 +10,15 @@ use SevillaMatrix\Api\AviationWeatherClient;
 use SevillaMatrix\Api\OpenSkyClient;
 use SevillaMatrix\Env;
 use SevillaMatrix\Notifications\WebPushService;
+use SevillaMatrix\Sync\AeroApiIngestService;
+use SevillaMatrix\Sync\AeroApiQuotaService;
 use SevillaMatrix\Sync\FlightReconciliationService;
 use SevillaMatrix\Sync\FlightStatsIngestService;
 use Throwable;
 
 final class WebOperationsService
 {
-    private const ACTIONS = ['aena', 'airlabs', 'airlabs_watched', 'opensky', 'weather', 'flightstats', 'push', 'all'];
+    private const ACTIONS = ['aena', 'airlabs', 'airlabs_watched', 'opensky', 'weather', 'flightstats', 'aeroapi', 'push', 'all'];
 
     public function __construct(private readonly PDO $pdo)
     {
@@ -70,7 +72,9 @@ final class WebOperationsService
                 'airlabs_keys' => count($this->airLabsKeys()),
                 'opensky' => $this->configured('OPENSKY_CLIENT_ID') && $this->configured('OPENSKY_CLIENT_SECRET'),
                 'aviationweather' => true,
+                'aeroapi' => (new AeroApiIngestService($this->pdo))->configured(),
             ],
+
             'storage' => [
                 'cache_writable' => is_dir(PROJECT_ROOT . '/storage/cache') && is_writable(PROJECT_ROOT . '/storage/cache'),
                 'logs_writable' => is_dir(PROJECT_ROOT . '/storage/logs') && is_writable(PROJECT_ROOT . '/storage/logs'),
@@ -123,6 +127,13 @@ final class WebOperationsService
                 'configured' => true,
                 'cadence_minutes' => 5,
                 'stale_minutes' => 20,
+                'request_factor' => 1,
+            ],
+            'aeroapi' => [
+                'label' => 'FlightAware AeroAPI',
+                'configured' => (new AeroApiIngestService($this->pdo))->configured(),
+                'cadence_minutes' => $this->envMinutes('AEROAPI_CADENCE_MINUTES', 5),
+                'stale_minutes' => $this->envMinutes('AEROAPI_STALE_MINUTES', 20),
                 'request_factor' => 1,
             ],
         ];
@@ -250,6 +261,8 @@ final class WebOperationsService
                 ),
                 'opensky' => sprintf('%d intentos locales este mes. El saldo exacto solo llega en la respuesta de OpenSky.', $attemptsMonth),
                 'aena' => sprintf('%d capturas recibidas este mes.', $attemptsMonth),
+                'aeroapi' => (string)((new AeroApiIngestService($this->pdo))->quota()->status()['message']
+                    ?? sprintf('%d consultas registradas este mes.', $attemptsMonth)),
                 default => sprintf('%d consultas registradas este mes.', $attemptsMonth),
             };
 
@@ -308,6 +321,7 @@ final class WebOperationsService
             'opensky' => $this->recordFetch('opensky', fn(): array => $this->withLock('opensky', fn(): array => $this->openSky($this->clamp($limit, 1, 25)))),
             'weather' => $this->recordFetch('aviationweather', fn(): array => $this->withLock('weather', fn(): array => $this->weather())),
             'flightstats' => $this->recordFetch('flightstats', fn(): array => $this->withLock('flightstats', fn(): array => $this->flightStats($this->clamp($limit, 1, 12)))),
+            'aeroapi' => $this->recordFetch('aeroapi', fn(): array => $this->withLock('aeroapi', fn(): array => $this->aeroApi($this->clamp($limit, 1, 12)))),
             'push' => $this->dispatchPush(),
             'all' => $this->runAll($this->clamp($limit, 1, 10)),
         };
@@ -910,6 +924,48 @@ final class WebOperationsService
             'saved' => (int)($result['saved'] ?? 0),
             'unchanged' => (int)($result['unchanged'] ?? 0),
             'errors' => $errors,
+            'push' => $result['push'] ?? null,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function aeroApi(int $limit): array
+    {
+        $service = new AeroApiIngestService($this->pdo);
+        $result = $service->captureDue($limit, true);
+        $received = (int)($result['saved'] ?? 0) + (int)($result['unchanged'] ?? 0);
+        $errors = is_array($result['errors'] ?? null) ? $result['errors'] : [];
+        $configured = !empty($result['configured']);
+        $quota = is_array($result['quota'] ?? null) ? $result['quota'] : $service->quota()->status();
+        $message = (string)($result['message'] ?? '');
+        if ($message === '' && $configured) {
+            $message = sprintf(
+                'AeroAPI leyó %d vuelos prioritarios (%d nuevos, %d iguales)%s. Cuota %d/%d result sets (Europe/Madrid).',
+                $received,
+                (int)($result['saved'] ?? 0),
+                (int)($result['unchanged'] ?? 0),
+                !empty($result['aena_forced']) ? '; cinta divergente → Aena forzada' : '',
+                (int)($quota['used'] ?? 0),
+                (int)($quota['limit'] ?? AeroApiQuotaService::DEFAULT_MONTHLY_LIMIT)
+            );
+        } elseif ($message === '') {
+            $message = 'AeroAPI no configurada: define FLIGHTAWARE_API_KEY en .env.';
+        }
+        return [
+            'ok' => true,
+            'action' => 'aeroapi',
+            'configured' => $configured,
+            'useful' => (int)($result['saved'] ?? 0) > 0,
+            'message' => $message,
+            'requested' => (int)($result['requested'] ?? 0),
+            'received' => $received,
+            'saved' => (int)($result['saved'] ?? 0),
+            'unchanged' => (int)($result['unchanged'] ?? 0),
+            'errors' => $errors,
+            'aena_forced' => !empty($result['aena_forced']),
+            'aena' => $result['aena'] ?? null,
+            'stopped_for_quota' => !empty($result['stopped_for_quota']),
+            'quota' => $quota,
             'push' => $result['push'] ?? null,
         ];
     }

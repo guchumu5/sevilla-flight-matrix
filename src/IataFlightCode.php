@@ -35,6 +35,33 @@ final class IataFlightCode
         'WZZ' => 'W6',
     ];
 
+    /** IATA → ICAO preferido para AeroAPI (ident_type=designator). */
+    private const IATA_TO_ICAO = [
+        'UX' => 'AEA',
+        'AF' => 'AFR',
+        'YW' => 'ANE',
+        'BA' => 'BAW',
+        'DE' => 'CFG',
+        'LH' => 'DLH',
+        'EI' => 'EIN',
+        'E4' => 'ENT',
+        'EW' => 'EWG',
+        'U2' => 'EZY',
+        'IB' => 'IBE',
+        'D8' => 'IBK',
+        'I2' => 'IBS',
+        'KL' => 'KLM',
+        'DY' => 'NAX',
+        'FR' => 'RYR',
+        'LX' => 'SWR',
+        'TP' => 'TAP',
+        'HV' => 'TRA',
+        'TO' => 'TVF',
+        'VY' => 'VLG',
+        'V7' => 'VOE',
+        'W6' => 'WZZ',
+    ];
+
     /**
      * @param list<string> $aliases
      * @return array{carrier:string,number:string,code:string}|null
@@ -126,5 +153,29 @@ final class IataFlightCode
         if ($n > 1) $out[] = (string)($n - 1) . $suffix;
         $out[] = (string)($n + 1) . $suffix;
         return $out;
+    }
+
+    /**
+     * Identificadores AeroAPI: ICAO preferido (VLG3190) e IATA (VY3190).
+     *
+     * @param list<string> $aliases
+     * @return array{carrier:string,number:string,iata:string,icao:?string}|null
+     */
+    public static function aeroIdents(string $physical, array $aliases = []): ?array
+    {
+        $split = self::split($physical, $aliases);
+        if ($split === null) return null;
+        $icaoCarrier = self::IATA_TO_ICAO[$split['carrier']] ?? null;
+        // Si el físico ya venía en ICAO, conserva ese operador.
+        $raw = strtoupper((string)preg_replace('/\s+/', '', $physical));
+        if (preg_match('/^([A-Z]{3})(\d{1,4}[A-Z]?)$/', $raw, $match) && isset(self::ICAO_TO_IATA[$match[1]])) {
+            $icaoCarrier = $match[1];
+        }
+        return [
+            'carrier' => $split['carrier'],
+            'number' => $split['number'],
+            'iata' => $split['code'],
+            'icao' => $icaoCarrier !== null ? $icaoCarrier . $split['number'] : null,
+        ];
     }
 }

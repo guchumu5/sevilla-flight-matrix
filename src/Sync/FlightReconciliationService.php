@@ -14,7 +14,7 @@ use Throwable;
 
 final class FlightReconciliationService
 {
-    private const OBSERVATION_SOURCES = ['aena', 'airlabs', 'opensky', 'manual', 'aviationweather', 'flightstats'];
+    private const OBSERVATION_SOURCES = ['aena', 'airlabs', 'opensky', 'manual', 'aviationweather', 'flightstats', 'aeroapi'];
     private bool $createMissing = true;
     private const MODES = ['full_window', 'delta', 'manual'];
     private const CONFIDENCE = ['confirmado', 'probable', 'provisional'];
@@ -241,10 +241,14 @@ final class FlightReconciliationService
                 $this->promotePhysicalCode($flightId, $flight, $record, $runId, $provider, $counts);
                 $flight = $this->flightById($flightId);
             }
-            if ($provider !== 'flightstats'
+            if (!in_array($provider, ['flightstats', 'aeroapi'], true)
                 && $this->updateCoreFields($flightId, $flight, $record, $runId, $provider, $counts)) {
                 $counts['flights_updated']++;
                 $flight = $this->flightById($flightId);
+            }
+            if ($provider === 'aeroapi' && !empty($record['aircraft_registration'])) {
+                $this->rememberSecondaryAircraft($flightId, $flight, $record);
+                $flight = $this->flightById($flightId) ?? $flight;
             }
         }
 
@@ -331,7 +335,7 @@ final class FlightReconciliationService
     private function detectOperationalEvents(int $flightId, int $runId, string $provider, array $previous, array $current, array $record, array &$counts): void
     {
         // Cinta, sala y equipaje solo son operativos cuando los publica Aena.
-        // AirLabs/FlightStats pueden guardar belt/hall en observaciones como propuesta,
+        // AirLabs/FlightStats/AeroAPI pueden guardar belt/hall en observaciones como propuesta,
         // pero no generan belt_changed ni avisos de cambio de cinta.
         $aenaOnlyFields = ['hall', 'belt', 'baggage_state'];
         foreach (self::OPERATIONAL_FIELDS as $field) {
@@ -807,5 +811,22 @@ final class FlightReconciliationService
     private function truncate(string $value, int $length): string
     {
         return function_exists('mb_substr') ? mb_substr($value, 0, $length) : substr($value, 0, $length);
+    }
+
+    /** @param array<string,mixed> $flight @param array<string,mixed> $record */
+    private function rememberSecondaryAircraft(int $flightId, array $flight, array $record): void
+    {
+        $tail = strtoupper(trim((string)($record['aircraft_registration'] ?? '')));
+        if (!preg_match('/^[A-Z0-9-]{3,15}$/', $tail)) return;
+        $current = strtoupper(trim((string)($flight['aircraft_registration'] ?? '')));
+        if ($current === $tail) return;
+        $type = trim((string)($record['aircraft_type'] ?? ''));
+        try {
+            $this->pdo->prepare(
+                'UPDATE flights SET aircraft_registration=:tail,
+                   aircraft_type=COALESCE(aircraft_type,NULLIF(:type,\'\')) WHERE id=:id'
+            )->execute(['tail' => $tail, 'type' => $type, 'id' => $flightId]);
+        } catch (Throwable) {
+        }
     }
 }

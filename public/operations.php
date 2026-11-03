@@ -57,10 +57,11 @@ if (!Auth::check()) { header('Location: login.php'); exit; }
       <div class="col-sm-6 col-xl"><button class="btn btn-info w-100 operation-button" data-action="opensky">Actualizar OpenSky</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-light w-100 operation-button" data-action="weather">Actualizar tiempo</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-info w-100 operation-button" data-action="flightstats">Actualizar FlightStats</button></div>
+      <div class="col-sm-6 col-xl"><button class="btn btn-outline-warning w-100 operation-button" data-action="aeroapi">Actualizar AeroAPI</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-warning w-100 operation-button" data-action="push">🔔 Despachar avisos</button></div>
       <div class="col-sm-6 col-xl"><button class="btn btn-outline-success w-100 operation-button" data-action="all">Actualizar fuentes</button></div>
     </div>
-    <p class="small text-secondary mt-3 mb-0">«Actualizar Aena» no corre Infovuelos dentro de Plesk: pide el barrido de GitHub Actions (Chromium). Si hay <code>GITHUB_DISPATCH_TOKEN</code> en <code>.env</code>, se lanza al momento; si no, el siguiente ciclo (máx. 5 min) lo ejecuta aunque la última captura sea reciente. Aena prevalece en estado, sala y cinta. AirLabs entra como fuente provisional; OpenSky solo añade telemetría y AviationWeather el METAR. «Despachar avisos» prueba desde la web la misma cola que ejecuta el cron.</p>
+    <p class="small text-secondary mt-3 mb-0">«Actualizar Aena» reconfirma cinta por JSON Infovuelos (o pide GitHub Actions si falla). Aena prevalece en estado, sala y cinta. <strong>AeroAPI</strong> solo gasta cuota en vigilados → Canarias noche → Canarias → feeder → nube ±30 min, con tope duro <code>AEROAPI_MONTHLY_LIMIT</code> (2300 result sets/mes, Europe/Madrid). AirLabs es provisional; OpenSky telemetría; AviationWeather el METAR. «Despachar avisos» prueba la cola del cron.</p>
   </section>
 
   <section class="panel p-3 p-md-4 mb-4">

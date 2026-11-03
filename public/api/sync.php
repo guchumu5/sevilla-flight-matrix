@@ -66,6 +66,12 @@ try {
             $results['airlabs'] = ['ok' => false, 'error' => $error->getMessage()];
         }
     }
+    // FlightAware AeroAPI (pago): Canarias + vigilados cuando hay clave.
+    try {
+        $results['aeroapi'] = $service->run('aeroapi', 8);
+    } catch (Throwable $error) {
+        $results['aeroapi'] = ['ok' => false, 'error' => $error->getMessage()];
+    }
 
     $ok = count(array_filter($results, static fn(array $item): bool => ($item['ok'] ?? false) === true)) > 0;
     $parts = [];
@@ -78,6 +84,11 @@ try {
         $parts[] = (string)$results['airlabs']['message'];
     } elseif (!empty($results['airlabs']['error'])) {
         $parts[] = 'AirLabs: ' . $results['airlabs']['error'];
+    }
+    if (!empty($results['aeroapi']['message'])) {
+        $parts[] = (string)$results['aeroapi']['message'];
+    } elseif (!empty($results['aeroapi']['error'])) {
+        $parts[] = 'AeroAPI: ' . $results['aeroapi']['error'];
     }
     $message = $parts !== []
         ? implode(' ', $parts)
@@ -112,6 +123,12 @@ try {
             'airlabs' => [
                 'ok' => (bool)($results['airlabs']['ok'] ?? false),
                 'received' => (int)($results['airlabs']['received'] ?? 0),
+            ],
+            'aeroapi' => [
+                'ok' => (bool)($results['aeroapi']['ok'] ?? false),
+                'configured' => (bool)($results['aeroapi']['configured'] ?? false),
+                'saved' => (int)($results['aeroapi']['saved'] ?? 0),
+                'message' => $results['aeroapi']['message'] ?? null,
             ],
         ],
     ]);

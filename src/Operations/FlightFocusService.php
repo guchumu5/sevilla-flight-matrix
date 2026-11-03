@@ -8,6 +8,8 @@ use RuntimeException;
 use SevillaMatrix\Api\AirLabsClient;
 use SevillaMatrix\Api\OpenSkyClient;
 use SevillaMatrix\Env;
+use SevillaMatrix\Sync\AeroApiIngestService;
+use SevillaMatrix\Sync\FlightStatsIngestService;
 use Throwable;
 
 final class FlightFocusService
@@ -113,6 +115,8 @@ final class FlightFocusService
             $flight['aircraft_type'] = $aircraft['aircraft_type'] ?? $flight['aircraft_type'];
         }
         $flightAware = $this->queueFlightAwareLookup($flight);
+        $aeroApi = $this->refreshAeroApi((int)$flight['id']);
+        $flightStats = $this->refreshFlightStats((int)$flight['id']);
         $openSky = $this->refreshOpenSky($flight);
         $aenaMessage = !empty($aena['ok'])
             ? (string)($aena['message'] ?? (!empty($aena['local_json'])
@@ -122,6 +126,8 @@ final class FlightFocusService
         $message = trim(
             $aenaMessage . ' ' .
             (string)($aircraft['message'] ?? '') . ' ' .
+            (string)($aeroApi['message'] ?? '') . ' ' .
+            (string)($flightStats['message'] ?? '') . ' ' .
             (string)($flightAware['message'] ?? '') . ' ' .
             (string)($openSky['message'] ?? 'Seguimiento focalizado activado.')
         );
@@ -145,10 +151,96 @@ final class FlightFocusService
                 ? $aenaMessage . ' Este vuelo sigue en prioridad 5 min para reconfirmar cinta.'
                 : $aenaMessage . ' Mientras llega Infovuelos, este vuelo sigue en prioridad 5 min.',
             'aircraft' => $aircraft,
+            'aeroapi' => $aeroApi,
+            'flightstats' => $flightStats,
             'flightaware' => $flightAware,
             'opensky' => $openSky,
             'focus' => $this->status($flightId),
         ];
+    }
+
+    /** @return array<string,mixed> */
+    private function refreshAeroApi(int $flightId): array
+    {
+        $service = new AeroApiIngestService($this->pdo);
+        $quota = $service->quota()->status();
+        if (!$service->configured()) {
+            return [
+                'ok' => true,
+                'configured' => false,
+                'quota' => $quota,
+                'message' => 'AeroAPI sin clave: se sigue con Aena y fuentes secundarias.',
+            ];
+        }
+        if (!$service->ready()) {
+            return [
+                'ok' => false,
+                'configured' => true,
+                'quota' => $quota,
+                'message' => 'AeroAPI pendiente de la actualización MySQL 015.',
+            ];
+        }
+        if (!empty($quota['exhausted'])) {
+            return [
+                'ok' => true,
+                'configured' => true,
+                'quota' => $quota,
+                'message' => (string)$quota['message'],
+            ];
+        }
+        try {
+            $result = $service->captureOne($flightId);
+            $snap = is_array($result['snapshot'] ?? null) ? $result['snapshot'] : null;
+            $bits = [];
+            if (is_array($snap)) {
+                if (!empty($snap['status_text'])) $bits[] = (string)$snap['status_text'];
+                if (isset($snap['delay_minutes']) && $snap['delay_minutes'] !== null) {
+                    $delay = (int)$snap['delay_minutes'];
+                    $bits[] = ($delay > 0 ? '+' : '') . $delay . ' min';
+                }
+                if (!empty($snap['eta'])) $bits[] = 'ETA ' . substr((string)$snap['eta'], 11, 5);
+                if (!empty($snap['belt'])) $bits[] = 'cinta prop. ' . $snap['belt'];
+            }
+            return [
+                'ok' => true,
+                'configured' => true,
+                'saved' => (int)($result['saved'] ?? 0),
+                'snapshot' => $snap,
+                'aena_forced' => !empty($result['aena_forced']),
+                'quota' => $result['quota'] ?? $service->quota()->status(),
+                'message' => $bits !== []
+                    ? ('AeroAPI: ' . implode(' · ', $bits) . '.')
+                    : 'AeroAPI consultada sin cambios útiles.',
+            ];
+        } catch (Throwable $error) {
+            return [
+                'ok' => false,
+                'configured' => true,
+                'quota' => $service->quota()->status(),
+                'message' => 'AeroAPI no respondió: ' . substr($error->getMessage(), 0, 180),
+            ];
+        }
+    }
+
+    /** @return array<string,mixed> */
+    private function refreshFlightStats(int $flightId): array
+    {
+        try {
+            $result = (new FlightStatsIngestService($this->pdo))->captureOne($flightId);
+            return [
+                'ok' => true,
+                'saved' => (int)($result['saved'] ?? 0),
+                'snapshot' => $result['snapshot'] ?? null,
+                'message' => !empty($result['snapshot'])
+                    ? 'FlightStats actualizado en el foco.'
+                    : 'FlightStats consultado sin datos nuevos.',
+            ];
+        } catch (Throwable $error) {
+            return [
+                'ok' => false,
+                'message' => 'FlightStats no respondió: ' . substr($error->getMessage(), 0, 120),
+            ];
+        }
     }
 
     /** @param array<string,mixed> $flight @return array<string,mixed> */

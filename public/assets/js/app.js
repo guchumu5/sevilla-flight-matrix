@@ -1138,6 +1138,7 @@
   function prettyWatchSource(value) {
     const key = String(value || '').toLowerCase();
     if (key === 'flightstats') return 'FlightStats';
+    if (key === 'aeroapi') return 'FlightAware AeroAPI';
     if (key === 'airlabs') return 'AirLabs';
     if (key === 'opensky') return 'OpenSky';
     if (key === 'aena') return 'Aena';
@@ -3536,6 +3537,39 @@
     </section>`;
   }
 
+  function aeroApiSnapshotMarkup(snapshot, quota) {
+    if (!snapshot && !quota) return '';
+    if (!snapshot) {
+      const msg = quota?.exhausted
+        ? (quota.message || 'Cuota AeroAPI agotada este mes.')
+        : (quota?.message || 'AeroAPI sin lectura todavía.');
+      return `<section class="telemetry-card aeroapi-snapshot mb-4">
+        <header><div><strong>FlightAware AeroAPI</strong><span class="badge text-bg-secondary">secundario</span></div></header>
+        <p class="mb-0 text-secondary">${esc(msg)}</p>
+      </section>`;
+    }
+    const delay = Number(snapshot.delay_minutes);
+    const delayLabel = Number.isFinite(delay) ? `${delay > 0 ? '+' : ''}${delay} min` : '—';
+    const quotaLine = quota
+      ? `Cuota ${quota.used ?? '—'}/${quota.limit ?? 2300} result sets · quedan ${quota.remaining ?? '—'} (${quota.month_key || 'mes'}, Europe/Madrid).`
+      : 'API de pago; no sustituye cinta ni sala de Aena.';
+    return `<section class="telemetry-card aeroapi-snapshot mb-4">
+      <header><div><strong>FlightAware AeroAPI</strong><span class="badge text-bg-success">API</span></div><time>${dateTime(snapshot.observed_at)}</time></header>
+      <p>${esc(snapshot.status_text || 'Sin estado')}</p>
+      <div class="telemetry-values">
+        <div><small>Retraso</small><strong>${esc(delayLabel)}</strong></div>
+        <div><small>ETA</small><strong>${time(snapshot.eta)}</strong></div>
+        <div><small>Salida real</small><strong>${time(snapshot.actual_departure)}</strong></div>
+        <div><small>Llegada real</small><strong>${time(snapshot.actual_arrival)}</strong></div>
+        <div><small>Matrícula</small><strong>${esc(snapshot.registration || '—')}</strong></div>
+        <div><small>Puerta / cinta prop.</small><strong>${esc([snapshot.gate, snapshot.belt].filter(Boolean).join(' · ') || '—')}</strong></div>
+        <div><small>Ident</small><strong>${esc(snapshot.ident_icao || snapshot.ident_iata || '—')}</strong></div>
+        <div><small>Fase</small><strong>${esc(snapshot.phase || '—')}</strong></div>
+      </div>
+      <small class="telemetry-note">${esc(quotaLine)} Si la cinta propuesta diverge de Aena, se fuerza Infovuelos; la oficial sigue siendo Aena.</small>
+    </section>`;
+  }
+
   function stopFlightAwarePolling() {
     if (state.flightAwarePollTimer) window.clearTimeout(state.flightAwarePollTimer);
     state.flightAwarePollTimer = null;
@@ -3910,9 +3944,11 @@
           <div class="meta">ETA ${time(item.eta)}${item.baggage_state?` · Equipaje: ${esc(item.baggage_state)}`:''}</div>
         </article>`;
       }).join('') : '<p class="text-secondary">Todavía no hay observaciones.</p>';
-      const watchSupport = `<p class="watch-explanation mb-3">Avisos: itinerario en la última hora cada 10 min y en los últimos 30 min cada 5. Si Aena, AirLabs, FlightStats u OpenSky ve un cambio que otra fuente aún no tiene, aviso al momento y dice quién lo vio. Con la app abierta iOS no enseña globo.</p>
+      const watchSupport = `<p class="watch-explanation mb-3">Avisos: itinerario en la última hora cada 10 min y en los últimos 30 min cada 5. Si Aena, AeroAPI, AirLabs, FlightStats u OpenSky ve un cambio que otra fuente aún no tiene, aviso al momento y dice quién lo vio. Con la app abierta iOS no enseña globo.</p>
         <div class="flightaware-detail mb-4">${flightAwareLink(flight)}<small>Abre el mapa, tipo de avión, velocidad, altitud, distancia y fotografías cuando FlightAware los publique.</small><small data-flightaware-request-status class="d-block mt-2 text-secondary">La lectura pública se solicita al abrir la ficha o al buscar matrícula y telemetría.</small></div>`;
       renderDetailQuickBar(flight);
+      const aeroSnap = payload.aeroapi || flight.aeroapi || null;
+      const aeroQuota = payload.aeroapi_quota || null;
       els.detailBody.innerHTML = `<div class="tracked-focus-layout detail-focus-layout">
         <aside class="tracked-focus-summary">
           <div data-focus-hero>${focusHeroMarkup(flight, state.focusStatus, false, true)}</div>
@@ -3922,6 +3958,7 @@
         <div class="tracked-focus-belts" data-focus-window>${focusWindowMarkup(flight)}</div>
       </div>`
         + summary + watchSupport + beltIntelligence(flight)
+        + `<div data-aeroapi-snapshot>${aeroApiSnapshotMarkup(aeroSnap, aeroQuota)}</div>`
         + `<div data-flightaware-snapshot>${flightAwareSnapshotMarkup(payload.flightaware)}</div>`
         + `<div data-flightstats-snapshot>${flightStatsSnapshotMarkup(payload.flightstats || flight.flightstats)}</div>`
         + `<h3 class="h6 mb-3">Cronología</h3><div class="timeline">${timeline}</div>`;

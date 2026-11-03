@@ -9,6 +9,7 @@ use SevillaMatrix\BeltAlarm;
 use SevillaMatrix\Env;
 use SevillaMatrix\FlightRepository;
 use SevillaMatrix\OperationalStatus;
+use SevillaMatrix\Sync\AeroApiIngestService;
 use SevillaMatrix\Sync\FlightFeederService;
 use SevillaMatrix\Sync\FlightStatsIngestService;
 
@@ -180,6 +181,7 @@ final class WebPushService
 
         $queued = $this->requeueFlightAware($flightId);
         $statsQueued = $this->requeueFlightStats($flightId);
+        $aeroQueued = $this->requeueAeroApi($flightId);
         $aena = [];
         try {
             $aena = (new \SevillaMatrix\Operations\WebOperationsService($this->pdo))
@@ -192,6 +194,12 @@ final class WebPushService
             $snapshot = (new FlightStatsIngestService($this->pdo))->captureOne($flightId)['snapshot'] ?? null;
         } catch (\Throwable) {
             // La comprobación sigue con Aena y, si existe, la última lectura FlightStats.
+        }
+        $aeroSnapshot = null;
+        try {
+            $aeroSnapshot = (new AeroApiIngestService($this->pdo))->captureOne($flightId)['snapshot'] ?? null;
+        } catch (\Throwable) {
+            // Sin clave o sin cuota AeroAPI no bloquea la comprobación.
         }
         FlightRepository::forgetSnapshotCaches();
         $notice = $this->forceCheckNotice($flightId);
@@ -241,8 +249,11 @@ final class WebPushService
             'sent' => $sent,
             'flightaware_queued' => $queued,
             'flightstats_queued' => $statsQueued,
+            'aeroapi_queued' => $aeroQueued,
             'flightstats_captured' => is_array($snapshot),
             'flightstats' => $snapshot,
+            'aeroapi_captured' => is_array($aeroSnapshot),
+            'aeroapi' => $aeroSnapshot,
             'aena' => $aena,
             'aena_requested_at' => $aena['requested_at'] ?? null,
             'baseline_aena_unix' => $aena['baseline_aena_unix'] ?? null,
@@ -898,6 +909,15 @@ final class WebPushService
     {
         try {
             return (new FlightStatsIngestService($this->pdo))->requeue($flightId);
+        } catch (\Throwable) {
+            return false;
+        }
+    }
+
+    private function requeueAeroApi(int $flightId): bool
+    {
+        try {
+            return (new AeroApiIngestService($this->pdo))->requeue($flightId);
         } catch (\Throwable) {
             return false;
         }

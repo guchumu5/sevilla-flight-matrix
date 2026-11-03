@@ -6,6 +6,7 @@ use SevillaMatrix\Database;
 use SevillaMatrix\FlightRepository;
 use SevillaMatrix\Operations\FlightFocusService;
 use SevillaMatrix\Response;
+use SevillaMatrix\Sync\AeroApiIngestService;
 
 try {
     $flightId = filter_input(INPUT_GET, 'flight_id', FILTER_VALIDATE_INT);
@@ -25,10 +26,17 @@ try {
         $request = $requestStmt->fetch() ?: null;
     } catch (Throwable) {
     }
+    $aeroQuota = null;
+    try {
+        $aeroQuota = (new AeroApiIngestService($pdo))->quota()->status();
+    } catch (Throwable) {
+    }
     Response::json([
         'history' => $repository->history((int)$flightId),
         'flightaware' => $repository->flightAwareSnapshot((int)$flightId),
         'flightstats' => $repository->flightStatsSnapshot((int)$flightId),
+        'aeroapi' => $repository->aeroApiSnapshot((int)$flightId),
+        'aeroapi_quota' => $aeroQuota,
         'aircraft' => $aircraft->fetch() ?: null,
         'flightaware_request' => $request,
         'focus' => (new FlightFocusService($pdo))->status((int)$flightId),

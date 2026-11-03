@@ -24,6 +24,7 @@ final class FlightRepository
             $day->modify('+1 day')->format('Y-m-d')
         );
         $this->attachFlightStatsSnapshots($rows);
+        $this->attachAeroApiSnapshots($rows);
         $this->attachFeeders($rows);
         $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
         $rows = array_values(array_filter(
@@ -95,6 +96,7 @@ final class FlightRepository
             $from->modify('+' . ($days + 1) . ' day')->format('Y-m-d')
         );
         $this->attachFlightStatsSnapshots($rows);
+        $this->attachAeroApiSnapshots($rows);
         $this->attachFeeders($rows);
         $rows = (new MatrixEngine())->decorate($rows, $this->arrivalDeviationProfile());
         $inRange = array_flip($dates);
@@ -726,6 +728,7 @@ SQL;
         $to = (new \DateTimeImmutable($fromDate))->modify('+' . ($days + 1) . ' day')->format('Y-m-d');
         $rows = $this->boardRows($from, $to);
         $this->attachFlightStatsSnapshots($rows);
+        $this->attachAeroApiSnapshots($rows);
         $this->attachFeeders($rows);
         $rows = (new MatrixEngine())->decorate(
             $rows,
@@ -982,6 +985,55 @@ SQL;
             if (!FlightStatsParser::isPlaceholder($row, $scheduled)) return $row;
         }
         return is_array($chosen) ? $chosen : null;
+    }
+
+    /** @param array<int,array<string,mixed>> $rows */
+    private function attachAeroApiSnapshots(array &$rows): void
+    {
+        foreach ($rows as &$row) $row['aeroapi'] = null;
+        unset($row);
+        if (!$this->tableExists('aeroapi_snapshots')) return;
+        $ids = array_map('intval', array_column($rows, 'id'));
+        if ($ids === []) return;
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $stmt = $this->pdo->prepare(
+            "SELECT s.id,s.flight_id,s.observed_at,s.public_url,s.fa_flight_id,s.ident_iata,s.ident_icao,s.status_text,
+                    s.delay_minutes,s.eta,s.actual_departure,s.actual_arrival,s.gate,s.belt,s.registration,
+                    s.aircraft_type,s.phase,s.progress_percent
+             FROM aeroapi_snapshots s
+             WHERE s.flight_id IN ($placeholders)
+             ORDER BY s.flight_id, s.observed_at DESC, s.id DESC"
+        );
+        $stmt->execute($ids);
+        $indexed = [];
+        foreach ($stmt->fetchAll() as $snapshot) {
+            $id = (int)$snapshot['flight_id'];
+            if (isset($indexed[$id])) continue;
+            $indexed[$id] = $snapshot;
+        }
+        foreach ($rows as &$row) {
+            $row['aeroapi'] = $indexed[(int)$row['id']] ?? null;
+            if (empty($row['aircraft_registration']) && !empty($row['aeroapi']['registration'])) {
+                $row['aircraft_registration'] = $row['aeroapi']['registration'];
+            }
+            if (empty($row['aircraft_type']) && !empty($row['aeroapi']['aircraft_type'])) {
+                $row['aircraft_type'] = $row['aeroapi']['aircraft_type'];
+            }
+        }
+        unset($row);
+    }
+
+    public function aeroApiSnapshot(int $flightId): ?array
+    {
+        if (!$this->tableExists('aeroapi_snapshots')) return null;
+        $stmt = $this->pdo->prepare(
+            'SELECT id,flight_id,observed_at,public_url,fa_flight_id,ident_iata,ident_icao,status_text,delay_minutes,
+                    eta,actual_departure,actual_arrival,gate,belt,registration,aircraft_type,phase,progress_percent
+             FROM aeroapi_snapshots WHERE flight_id=? ORDER BY observed_at DESC,id DESC LIMIT 1'
+        );
+        $stmt->execute([$flightId]);
+        $row = $stmt->fetch();
+        return is_array($row) ? $row : null;
     }
 
     public function history(int $flightId): array
