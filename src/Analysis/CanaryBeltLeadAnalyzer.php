@@ -9,6 +9,9 @@ use PDO;
 
 final class CanaryBeltLeadAnalyzer
 {
+    /** Todas las islas Canarias con llegada a SVQ. */
+    public const ISLAND_IATA = ['LPA', 'TFN', 'TFS', 'ACE', 'FUE'];
+
     public function __construct(private readonly PDO $pdo)
     {
         $this->pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -31,15 +34,16 @@ final class CanaryBeltLeadAnalyzer
         };
         $isRed = static fn(?string $b): bool => $b !== null && in_array($b, ['7', '8'], true);
 
-        $stmt = $this->pdo->prepare(
-            "SELECT f.id, f.physical_flight, f.origin_iata, f.origin_name, f.flight_date,
-                    f.scheduled_arrival, f.scheduled_departure, f.is_canary
-             FROM flights f
-             WHERE f.is_canary = 1
-               AND f.flight_date BETWEEN :from_day AND :to_day
-             ORDER BY f.scheduled_arrival, f.id"
-        );
-        $stmt->execute(['from_day' => $from, 'to_day' => $to]);
+        // is_canary O origen de cualquier isla (por si algún Tenerife quedó mal etiquetado).
+        $placeholders = implode(',', array_fill(0, count(self::ISLAND_IATA), '?'));
+        $sql = "SELECT f.id, f.physical_flight, f.origin_iata, f.origin_name, f.flight_date,
+                       f.scheduled_arrival, f.scheduled_departure, f.is_canary
+                FROM flights f
+                WHERE f.flight_date BETWEEN ? AND ?
+                  AND (f.is_canary = 1 OR f.origin_iata IN ({$placeholders}))
+                ORDER BY f.scheduled_arrival, f.id";
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute(array_merge([$from, $to], self::ISLAND_IATA));
         $flights = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         $obsStmt = $this->pdo->prepare(
@@ -50,20 +54,37 @@ final class CanaryBeltLeadAnalyzer
              ORDER BY observed_at ASC, id ASC"
         );
 
+        $byIsland = [];
+        foreach (self::ISLAND_IATA as $iata) {
+            $byIsland[$iata] = [
+                'flights' => 0,
+                'ended_red' => 0,
+                'secondary_led_red' => 0,
+                'secondary_led_any' => 0,
+            ];
+        }
+
         $summary = [
             'from' => $from,
             'to' => $to,
             'timezone' => 'Europe/Madrid',
+            'islands' => self::ISLAND_IATA,
             'canary_flights' => count($flights),
             'with_aena_belt_before_dep' => 0,
             'aena_later_changed' => 0,
             'aena_ended_red' => 0,
             'secondary_led_final_belt' => 0,
             'secondary_led_red_change' => 0,
+            'by_island' => $byIsland,
             'cases' => [],
         ];
 
         foreach ($flights as $flight) {
+            $originKey = strtoupper((string)($flight['origin_iata'] ?? ''));
+            if (isset($byIsland[$originKey])) {
+                $byIsland[$originKey]['flights']++;
+            }
+
             $obsStmt->execute(['id' => (int)$flight['id']]);
             $rows = $obsStmt->fetchAll(PDO::FETCH_ASSOC);
             if ($rows === []) {
@@ -186,6 +207,17 @@ final class CanaryBeltLeadAnalyzer
             if ($anyRedLead) {
                 $summary['secondary_led_red_change']++;
             }
+            if (isset($byIsland[$originKey])) {
+                if ($endedRed) {
+                    $byIsland[$originKey]['ended_red']++;
+                }
+                if ($anyRedLead) {
+                    $byIsland[$originKey]['secondary_led_red']++;
+                }
+                if ($anyLead) {
+                    $byIsland[$originKey]['secondary_led_any']++;
+                }
+            }
 
             if (!$endedRed && !$anyLead) {
                 continue;
@@ -194,6 +226,7 @@ final class CanaryBeltLeadAnalyzer
             $summary['cases'][] = [
                 'flight_id' => (int)$flight['id'],
                 'code' => $flight['physical_flight'],
+                'origin_iata' => $originKey,
                 'origin' => $flight['origin_iata'] . ' · ' . $flight['origin_name'],
                 'date' => substr((string)$flight['flight_date'], 0, 10),
                 'scheduled_arrival' => $flight['scheduled_arrival'],
@@ -227,12 +260,15 @@ final class CanaryBeltLeadAnalyzer
             return strcmp((string)$a['scheduled_arrival'], (string)$b['scheduled_arrival']);
         });
 
+        $summary['by_island'] = $byIsland;
+
         $lines = [];
-        $lines[] = '# Canarias · adelanto de cinta secundaria vs Aena';
+        $lines[] = '# Canarias (todas las islas) · adelanto de cinta secundaria vs Aena';
+        $lines[] = 'Islas: LPA · TFN · TFS · ACE · FUE';
         $lines[] = "Ventana: {$from} → {$to} (Europe/Madrid)";
         $lines[] = '';
         $lines[] = sprintf(
-            'Vuelos Canarias: %d · Con cinta Aena antes de despegue: %d · Aena cambió después: %d · Acabaron en 7/8: %d',
+            'Vuelos islas: %d · Con cinta Aena antes de despegue: %d · Aena cambió después: %d · Acabaron en 7/8: %d',
             $summary['canary_flights'],
             $summary['with_aena_belt_before_dep'],
             $summary['aena_later_changed'],
@@ -243,6 +279,18 @@ final class CanaryBeltLeadAnalyzer
             $summary['secondary_led_final_belt'],
             $summary['secondary_led_red_change']
         );
+        $lines[] = '';
+        $lines[] = 'Por isla (vuelos / finales roja / secundaria adelantó roja / secundaria adelantó algo):';
+        foreach ($byIsland as $iata => $stats) {
+            $lines[] = sprintf(
+                '  · %s: %d vuelos · roja %d · adelanto roja %d · adelanto cualquier %d',
+                $iata,
+                $stats['flights'],
+                $stats['ended_red'],
+                $stats['secondary_led_red'],
+                $stats['secondary_led_any']
+            );
+        }
         $lines[] = '';
 
         foreach ($summary['cases'] as $case) {
