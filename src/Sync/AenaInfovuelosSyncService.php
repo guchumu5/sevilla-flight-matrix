@@ -20,20 +20,57 @@ final class AenaInfovuelosSyncService
     {
     }
 
-    /** @return array<string,mixed> */
+    /** Cinta/sala en directo (~hoy+2 vía dosDias). */
     public function syncLive(string $by = 'cron'): array
     {
+        return $this->syncHorizon('near', $by, 'aena-json-php-live');
+    }
+
+    /** Programación Infovuelos completa (~14 días). Necesario para ver más allá del viernes. */
+    public function syncSchedule(string $by = 'cron'): array
+    {
+        return $this->syncHorizon('schedule', $by, 'aena-json-php-week');
+    }
+
+    /**
+     * @param 'near'|'schedule' $horizon
+     * @return array<string,mixed>
+     */
+    private function syncHorizon(string $horizon, string $by, string $collector): array
+    {
         $started = microtime(true);
+        $horizon = $horizon === 'schedule' ? 'schedule' : 'near';
         $client = new AenaInfovuelosClient();
-        $rows = $client->fetchArrivals('SVQ');
+        $rows = $client->fetchArrivals('SVQ', $horizon);
         $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Madrid'));
         $observedAt = $now->format('Y-m-d H:i:s');
         $windowFrom = $now->modify('-2 hours')->format('Y-m-d H:i:s');
-        $windowTo = $now->modify('+2 days')->setTime(23, 59, 59)->format('Y-m-d H:i:s');
 
         $flights = $this->groupPhysicalFlights($rows, $windowFrom, $observedAt);
         if ($flights === []) {
             throw new RuntimeException('Infovuelos JSON no produjo vuelos físicos en la ventana viva.');
+        }
+
+        $maxDay = $now->format('Y-m-d');
+        foreach ($flights as $flight) {
+            $day = substr((string)($flight['flight_date'] ?? ''), 0, 10);
+            if ($day !== '' && $day > $maxDay) {
+                $maxDay = $day;
+            }
+        }
+        // near: no alargar artificialmente; schedule: hasta el último día del JSON (máx. 14).
+        if ($horizon === 'near') {
+            $windowTo = $now->modify('+2 days')->setTime(23, 59, 59)->format('Y-m-d H:i:s');
+        } else {
+            $cap = $now->modify('+14 days')->format('Y-m-d');
+            if ($maxDay > $cap) {
+                $maxDay = $cap;
+            }
+            $windowTo = $maxDay . ' 23:59:59';
+            $flights = array_values(array_filter(
+                $flights,
+                static fn(array $f): bool => substr((string)($f['flight_date'] ?? ''), 0, 10) <= $maxDay
+            ));
         }
 
         $insert = $this->pdo->prepare(
@@ -53,9 +90,11 @@ final class AenaInfovuelosSyncService
                 'withdraw_after' => 3,
                 'metadata' => [
                     'transport' => 'infovuelos_json',
-                    'collector' => 'aena-json-php-v1',
+                    'collector' => $collector,
+                    'horizon' => $horizon,
                     'requested_by' => $by,
                     'raw_rows' => count($rows),
+                    'window_to' => $windowTo,
                 ],
             ]);
 
@@ -77,15 +116,19 @@ final class AenaInfovuelosSyncService
                 'useful' => true,
                 'action' => 'aena',
                 'transport' => 'infovuelos_json',
+                'horizon' => $horizon,
                 'fetch_run_id' => $fetchRunId,
                 'raw_rows' => count($rows),
                 'physical_flights' => count($flights),
+                'window_to' => $windowTo,
                 'elapsed_ms' => (int)round((microtime(true) - $started) * 1000),
                 'result' => $result,
                 'push' => $push,
                 'message' => sprintf(
-                    'Aena reconfirmado por JSON Infovuelos: %d vuelos · cinta/sala releídas.',
-                    count($flights)
+                    'Aena Infovuelos (%s): %d vuelos · ventana hasta %s.',
+                    $horizon === 'schedule' ? 'programación ~14 días' : 'directo ~2 días',
+                    count($flights),
+                    $windowTo
                 ),
             ];
         } catch (Throwable $error) {

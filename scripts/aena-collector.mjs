@@ -5,12 +5,16 @@ import {
 } from './aena-status.mjs';
 import { choosePhysicalCode } from './aena-flight-identity.mjs';
 
-const AENA_JSON_URL = 'https://www.aena.es/sites/Satellite?pagename=AENA_ConsultarVuelos&airport=SVQ&flightType=L&dosDias=si';
+// live/near: dosDias=si (~hoy+2, cinta). week/schedule: dosDias=no (~14 días de programación).
+const MODE = process.env.AENA_MODE === 'week' ? 'week' : 'live';
+const AENA_JSON_URL = MODE === 'week'
+  ? 'https://www.aena.es/sites/Satellite?pagename=AENA_ConsultarVuelos&airport=SVQ&flightType=L&dosDias=no'
+  : 'https://www.aena.es/sites/Satellite?pagename=AENA_ConsultarVuelos&airport=SVQ&flightType=L&dosDias=si';
 const canonicalAppUrl = value => String(value || '').replace(/^https:\/\/ojito\.top\//i, 'https://www.ojito.top/');
 const INGEST_URL = canonicalAppUrl(process.env.MATRIX_INGEST_URL || 'https://www.ojito.top/public/api/aena-board.php');
 const INGEST_TOKEN = process.env.MATRIX_INGEST_TOKEN || '';
 const TIME_ZONE = 'Europe/Madrid';
-const MODE = process.env.AENA_MODE === 'week' ? 'week' : 'live';
+const SCHEDULE_DAYS = 14;
 
 if (INGEST_TOKEN.length < 24) {
   throw new Error('Falta MATRIX_INGEST_TOKEN o tiene menos de 24 caracteres.');
@@ -224,28 +228,34 @@ const nowDate = new Date();
 const fromDate = new Date(nowDate.getTime() - 2 * 60 * 60 * 1000);
 const fromParts = madridParts(fromDate);
 const windowFrom = `${fromParts.year}-${fromParts.month}-${fromParts.day} ${fromParts.hour}:${fromParts.minute}:00`;
-const days = Array.from({ length: MODE === 'week' ? 2 : 1 }, (_, index) => localDay(index));
-const windowTo = `${days[days.length - 1]} 23:59:59`;
+const dayCount = MODE === 'week' ? SCHEDULE_DAYS : 2;
+const days = Array.from({ length: dayCount }, (_, index) => localDay(index));
 const requestedDays = new Set(days);
 const mapped = groupPhysicalFlights(rows, windowFrom);
 const flights = mapped.filter(flight => requestedDays.has(flight.flight_date));
 if (!flights.length) {
   throw new Error('La captura Aena JSON no produjo vuelos físicos en la ventana viva.');
 }
+const lastDay = flights.reduce((max, flight) => (
+  flight.flight_date > max ? flight.flight_date : max
+), days[0]);
+const windowTo = `${lastDay} 23:59:59`;
 
 const response = await postCapture({
   collector: `aena-json-v2-${MODE}`,
   observed_at: now,
   window_from: windowFrom,
   window_to: windowTo,
-  aena_updated_label: 'infovuelos-json',
+  aena_updated_label: MODE === 'week' ? 'infovuelos-json-schedule' : 'infovuelos-json-near',
   flights,
 });
 console.log(JSON.stringify({
   ok: true,
   mode: MODE,
   transport: 'infovuelos_json',
-  days,
+  horizon: MODE === 'week' ? 'schedule' : 'near',
+  days: [...requestedDays].sort(),
+  window_to: windowTo,
   raw_rows: rows.length,
   physical_flights: flights.length,
   response,

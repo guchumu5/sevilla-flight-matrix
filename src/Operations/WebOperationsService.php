@@ -432,16 +432,33 @@ final class WebOperationsService
 
         $before = $this->aenaStatus();
 
-        // Preferir JSON Infovuelos en el propio servidor: reconfirma cinta al momento.
+        // JSON Infovuelos en Plesk: directo (cinta) + programación (~14 días).
+        // Sin el schedule la matriz se corta en el horizonte dosDias (~viernes).
         try {
-            $sync = (new \SevillaMatrix\Sync\AenaInfovuelosSyncService($this->pdo))->syncLive($by);
-            return array_merge($sync, [
+            $service = new \SevillaMatrix\Sync\AenaInfovuelosSyncService($this->pdo);
+            $live = $service->syncLive($by);
+            $schedule = null;
+            $scheduleError = null;
+            try {
+                $schedule = $service->syncSchedule($by . '+schedule');
+            } catch (Throwable $scheduleThrowable) {
+                $scheduleError = substr($scheduleThrowable->getMessage(), 0, 300);
+            }
+            return array_merge($live, [
                 'dispatched' => false,
                 'requested_at' => $requestedAt,
                 'requested_at_iso' => date('c', $requestedAt),
                 'baseline_aena_unix' => $before['last_aena_unix'] ?? null,
                 'local_json' => true,
+                'schedule' => $schedule,
+                'schedule_error' => $scheduleError,
                 'status' => $this->aenaStatus(),
+                'message' => trim(
+                    (string)($live['message'] ?? 'Aena directo OK')
+                    . ($schedule
+                        ? ' · ' . (string)($schedule['message'] ?? 'programación OK')
+                        : ($scheduleError ? ' · programación falló: ' . $scheduleError : ''))
+                ),
             ]);
         } catch (Throwable $error) {
             $dispatch = $this->dispatchGithubWorkflow('aena-live.yml');

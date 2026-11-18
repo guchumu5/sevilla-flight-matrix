@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Leer Infovuelos JSON (ventana dos días) y conciliar
+      - name: Leer Infovuelos JSON (programación ~14 días) y conciliar
         shell: bash
         run: |
           for attempt in 1 2; do
@@ -42,7 +42,7 @@ jobs:
               exit 0
             fi
             if [ "$attempt" -eq 2 ]; then
-              echo "::error::La programación Aena JSON no pudo leerse tras dos intentos."
+              echo "::error::La programación Aena JSON (~14 días) no pudo leerse tras dos intentos."
               exit 1
             fi
             echo "::warning::Infovuelos JSON inestable; nuevo intento en 20 segundos."

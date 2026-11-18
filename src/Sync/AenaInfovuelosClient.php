@@ -33,18 +33,24 @@ final class AenaInfovuelosClient
         'DES' => 'Desviado',
     ];
 
-    /** @return list<array<string,mixed>> */
-    public function fetchArrivals(string $airport = 'SVQ'): array
+    /**
+     * @param 'near'|'schedule' $horizon
+     *   near = dosDias=si (~hoy+2, cinta en directo)
+     *   schedule = sin dosDias (~14 días de programación Infovuelos)
+     * @return list<array<string,mixed>>
+     */
+    public function fetchArrivals(string $airport = 'SVQ', string $horizon = 'near'): array
     {
         $airport = strtoupper(trim($airport));
         if (!preg_match('/^[A-Z]{3}$/', $airport)) {
             throw new RuntimeException('Aeropuerto Aena no válido.');
         }
+        $horizon = $horizon === 'schedule' ? 'schedule' : 'near';
         $url = self::ENDPOINT
             . '?pagename=AENA_ConsultarVuelos'
             . '&airport=' . rawurlencode($airport)
             . '&flightType=L'
-            . '&dosDias=si';
+            . ($horizon === 'near' ? '&dosDias=si' : '&dosDias=no');
         $curl = curl_init($url);
         curl_setopt_array($curl, [
             CURLOPT_RETURNTRANSFER => true,
