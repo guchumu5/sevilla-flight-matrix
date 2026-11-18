@@ -131,7 +131,7 @@ function groupPhysicalFlights(rows, windowFrom) {
     const status = statusLabelFromCode(statusCode) || statusCode || null;
     const hall = clean(row.salaPrimera);
     const belt = clean(row.cintaPrimera);
-    const signature = [day, scheduledClock, estimatedClock, origin, hall || '', belt || '', statusCode].join('|');
+    const signature = [day, scheduledClock, origin].join('|');
     if (!groups.has(signature)) {
       groups.set(signature, {
         day,
@@ -145,6 +145,15 @@ function groupPhysicalFlights(rows, windowFrom) {
         status,
         codes: [],
       });
+    } else {
+      const group = groups.get(signature);
+      if (belt) group.belt = belt;
+      if (hall) group.hall = hall.toUpperCase();
+      if (statusCode && (!group.statusCode || group.statusCode === 'SCH')) {
+        group.statusCode = statusCode;
+        group.status = status;
+      }
+      if (effectiveArrival > group.effectiveArrival) group.effectiveArrival = effectiveArrival;
     }
     const group = groups.get(signature);
     for (const code of codes) {
@@ -198,7 +207,13 @@ function groupPhysicalFlights(rows, windowFrom) {
     flight.raw_data.source_key_disambiguated_by = 'scheduled_time';
   }
 
-  return flights.sort((a, b) => a.scheduled_arrival.localeCompare(b.scheduled_arrival));
+  const unique = new Map();
+  for (const flight of flights) {
+    const prev = unique.get(flight.source_key);
+    if (!prev || (!prev.belt && flight.belt)) unique.set(flight.source_key, flight);
+  }
+
+  return [...unique.values()].sort((a, b) => a.scheduled_arrival.localeCompare(b.scheduled_arrival));
 }
 
 async function postCapture(payload) {

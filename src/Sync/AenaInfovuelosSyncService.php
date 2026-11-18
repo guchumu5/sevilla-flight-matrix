@@ -170,10 +170,9 @@ final class AenaInfovuelosSyncService
             $status = AenaInfovuelosClient::statusLabel($statusCode);
             $hall = AenaInfovuelosClient::clean($row['salaPrimera'] ?? null);
             $belt = AenaInfovuelosClient::clean($row['cintaPrimera'] ?? null);
-            $signature = implode('|', [
-                $day, $scheduledClock, $estimatedClock, $origin,
-                strtoupper((string)$hall), (string)$belt, $statusCode,
-            ]);
+            // Misma operación = día + hora programada + origen. No separar por ETA/cinta/estado
+            // (si no, codeshares o refrescos del JSON generan claves duplicadas en el lote).
+            $signature = implode('|', [$day, $scheduledClock, $origin]);
             if (!isset($groups[$signature])) {
                 $groups[$signature] = [
                     'day' => $day,
@@ -188,6 +187,22 @@ final class AenaInfovuelosSyncService
                     'codes' => [],
                     'raw' => $row,
                 ];
+            } else {
+                $group = &$groups[$signature];
+                if ($belt !== null && $belt !== '') {
+                    $group['belt'] = $belt;
+                }
+                if ($hall !== null && $hall !== '') {
+                    $group['hall'] = strtoupper($hall);
+                }
+                if ($statusCode !== '' && ($group['status_code'] === '' || $group['status_code'] === 'SCH')) {
+                    $group['status_code'] = $statusCode;
+                    $group['status'] = $status;
+                }
+                if ($effectiveArrival > (string)$group['effective_arrival']) {
+                    $group['effective_arrival'] = $effectiveArrival;
+                }
+                unset($group);
             }
             foreach ($codes as $code) {
                 if (!in_array($code, $groups[$signature]['codes'], true)) {
@@ -239,18 +254,38 @@ final class AenaInfovuelosSyncService
             ];
         }
 
+        // Si el mismo físico aparece a horas distintas el mismo día, desambiguar.
         $keyCounts = [];
         foreach ($flights as $flight) {
             $key = $flight['source_key'];
             $keyCounts[$key] = ($keyCounts[$key] ?? 0) + 1;
         }
         foreach ($flights as &$flight) {
-            if (($keyCounts[$flight['source_key']] ?? 0) < 2) continue;
+            if (($keyCounts[$flight['source_key']] ?? 0) < 2) {
+                continue;
+            }
             $scheduledTime = substr((string)$flight['scheduled_arrival'], 11, 5);
             $flight['source_key'] .= '|' . str_replace(':', '', $scheduledTime);
             $flight['raw_data']['source_key_disambiguated_by'] = 'scheduled_time';
         }
         unset($flight);
+
+        // Red de seguridad: si aún hay colisión, nos quedamos con una fila.
+        $unique = [];
+        foreach ($flights as $flight) {
+            $key = (string)$flight['source_key'];
+            if (!isset($unique[$key])) {
+                $unique[$key] = $flight;
+                continue;
+            }
+            $prev = $unique[$key];
+            $prevBelt = trim((string)($prev['belt'] ?? ''));
+            $nextBelt = trim((string)($flight['belt'] ?? ''));
+            if ($prevBelt === '' && $nextBelt !== '') {
+                $unique[$key] = $flight;
+            }
+        }
+        $flights = array_values($unique);
 
         usort(
             $flights,
